@@ -20,6 +20,10 @@ _probe*.py
 _test_*.py
 _smoke_*.py
 
+# Editor backup files
+*.bak
+*.bak[0-9]
+
 # OS
 Thumbs.db
 .DS_Store
