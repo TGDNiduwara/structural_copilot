@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+venv/
+.venv/
+
+# Generated artifacts (Excel / Word / PPTX / diagrams / .rtd)
+generated/
+
+# Editors / logs
+.vscode/
+.idea/
+*.log
+
+# Temp probe/smoke scripts (deleted after each work package; smoke_test.py is committed)
+_probe*.py
+_test_*.py
+_smoke_*.py
+
+# OS
+Thumbs.db
+.DS_Store
