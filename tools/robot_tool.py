@@ -47,6 +47,30 @@ logger = logging.getLogger("structural_copilot.robot_tool")
 logger.setLevel(logging.INFO)
 
 
+def _robot_pids() -> set:
+    """Returns the set of live robot.exe PIDs via tasklist (no new deps).
+
+    Used for observability (sidebar PID readout + lifecycle logs) so the user
+    can tell whether Robot is being torn down/relaunched (PID changes) or just
+    cleared and rebuilt (same PID)."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq robot.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=20).stdout
+    except Exception:  # noqa: BLE001
+        return set()
+    pids = set()
+    for line in out.splitlines():
+        parts = [p.strip().strip('"') for p in line.split('","')]
+        if len(parts) >= 2 and parts[0].lower() == "robot.exe":
+            try:
+                pids.add(int(parts[1]))
+            except ValueError:
+                continue
+    return pids
+
+
 # --------------------------------------------------------------------------
 # Robot Object Model enumeration constants.
 # These mirror the public RobotOM type library enums. They are declared
@@ -228,6 +252,20 @@ class RobotBridge:
         self._bar_endpoints: Dict[int, Tuple[int, int]] = {}
         # [WP4] Bookkeeping for grillage panels (node grid + bar ids).
         self._panel_meta: Dict[int, Dict[str, Any]] = {}
+        # [OBS] PID of the robot.exe process this bridge is connected to
+        # (None when not connected). Captured at connect() for observability.
+        self.connected_pid: Optional[int] = None
+
+    # ------------------------------------------------------------------ #
+    # Observability helpers
+    # ------------------------------------------------------------------ #
+
+    @property
+    def pid(self) -> Optional[int]:
+        """PID of the connected robot.exe (or None)."""
+        if not self._connected:
+            return None
+        return self.connected_pid
 
     # ------------------------------------------------------------------ #
     # Connection lifecycle
@@ -308,6 +346,7 @@ class RobotBridge:
         if self._connected:
             return
 
+        pids_before = _robot_pids()
         attached = False
         if not new_instance:
             try:
@@ -379,13 +418,26 @@ class RobotBridge:
             ) from last_exc
 
         self._connected = True
-        logger.info("Connected to Robot Structural Analysis COM server.")
+        # [OBS] Determine which robot.exe PID this bridge is attached to.
+        new_pids = _robot_pids()
+        if attached:
+            # Attached to an existing instance: use the (single) running PID.
+            self.connected_pid = next(iter(new_pids), None)
+        else:
+            # Launched a fresh instance: the PID that appeared since we started.
+            fresh = new_pids - pids_before
+            self.connected_pid = next(iter(fresh), None)
+        logger.info(
+            "Connected to Robot Structural Analysis COM server "
+            "(pid=%s, reason=%s).",
+            self.connected_pid, "attached" if attached else "launched")
 
     @com_thread_safe
     def close(self, save_path: Optional[str] = None) -> None:
         """Optionally saves the project, then releases the COM server."""
         if not self._connected:
             return
+        pid_before = self.connected_pid
         try:
             if save_path and self.project is not None:
                 self.project.SaveAs(save_path)
@@ -398,7 +450,9 @@ class RobotBridge:
             self.project = None
             self.structure = None
             self._connected = False
-            logger.info("Robot COM server released.")
+            self.connected_pid = None
+            logger.info(
+                "Robot COM server released (was pid=%s).", pid_before)
 
     def _ensure_connected(self):
         """
@@ -2390,7 +2444,10 @@ class RobotBridge:
         self._node_coords.clear()
         self._bar_endpoints.clear()
         self._section_assignments.clear()
-        logger.info("Structure cleared (blank %s frame created).", project_type)
+        logger.info(
+                "clear_structure called (project_type=%s, pid=%s) - model reset "
+                "to blank %s frame.",
+                project_type, self.connected_pid, project_type)
 
     # --- [SPEC_AND_SUMMARY] ---
     # ------------------------------------------------------------------ #

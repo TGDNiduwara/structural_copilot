@@ -928,6 +928,10 @@ class ToolExecutor:
         self._optimization_runs: Dict[int, dict] = {}  # run_id -> thread info
         # [P7] Default SQLite DB for batch runs, shared by all bookend tools.
         self._batch_db_path = os.path.join(_PROJECT_ROOT, "batch", "runs.db")
+        # [OBS] Lifecycle event log (plain list - no Streamlit import here).
+        # app.py drains this into the sidebar Activity Log panel each turn so
+        # connect/close/clear_structure events are visible in the running app.
+        self.activity_log: List[str] = []
 
         self._robot_connected = False
         self._robot_visible = robot_visible
@@ -945,6 +949,19 @@ class ToolExecutor:
 
         self.generated_files: Dict[str, str] = {}   # logical name -> abs path
         self.diagram_paths: Dict[str, str] = {}      # 'sfd' / 'bmd' -> abs path
+
+    def _log_activity(self, entry: str) -> None:
+        """Appends a timestamped lifecycle event to the executor's activity log
+        (drained into the UI by app.py)."""
+        from datetime import datetime
+        ts = datetime.now().strftime("%H:%M:%S")
+        self.activity_log.append(f"[{ts}] {entry}")
+
+    def drain_activity(self) -> List[str]:
+        """Returns and clears the pending lifecycle events."""
+        out = list(self.activity_log)
+        self.activity_log = []
+        return out
 
     def get_tool_schemas(self) -> list:
         """
@@ -1019,10 +1036,15 @@ class ToolExecutor:
             if not self._robot_connected:
                 self.robot.connect(visible=self._robot_visible)
                 self._robot_connected = True
+                self._log_activity(
+                    f"🔌 Robot connected (PID {self.robot.pid}) - first connection")
             elif not self.robot.is_alive():  # [FIX H8] Health check
                 logger.warning("Robot connection lost; attempting reconnect...")
                 self.robot.connect(visible=self._robot_visible)
                 self._robot_connected = True
+                self._log_activity(
+                    f"🔌 Robot RECONNECTED (PID {self.robot.pid}) - health-check "
+                    "reconnect after connection loss")
         except ToolExecutionError:
             raise
         except Exception as exc:
@@ -1518,6 +1540,9 @@ class ToolExecutor:
     def _tool_clear_structure(self, project_type: str = "3D") -> dict:
         self._ensure_robot()  # [WP1 fix]
         self.robot.clear_structure(project_type)
+        self._log_activity(
+            f"🗑️ clear_structure called (project_type={project_type}, "
+            f"PID {self.robot.pid}) - LLM-requested model reset")
         return {"status": "ok", "project_type": project_type,
                 "message": f"Cleared; blank {project_type} model created."}
 

@@ -36,7 +36,7 @@ from agent.tool_registry import ToolExecutor, TOOL_SCHEMAS, ToolExecutionError, 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("structural_copilot.app")
 
-MAX_AGENT_STEPS = 12          # ceiling on tool-call round trips per user turn
+MAX_AGENT_STEPS = 60         # ceiling on tool-call round trips per user turn
 MAX_ERROR_RETRIES = 3         # autonomous error-reflection retries per failing tool call
 
 # [FIX H7] Maximum identical error signatures before breaking the loop
@@ -113,7 +113,16 @@ generate yourself. Do NOT force-fit a default template. Reserve the named \
 templates (create_truss etc.) for when the user explicitly asks for those \
 forms or the design exactly matches them.
 
-**Step 5 — Verify, solve, report.** After building, call \
+**NEVER re-clear an in-progress model.** Before calling clear_structure or \
+starting to build geometry, ALWAYS call get_structure_summary first. If it \
+shows nodes/bars/supports already matching what's being asked for, you are \
+CONTINUING an unfinished task (e.g. after "continue" or a step-limit \
+message) — proceed directly to the next incomplete step (loads, \
+combinations, solve, results). Only call clear_structure if the user \
+explicitly asks to start over, or if get_structure_summary confirms the \
+model is genuinely empty/wrong for this request.
+
+**Step 5 — Verify, solve, report.** After building (or when resuming), call \
 get_structure_summary to confirm counts, then solve, export, and narrate \
 key results (max moment, max shear, reactions, steel weight).
 
@@ -326,15 +335,30 @@ def run_agent_turn(
     temperature: float,
     base_url: Optional[str] = None,
     attachments=None,
+    live=None,
 ) -> str:
     """
     Drives the ReAct-style tool-calling loop for a single user turn.
     Returns the final assistant natural-language reply.
     `attachments` is the optional list of image attachments ({name, mime,
     bytes}) to send to the LLM as vision content.
+    `live` is an optional st.status-like object with a .write() method. Every
+    chunk of LLM reasoning text AND every lifecycle event (Robot connect /
+    close / clear_structure) is streamed to it in real time, so the user can
+    literally read "I'm about to do X" as it happens instead of only seeing
+    tool names after the fact.
     """
     executor: ToolExecutor = st.session_state.tool_executor
     messages = st.session_state.messages
+
+    def _log(msg: str) -> None:
+        st.session_state.activity_log.append(msg)
+        if live is not None:
+            live.write(msg)
+
+    def _drain_executor_activity() -> None:
+        for ev in executor.drain_activity():
+            _log(ev)
 
     final_text = ""
     empty_final_retries = 0
@@ -379,8 +403,21 @@ def run_agent_turn(
                     "continue."
                 )
             error_msg = f"LLM provider error: {exc}"
-            st.session_state.activity_log.append(f"❌ {error_msg}")
+            _log(f"❌ {error_msg}")
             return f"I couldn't reach the {provider} API: {exc}"
+
+        _drain_executor_activity()
+
+        # [OBS] Stream the model's reasoning text LIVE whenever it is non-empty,
+        # even when it accompanies tool_calls (not just on the final reply).
+        # This is the Step-3 design narrative: the user should read what the
+        # model says it is about to do BEFORE the tool calls run.
+        if response.tool_calls and (response.content or "").strip():
+            chunk = response.content.strip()
+            st.session_state.chat_display.append(
+                {"role": "assistant", "content": chunk})
+            if live is not None:
+                live.write(f"💭 {chunk}")
 
         if not response.tool_calls:
             content = (response.content or "").strip()
@@ -394,9 +431,7 @@ def run_agent_turn(
             if empty_final_retries < 2:
                 empty_final_retries += 1
                 messages = _compact_history(messages)
-                st.session_state.activity_log.append(
-                    "⚠️ LLM returned an empty final message; retrying once."
-                )
+                _log("⚠️ LLM returned an empty final message; retrying once.")
                 continue
             final_text = _summarize_activity()
             messages.append({"role": "assistant", "content": final_text})
@@ -447,12 +482,11 @@ def run_agent_turn(
         messages.append(assistant_tool_msg)
 
         for tool_call in tool_calls_to_execute:
-            st.session_state.activity_log.append(
-                f"🔧 Calling `{tool_call.name}` with args: {tool_call.arguments}"
-            )
+            _log(f"🔧 Calling `{tool_call.name}` with args: {tool_call.arguments}")
             result_str = _execute_with_reflection(
                 executor, tool_call.name, tool_call.arguments, messages
             )
+            _drain_executor_activity()
 
             # [FIX H7] Track error signatures
             if '"status": "error"' in result_str:
@@ -739,13 +773,30 @@ def render_sidebar() -> Dict[str, Any]:
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🖥️ Robot Session")
+    # [OBS] Drain any pending lifecycle events (connect/close/clear) into the
+    # Activity Log panel so they're visible without needing the terminal.
+    for ev in st.session_state.tool_executor.drain_activity():
+        st.session_state.activity_log.append(ev)
+    robot = st.session_state.tool_executor.robot
+    pid = robot.pid if robot._connected else None
+    if pid is not None:
+        st.sidebar.caption(
+            f"🟢 Robot.exe PID: **{pid}**\n\n_If this number changes between "
+            "turns without you clicking Reset, a NEW Robot process was "
+            "launched (close+relaunch). If it stays the same, the SAME "
+            "session is being cleared and rebuilt._")
+    else:
+        st.sidebar.caption("⚪ Robot not connected (PID will appear on first use).")
     robot_visible = st.sidebar.checkbox("Show Robot application window", value=True)
     # [FIX M5] Use public setter instead of directly accessing private attribute
     st.session_state.tool_executor.set_robot_visible(robot_visible)
 
     if st.sidebar.button("🔌 Reset Robot / Agent Session"):
         try:
+            old_pid = st.session_state.tool_executor.robot.pid
             st.session_state.tool_executor.robot.close()
+            st.session_state.activity_log.append(
+                f"🔌 Robot closed by user-triggered Reset (was PID {old_pid}).")
         except Exception:
             pass
         st.session_state.tool_executor = ToolExecutor(robot_visible=robot_visible)
@@ -896,14 +947,20 @@ def render_chat():
                                f"{len(a.get('text') or '')} chars of text extracted")
 
         with st.chat_message("assistant"):
-            with st.spinner("Working across Robot / Excel / Word / diagrams..."):
-                config = st.session_state.get("_config", {})
-                if not config.get("api_key"):
-                    reply = (
-                        "Please enter your API key for the selected provider in the "
-                        "sidebar before sending a request."
-                    )
-                else:
+            config = st.session_state.get("_config", {})
+            if not config.get("api_key"):
+                reply = (
+                    "Please enter your API key for the selected provider in the "
+                    "sidebar before sending a request."
+                )
+            else:
+                # [OBS] Live status: streams the LLM's reasoning text and every
+                # tool call / lifecycle event in real time instead of only
+                # showing tool names after the fact.
+                with st.status(
+                    "Working across Robot / Excel / Word / diagrams...",
+                    expanded=True,
+                ) as status:
                     try:
                         reply = run_agent_turn(
                             provider=config["provider"],
@@ -912,6 +969,7 @@ def render_chat():
                             temperature=config["temperature"],
                             base_url=config.get("base_url"),
                             attachments=image_attachments,
+                            live=status,
                         )
                     except Exception as exc:
                         tb = traceback.format_exc(limit=6)
@@ -920,7 +978,8 @@ def render_chat():
                             f"An unexpected error stopped the agent: `{exc}`. "
                             f"Check the Activity Log in the sidebar for details."
                         )
-            st.markdown(reply)
+                status.update(label="Done", state="complete")
+                st.markdown(reply)
 
         st.session_state.chat_display.append({"role": "assistant", "content": reply})
         st.rerun()
