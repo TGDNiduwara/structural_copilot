@@ -241,6 +241,53 @@ mm-unit values back. Empirical `GetValue` indices: 0=A, 4=I_major,
   results, and `export_results_to_excel(sheets=['modal'])` includes them.
 
 
+## Batch optimization engine (Phases 1–7)
+
+A standalone, headless optimizer in `batch/` — no Streamlit, no LLM per
+candidate. Reuses the verified RobotBridge primitives but runs on its own
+Robot instance (`HeadlessSession`, always `new_instance=True`, never touches
+the interactive app's Robot).
+
+- **`batch/headless_driver.py`** — `HeadlessSession`: connect (`visible=False`
+  verified), build_from_spec, `validate_stability()` (pre-solve mechanism
+  detection), `solve_all`, DialogWatcher (auto-dismisses the benign
+  "Calculation Messages" dialog; force-kills on unknown dialogs), solve
+  timeout, deterministic `close()` (zero orphaned robot.exe verified),
+  dead-session `reconnect()`. Reused-session timing ≈ 5–11 s/candidate
+  (3× faster than relaunching).
+- **`batch/storage.py`** — SQLite (sqlite3, no new dep): runs / candidates /
+  results / checkpoints / run_cancellations. Checkpoint after every candidate
+  (a crash loses at most one); `get_resume_point` makes runs resumable.
+- **`batch/buckling_check.py`** — `check_euler_buckling()`: compression-only
+  (negative axial verified), `r = sqrt(I_minor/A)` derived (no direct r in
+  RobotOM), `Pcr = π²EI/(KL)²`, real-existence validation (T2), with the
+  standing "minor-axis Euler screening only" caveat.
+- **`batch/design_space.py`** — DesignSpace spec + full grid-search candidate
+  generation (cap 50 000). Validates group names / bar-id overlaps / section
+  presence / analysis types.
+- **`batch/runner.py`** — `run_batch(design_space, run_id=None,
+  max_consecutive_failures=5)`: one reused session; per-candidate
+  build → validate_stability → solve → weight + utilization + buckling →
+  record → checkpoint; failure isolation (one bad candidate never aborts the
+  run); abort after N consecutive failures; **cooperative cancellation**
+  (`storage.is_cancel_requested` checked between candidates — current
+  candidate finishes + checkpoints first); resume from checkpoint.
+- **`batch/pareto.py`** — `compute_pareto_frontier()` (hard constraint gate:
+  `pass_fail == PASS` excluded candidates never enter the frontier, no matter
+  how light; then standard Pareto dominance over weight + strength_margin)
+  and `pareto_summary()` (markdown ranked by weight with the "elastic stress
+  + basic Euler buckling, not full code compliance" caveat).
+
+**LLM-facing tools (Phase 7, in `agent/tool_registry.py`):**
+`start_optimization_run(spec)` (validate + estimate only — NEVER starts),
+`confirm_and_start_optimization_run(run_config_id)` (background thread,
+returns run_id immediately), `check_optimization_status(run_id)`,
+`get_optimization_results(run_id)` (Pareto markdown once completed; refuses
+partial results), `cancel_optimization_run(run_id)` (clean stop between
+candidates). The batch tools import into `batch/` only — `batch/` never
+imports `agent/tool_registry.py`, preserving the isolation from Phase 0.
+
+
 ## Extending
 
 - Add new tool methods to the relevant `tools/*.py` bridge class.

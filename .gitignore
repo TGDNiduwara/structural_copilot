@@ -24,6 +24,9 @@ _smoke_*.py
 *.bak
 *.bak[0-9]
 
+# Secrets — API keys (never commit real keys)
+.env
+
 # OS
 Thumbs.db
 .DS_Store

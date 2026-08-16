@@ -1,0 +1,50 @@
+# .clineignore — files/folders Cline should not read or edit.
+# Mirrors the project's .gitignore plus environment-specific paths.
+
+# Virtual environment (large, third-party, never edit)
+venv/
+.venv/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Secrets — API keys (never read/commit)
+.env
+.env.*
+
+# Generated artifacts (Excel / Word / PPTX / diagrams / .rtd)
+generated/
+
+# Batch run databases (created by the optimizer)
+runs.db
+batch/runs.db
+*.sqlite
+*.sqlite3
+
+# Streamlit local credentials / machine id
+.streamlit/
+
+# Editors / IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Temp probe/smoke scripts (created during work packages, then deleted)
+_probe*.py
+_test_*.py
+_smoke_*.py
+_t7_*.py
+
+# Editor backup files
+*.bak
+*.bak[0-9]
+
+# OS
+Thumbs.db
+.DS_Store

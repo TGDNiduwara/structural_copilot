@@ -101,6 +101,19 @@ PROVIDERS = {
     },
 }
 
+# [.env] Map each provider to the env var holding its API key. The sidebar
+# pre-fills the matching key when that provider is selected (still editable).
+# Custom endpoints have no fixed key env var - the user enters it in the UI.
+API_KEY_ENV_VARS = {
+    "OpenAI": "OPENAI_API_KEY",
+    "OpenRouter": "OPENROUTER_API_KEY",
+    "Google AI Studio": "GEMINI_API_KEY",
+    "Z.AI (GLM) - Standard API": "ZAI_STANDARD_API_KEY",
+    "Z.AI (GLM) - Coding Plan": "ZAI_CODING_API_KEY",
+    "DeepSeek": "DEEPSEEK_API_KEY",
+    "Custom (OpenAI-compatible)": "",
+}
+
 
 # --------------------------------------------------------------------------
 # [FIX H4] Retry logic for transient HTTP errors

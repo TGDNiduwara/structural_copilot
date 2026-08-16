@@ -42,6 +42,32 @@ MAX_ERROR_RETRIES = 3         # autonomous error-reflection retries per failing 
 # [FIX H7] Maximum identical error signatures before breaking the loop
 MAX_STUCK_PATTERN_COUNT = 3
 
+# --------------------------------------------------------------------------
+# Minimal .env loader (no external dependency). Reads KEY=VALUE lines from
+# <project>/.env into os.environ if not already set. Used to pre-fill the
+# sidebar with provider/model/api-key defaults so the key never needs to be
+# re-entered every session. .env is gitignored - real keys are never committed.
+# --------------------------------------------------------------------------
+
+def load_env_file(env_path: str = None) -> None:
+    if env_path is None:
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(env_path, "r", encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key, value = key.strip(), value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except OSError:
+        pass  # no .env is fine - everything still has sidebar defaults
+
+
+load_env_file()
+
 SYSTEM_PROMPT = """\
 You are a Senior Structural Engineer AI Copilot operating the "Structural \
 Multi-App Agent". You have direct tool access to:
@@ -246,6 +272,18 @@ single JSON spec (nodes/bars/supports/cases/loads) over many individual \
 create_node/create_bar calls; use create_rectangular_grid_frame, create_truss, \
 or create_braced_frame for common shapes, then get_structure_summary to \
 verify the model before solving.
+- BATCH OPTIMIZATION: when the user wants to try/compare/optimize many \
+section combinations (e.g. "optimize this frame, columns HEA200-HEB200, \
+beam IPE270-IPE330"), use the batch tools: start_optimization_run(spec) to \
+validate + estimate candidate count/time (it does NOT start anything), \
+SHOW the estimate to the user and get explicit confirmation, then \
+confirm_and_start_optimization_run(run_config_id), poll \
+check_optimization_status(run_id), and finally get_optimization_results(run_id) \
+for the Pareto frontier. cancel_optimization_run(run_id) stops cleanly between \
+candidates. The spec's objective constraint 'max_utilization <= 1.0 AND \
+buckling_pass == True' is a HARD filter — failing candidates are excluded from \
+the Pareto set. Remember: utilization is an elastic stress check + basic Euler \
+buckling only, not full code compliance.
 - Be precise with units: forces in kN, moments in kN·m, distances in \
 meters, distributed loads in kN/m.
 """
@@ -372,6 +410,27 @@ def run_agent_turn(
                 f"executing first {MAX_TOOL_CALLS_PER_STEP} only."
             )
 
+        # [P7] Confirmation gate (HARD ENFORCEMENT, not just a prompt rule):
+        # a batch run must NEVER start in the same turn it was staged. If the
+        # model returns start_optimization_run AND confirm_and_start_optimization_run
+        # together (e.g. because the user said "just run it"), we block the
+        # confirm_* call, tell the LLM the run was NOT started, and force it to
+        # present the estimate and wait for a separate user confirmation.
+        names_in_response = {tc.name for tc in tool_calls_to_execute}
+        if ("start_optimization_run" in names_in_response
+                and "confirm_and_start_optimization_run" in names_in_response):
+            st.session_state.activity_log.append(
+                "🛑 Blocked confirm_and_start_optimization_run: a batch run "
+                "cannot start in the same turn it was staged. Presenting the "
+                "estimate and waiting for explicit user confirmation."
+            )
+            for tc in list(tool_calls_to_execute):
+                if tc.name == "confirm_and_start_optimization_run":
+                    tc.name = "__blocked_confirm__"  # renamed so it never dispatches
+                    tc.arguments = {}
+            names_in_response.discard("confirm_and_start_optimization_run")
+            names_in_response.add("__blocked_confirm__")
+
         # Record the assistant's tool-call request in the transcript
         assistant_tool_msg = {
             "role": "assistant",
@@ -460,6 +519,20 @@ def _execute_with_reflection(
     """
     attempt = 0
     last_error = None
+
+    # [P7] Confirmation gate special-case: this marker tool call never
+    # dispatches (renamed by run_agent_turn when the model tried to start a
+    # run in the same turn it staged it). Return a result that instructs the
+    # LLM to present the estimate and wait for explicit confirmation.
+    if tool_name == "__blocked_confirm__":
+        return json.dumps({
+            "status": "blocked",
+            "error": ("The batch run was NOT started. start_optimization_run "
+                      "stages the spec; confirm_and_start_optimization_run may "
+                      "only be called in a LATER turn after the user has "
+                      "explicitly approved the candidate count and time "
+                      "estimate. Present the estimate now and stop."),
+        })
 
     while attempt <= MAX_ERROR_RETRIES:
         try:
@@ -606,10 +679,23 @@ def _summarize_activity() -> str:
 def render_sidebar() -> Dict[str, Any]:
     st.sidebar.title("⚙️ Agent Configuration")
 
-    provider = st.sidebar.selectbox("LLM Provider", options=list(PROVIDERS.keys()), index=0)
+    # [.env support] Pre-fill defaults from .env when present (still editable).
+    from agent.llm_providers import API_KEY_ENV_VARS
+    env_provider = os.environ.get("STRUCTURAL_AGENT_PROVIDER", "")
+    env_model = os.environ.get("STRUCTURAL_AGENT_MODEL", "")
+    provider_index = 0
+    if env_provider in PROVIDERS:
+        provider_index = list(PROVIDERS.keys()).index(env_provider)
+    provider = st.sidebar.selectbox(
+        "LLM Provider", options=list(PROVIDERS.keys()), index=provider_index)
     default_model = PROVIDERS[provider]["default_model"]
-    model = st.sidebar.text_input("Model", value=default_model)
-    api_key = st.sidebar.text_input(f"{provider} API Key", type="password")
+    model_value = env_model if (env_model and provider == env_provider) else default_model
+    model = st.sidebar.text_input("Model", value=model_value)
+    # Per-provider API key from .env (e.g. DEEPSEEK_API_KEY for DeepSeek).
+    key_env = API_KEY_ENV_VARS.get(provider, "")
+    env_key = os.environ.get(key_env, "") if key_env else ""
+    api_key = st.sidebar.text_input(f"{provider} API Key", type="password",
+                                    value=env_key)
     temperature = st.sidebar.slider("Temperature", 0.0, 1.0, 0.2, 0.05)
 
     # [DeepSeek / Custom] "Custom (OpenAI-compatible)" lets the user point the

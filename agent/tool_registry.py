@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import time
 import traceback
 from typing import Any, Dict, List, Optional
 
@@ -31,6 +32,14 @@ from tools.custom_tools import (
     run_sandboxed,
     ScriptRejected,
 )
+# [P7] Batch optimizer bookend tools. These dispatch into batch/ (runner,
+# design_space, storage, pareto). batch/ is deliberately isolated: it never
+# imports agent/tool_registry.py, so adding these imports creates no new
+# coupling direction (tool_registry -> batch only).
+from batch.design_space import DesignSpace, DesignSpaceError
+from batch.runner import run_batch
+from batch.storage import Storage
+from batch.pareto import pareto_summary
 
 logger = logging.getLogger("structural_copilot.tool_registry")
 logger.setLevel(logging.INFO)
@@ -762,17 +771,61 @@ TOOL_SCHEMAS = [
         },
     },
     {
-        "name": "get_governing_combination",
-        "description": "[P5] Reports which case/combination produces the maximum |component| (FX/FY/FZ/MX/MY/MZ, default MY) on a bar, ranked descending. Governing combination reported separately from simple cases (which are listed for reference). Useful after solve_combination + get_utilization_ratios to name the critical load arrangement.",
+        "name": "start_optimization_run",
+        "description": "[P7 BATCH OPTIMIZER] Validates a design-space spec and estimates the run WITHOUT starting it. Translate the user's natural-language brief into the DesignSpace JSON schema: {\"geometry\": {...same as create_structure_from_spec's spec: nodes/bars with section/supports/cases/loads...}, \"variable_groups\": [{\"group_name\": \"columns\", \"bar_ids\": [1,3], \"candidate_sections\": [\"HEA 200\",\"HEA 220\"]}, ...], \"load_cases\": [{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}], \"analysis_types\": [\"static\"], \"objective\": {\"minimize\": \"weight\", \"constraint\": \"max_utilization <= 1.0 AND buckling_pass == True\"}}. HARD RULE: this tool NEVER starts a run - not ever, under ANY phrasing. It only validates + returns the candidate count, time estimate and a run_config_id. Do NOT call confirm_and_start_optimization_run in this same response, even if the user said 'just run it', 'go ahead', 'start it', 'yes do it', or anything that sounds like permission. A batch run consumes Robot license time, so confirmation ALWAYS requires a SEPARATE, LATER message from the user AFTER they have seen and approved this estimate. Your next reply after this tool must present the count + estimate to the user and ask for explicit confirmation - then STOP and wait for their next message. If you find yourself wanting to call confirm_and_start_optimization_run in this same turn, STOP: that is a violation.",
         "parameters": {
             "type": "object",
             "properties": {
-                "bar_id": {"type": "integer"},
-                "component": {"type": "string", "default": "MY",
-                              "enum": ["FX", "FY", "FZ", "MX", "MY", "MZ"]},
-                "divisions": {"type": "integer", "default": 5},
+                "spec": {
+                    "type": "object",
+                    "description": "DesignSpace JSON. Example: {\"geometry\":{\"project\":\"2D\",\"nodes\":[{\"id\":1,\"x\":0,\"z\":0},{\"id\":2,\"x\":0,\"z\":3},{\"id\":3,\"x\":6,\"z\":3},{\"id\":4,\"x\":6,\"z\":0}],\"bars\":[{\"id\":1,\"n1\":1,\"n2\":2,\"section\":\"HEA 200\"},{\"id\":2,\"n1\":2,\"n2\":3,\"section\":\"IPE 300\"},{\"id\":3,\"n1\":3,\"n2\":4,\"section\":\"HEA 200\"}],\"supports\":[{\"node\":1,\"type\":\"pinned\"},{\"node\":4,\"type\":\"pinned\"}],\"cases\":[{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}],\"loads\":[{\"kind\":\"bar_uniform\",\"bar\":2,\"case\":1,\"direction\":\"Z\",\"value\":-3}]},\"variable_groups\":[{\"group_name\":\"columns\",\"bar_ids\":[1,3],\"candidate_sections\":[\"HEA 200\",\"HEA 220\",\"HEA 240\",\"HEB 200\"]},{\"group_name\":\"beam\",\"bar_ids\":[2],\"candidate_sections\":[\"IPE 270\",\"IPE 300\",\"IPE 330\"]}],\"load_cases\":[{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}],\"analysis_types\":[\"static\"],\"objective\":{\"minimize\":\"weight\",\"constraint\":\"max_utilization <= 1.0 AND buckling_pass == True\"}}",
+                }
             },
-            "required": ["bar_id"],
+            "required": ["spec"],
+        },
+    },
+    {
+        "name": "confirm_and_start_optimization_run",
+        "description": "[P7 BATCH OPTIMIZER] STARTS a batch optimization run in the background (does not block the chat). Only call this AFTER the user has explicitly confirmed the candidate count + time estimate returned by start_optimization_run — never start a batch run without explicit user confirmation (it consumes Robot license time). Pass the run_config_id returned by start_optimization_run. Returns the run_id immediately; poll with check_optimization_status.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_config_id": {"type": "string", "description": "The run_config_id returned by start_optimization_run."},
+            },
+            "required": ["run_config_id"],
+        },
+    },
+    {
+        "name": "check_optimization_status",
+        "description": "[P7 BATCH OPTIMIZER] Queries progress of a batch optimization run: status (running/completed/failed/cancelled), candidates evaluated / total, any failures, elapsed time and estimated remaining. No Robot interaction.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "integer", "description": "The run_id returned by confirm_and_start_optimization_run."},
+            },
+            "required": ["run_id"],
+        },
+    },
+    {
+        "name": "get_optimization_results",
+        "description": "[P7 BATCH OPTIMIZER] Returns the Pareto frontier of a COMPLETED batch run as a markdown table (ranked by weight, with utilization + buckling margins). Only meaningful once check_optimization_status shows 'completed' — otherwise it plainly says the run is not finished (never returns partial/misleading results). Includes the standing 'elastic stress + basic Euler buckling screening only, not full code compliance' caveat.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "integer", "description": "The run_id of a completed run."},
+            },
+            "required": ["run_id"],
+        },
+    },
+    {
+        "name": "cancel_optimization_run",
+        "description": "[P7 BATCH OPTIMIZER] Requests cancellation of a running batch optimization. The runner stops cleanly BETWEEN candidates (finishes + checkpoints the current candidate first, then exits) — never mid-solve. Returns the current progress.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "integer", "description": "The run_id to cancel."},
+            },
+            "required": ["run_id"],
         },
     },
 ]
@@ -868,6 +921,13 @@ class ToolExecutor:
         self.custom_tools = CustomToolRegistry()
         import tools.custom_tools as _ct
         _ct._BUILTIN_TOOL_NAMES = {s["name"] for s in TOOL_SCHEMAS}
+
+        # [P7] Batch optimizer state: staged (validated but NOT started)
+        # design-space configs, plus handles to live background runs.
+        self._optimization_configs: Dict[str, dict] = {}
+        self._optimization_runs: Dict[int, dict] = {}  # run_id -> thread info
+        # [P7] Default SQLite DB for batch runs, shared by all bookend tools.
+        self._batch_db_path = os.path.join(_PROJECT_ROOT, "batch", "runs.db")
 
         self._robot_connected = False
         self._robot_visible = robot_visible
@@ -1087,6 +1147,197 @@ class ToolExecutor:
         result = self.robot.get_governing_combination(
             bar_id=bar_id, component=component, divisions=divisions)
         return {"status": "ok", **result}
+
+    # ------------------------------------------------------------------ #
+    # [P7] Batch optimizer bookend tools (dispatch into batch/, not Robot)
+    # ------------------------------------------------------------------ #
+
+    def _tool_start_optimization_run(self, spec: dict) -> dict:
+        """Validates a DesignSpace spec and estimates the run WITHOUT starting
+        it. Stores the validated spec under a generated run_config_id so the
+        run only starts after explicit user confirmation via
+        confirm_and_start_optimization_run. NEVER starts here."""
+        if not spec or not isinstance(spec, dict):
+            raise ToolExecutionError(
+                "start_optimization_run requires a DesignSpace JSON 'spec' "
+                "object (geometry + variable_groups + load_cases + "
+                "analysis_types + objective). See the schema description.")
+        try:
+            ds = DesignSpace(spec)
+            n_candidates = ds.candidate_count()
+            ds.generate_candidates()  # validates grid <= cap (Phase 4 errors)
+        except DesignSpaceError as exc:
+            raise ToolExecutionError(
+                f"Invalid design space: {exc}. Fix the spec and retry.") from exc
+        # Conservative estimate from Phase-1 T1 timing (5-11 s/candidate).
+        lo_s, hi_s = n_candidates * 5, n_candidates * 11
+        cfg_id = f"cfg_{int(time.time())}"
+        self._optimization_configs[cfg_id] = {"spec": spec, "created": time.time()}
+        return {
+            "status": "not_started",
+            "run_config_id": cfg_id,
+            "candidate_count": n_candidates,
+            "estimate_seconds_min": lo_s,
+            "estimate_seconds_max": hi_s,
+            "estimate": (f"{n_candidates} candidates, roughly "
+                         f"{lo_s//60}-{hi_s//60} min (5-11 s/candidate, "
+                         "reused Robot session)"),
+            "message": ("Run NOT started. Show the user the candidate count "
+                        "and time estimate, get explicit confirmation, then "
+                        "call confirm_and_start_optimization_run with this "
+                        "run_config_id."),
+        }
+
+    def _tool_confirm_and_start_optimization_run(self, run_config_id: str) -> dict:
+        """Starts a staged batch run in a background thread and returns
+        immediately with the run_id. Only staged configs (from
+        start_optimization_run) can be started.
+
+        The run + candidate rows are pre-created SYNCHRONOUSLY here (pure
+        SQLite, no Robot) so the run_id is known immediately; the thread
+        then executes the batch with that run_id."""
+        cfg = self._optimization_configs.pop(run_config_id, None)
+        if cfg is None:
+            raise ToolExecutionError(
+                f"run_config_id '{run_config_id}' is not a staged config "
+                "(call start_optimization_run first).")
+        ds = DesignSpace(cfg["spec"])
+        # Pre-create run + candidates (fast, no Robot) so run_id is immediate.
+        st = Storage(db_path=self._batch_db_path)
+        try:
+            run_id = st.create_run(ds.to_dict(),
+                                   objective=json.dumps(ds.objective, default=str))
+            for cand in ds.generate_candidates():
+                st.add_candidate(run_id, cand)
+        except Exception as exc:  # noqa: BLE001
+            raise ToolExecutionError(
+                f"Could not stage batch run: {exc}") from exc
+        finally:
+            st.close()
+
+        # Background thread: the runner opens its OWN Robot instance
+        # (HeadlessSession, new_instance=True) and its own Storage connection,
+        # so it never touches the interactive app's Robot or session state.
+        import threading
+
+        holder: Dict[str, Any] = {"run_id": run_id, "error": None}
+        t = threading.Thread(
+            target=self._run_optimization_worker,
+            args=(ds, run_id, holder),
+            name="batch-optimizer",
+            daemon=True,
+        )
+        t.start()
+        self._optimization_runs[run_id] = {
+            "thread": t, "started": time.time()}
+        return {
+            "status": "started",
+            "run_id": run_id,
+            "message": ("Batch optimization started in the background. Poll "
+                        "check_optimization_status; then get_optimization_results "
+                        "once it is 'completed'."),
+        }
+
+    def _run_optimization_worker(self, ds: DesignSpace, run_id: int,
+                                 holder: Dict[str, Any]) -> None:
+        """Runs run_batch on the background thread for the pre-created run."""
+        try:
+            summary = run_batch(ds, run_id=run_id, db_path=self._batch_db_path)
+            holder["run_id"] = summary["run_id"]
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Batch optimizer worker failed: %s", exc)
+            holder["error"] = str(exc)
+
+    def _tool_check_optimization_status(self, run_id: int) -> dict:
+        st = Storage(db_path=self._batch_db_path)
+        try:
+            run = st.get_run(run_id)
+            if run is None:
+                raise ToolExecutionError(
+                    f"run_id {run_id} does not exist in batch storage "
+                    f"({self._batch_db_path}).")
+            df = st.get_all_results(run_id)
+            n_eval = int((df["candidate_status"] == "evaluated").sum())
+            n_fail = int((df["candidate_status"] == "failed").sum())
+            total = len(df)
+        finally:
+            st.close()
+        status = str(run.get("status", "unknown"))
+        # Estimate remaining from average elapsed-per-evaluated (like the
+        # runner's ETA): created_at is stored in the runs row.
+        from datetime import datetime
+        elapsed_s = None
+        remaining = None
+        try:
+            created = datetime.strptime(str(run["created_at"]),
+                                        "%Y-%m-%d %H:%M:%S")
+            elapsed_s = (datetime.now() - created).total_seconds()
+            if n_eval > 0 and total > n_eval:
+                per_c = elapsed_s / n_eval
+                remaining = int(per_c * (total - n_eval))
+        except Exception:  # noqa: BLE001
+            elapsed_s, remaining = None, None
+        return {
+            "status": status,
+            "run_id": run_id,
+            "evaluated": n_eval,
+            "failed": n_fail,
+            "total": total,
+            "elapsed_s": int(elapsed_s) if elapsed_s else None,
+            "estimated_remaining_s": remaining,
+        }
+
+    def _tool_get_optimization_results(self, run_id: int) -> dict:
+        st = Storage(db_path=self._batch_db_path)
+        try:
+            run = st.get_run(run_id)
+            if run is None:
+                raise ToolExecutionError(
+                    f"run_id {run_id} does not exist in batch storage.")
+            status = str(run.get("status", "unknown"))
+            if status != "completed":
+                return {
+                    "status": "not_ready",
+                    "run_status": status,
+                    "message": (f"Run {run_id} is '{status}', not 'completed'. "
+                                "Results are NOT meaningful until the run "
+                                "finishes - poll check_optimization_status."),
+                }
+            df = st.get_all_results(run_id)
+        finally:
+            st.close()
+        summ = pareto_summary(df)
+        return {
+            "status": "ok",
+            "run_id": run_id,
+            "total": summ["total"],
+            "passed": summ["passed"],
+            "frontier_size": summ["frontier"],
+            "note": summ.get("note", ""),
+            "markdown": summ["markdown"],
+        }
+
+    def _tool_cancel_optimization_run(self, run_id: int) -> dict:
+        st = Storage(db_path=self._batch_db_path)
+        try:
+            run = st.get_run(run_id)
+            if run is None:
+                raise ToolExecutionError(
+                    f"run_id {run_id} does not exist in batch storage.")
+            st.request_cancel(run_id, reason="user requested")
+            df = st.get_all_results(run_id)
+            n_eval = int((df["candidate_status"] == "evaluated").sum())
+            total = len(df)
+        finally:
+            st.close()
+        return {
+            "status": "cancel_requested",
+            "run_id": run_id,
+            "message": ("Cancellation requested. The runner stops cleanly "
+                        "BETWEEN candidates (current candidate finishes and "
+                        "is checkpointed first, then it exits). Progress so "
+                        f"far: {n_eval}/{total} evaluated."),
+        }
 
     def _tool_export_member_forces(self, case_id: int = 1, divisions: int = 5) -> dict:
         # [FIX M11] Clamp divisions to safe range
