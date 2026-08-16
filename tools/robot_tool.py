@@ -46,32 +46,8 @@ except ImportError:  # pragma: no cover - allows import on non-Windows CI
 logger = logging.getLogger("structural_copilot.robot_tool")
 logger.setLevel(logging.INFO)
 
+from tools.win_dialogs import _robot_pids
 
-def _robot_pids() -> set:
-    """Returns the set of live robot.exe PIDs via tasklist (no new deps).
-
-    Used for observability (sidebar PID readout + lifecycle logs) so the user
-    can tell whether Robot is being torn down/relaunched (PID changes) or just
-    cleared and rebuilt (same PID)."""
-    import subprocess
-    try:
-        out = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq robot.exe", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=20).stdout
-    except Exception:  # noqa: BLE001
-        return set()
-    pids = set()
-    for line in out.splitlines():
-        parts = [p.strip().strip('"') for p in line.split('","')]
-        if len(parts) >= 2 and parts[0].lower() == "robot.exe":
-            try:
-                pids.add(int(parts[1]))
-            except ValueError:
-                continue
-    return pids
-
-
-# --------------------------------------------------------------------------
 # Robot Object Model enumeration constants.
 # These mirror the public RobotOM type library enums. They are declared
 # locally (rather than relying solely on win32com's makepy-generated
@@ -493,12 +469,131 @@ class RobotBridge:
     # Project / model creation
     # ------------------------------------------------------------------ #
 
+    def _guarded_project_new(self, code) -> None:
+        """Calls Project.New(code) with an interactive-safe dialog guard.
+
+        With Interactive=1 (the app's normal visible-Robot mode), Robot can
+        pop its native "Do you want to save changes to Structure?" modal when
+        New() discards a project that has results. That modal blocks on
+        Robot's UI thread until clicked, which would freeze new_2d_frame /
+        new_3d_frame / clear_structure with no way to recover.
+
+        The guard starts a background watch_and_dismiss() thread BEFORE
+        calling New() (so it is already polling when the modal appears, since
+        New() blocks synchronously), auto-clicks known-safe buttons, and on an
+        unrecognized dialog raises a clear actionable error instead of
+        hanging or force-killing the user's visible Robot instance.
+        """
+        from tools.win_dialogs import SAVE_PROMPT_PATTERNS, watch_and_dismiss
+
+        pids = ({self.connected_pid} if self.connected_pid else _robot_pids())
+        result: Dict[str, Any] = {}
+        watcher_done = threading.Event()
+
+        def _run_watcher() -> None:
+            try:
+                result.update(watch_and_dismiss(
+                    pids, SAVE_PROMPT_PATTERNS, timeout_s=15.0, poll_s=0.25,
+                    on_unknown="wait"))
+            except Exception as exc:  # noqa: BLE001
+                result["outcome"] = "error"
+                result["title"] = str(exc)
+            finally:
+                watcher_done.set()
+
+        t = threading.Thread(target=_run_watcher, daemon=True,
+                             name="robot-project-new-guard")
+        t.start()
+        try:
+            self.project.New(code)
+        finally:
+            # Give the watcher a moment to settle; then join (it is bounded
+            # by timeout_s so this never hangs the caller).
+            watcher_done.wait(timeout=20.0)
+            if t.is_alive():
+                t.join(timeout=2.0)
+
+        outcome = result.get("outcome")
+        if outcome == "dismissed" or outcome == "dismissed_benign":
+            logger.info(
+                "Project.New guarded: auto-dismissed dialog %r (button=%r).",
+                result.get("title"), result.get("button"))
+        elif outcome == "unknown_seen":
+            raise RuntimeError(
+                "An unrecognized Robot dialog appeared during Project.New() "
+                f"({result.get('title')!r}) and could not be auto-dismissed. "
+                "Please click it in the visible Robot window (it may be a "
+                "save-changes or license prompt) and retry. If this keeps "
+                "happening, capture the dialog text and add a pattern to "
+                "tools/win_dialogs.SAVE_PROMPT_PATTERNS.")
+        elif outcome == "timeout":
+            # Watcher saw no dialog (the common no-save case) OR saw one and
+            # kept waiting - treat as clean, the call already succeeded.
+            logger.info(
+                "Project.New guarded: no blocking dialog (outcome=timeout, "
+                "clean).")
+        # outcome == "clean" / "error" - proceed (clean = no dialog seen).
+
+    def _guarded_calculate(self, engine, timeout_s: float = 30.0) -> None:
+        """Calls CalcEngine.Calculate() with an interactive-safe dialog guard.
+
+        The solver can pop known dialogs during Calculate() in an interactive
+        session - most notably the "Instability ... Do you want to continue?"
+        modal (Interactive=1 does not suppress it). The guard reuses the SAME
+        watch_and_dismiss() primitives and the batch runner's known patterns
+        (instability + benign calculation messages), but NEVER force-kills on
+        an unknown dialog - it raises a clear actionable error instead, since
+        the visible Robot instance may be the user's own work.
+        """
+        from batch.headless_driver import DEFAULT_DIALOG_PATTERNS
+        from tools.win_dialogs import watch_and_dismiss
+
+        pids = ({self.connected_pid} if self.connected_pid else _robot_pids())
+        result: Dict[str, Any] = {}
+        watcher_done = threading.Event()
+
+        def _run_watcher() -> None:
+            try:
+                result.update(watch_and_dismiss(
+                    pids, DEFAULT_DIALOG_PATTERNS, timeout_s=timeout_s,
+                    poll_s=0.25, on_unknown="wait"))
+            except Exception as exc:  # noqa: BLE001
+                result["outcome"] = "error"
+                result["title"] = str(exc)
+            finally:
+                watcher_done.set()
+
+        t = threading.Thread(target=_run_watcher, daemon=True,
+                             name="robot-calculate-guard")
+        t.start()
+        try:
+            engine.Calculate()
+        finally:
+            watcher_done.wait(timeout=timeout_s + 10.0)
+            if t.is_alive():
+                t.join(timeout=2.0)
+
+        outcome = result.get("outcome")
+        if outcome == "clicked":
+            raise RuntimeError(
+                "The solver reported instability and the dialog was "
+                f"auto-dismissed ({result.get('title')!r}). The solve did NOT "
+                "complete - check the model for mechanisms/restraints.")
+        elif outcome == "unknown_seen":
+            raise RuntimeError(
+                "An unrecognized Robot dialog appeared during Calculate() "
+                f"({result.get('title')!r}) and could not be auto-dismissed. "
+                "Please click it in the visible Robot window and retry. If "
+                "this keeps happening, capture the dialog text and add a "
+                "pattern to batch/headless_driver.DEFAULT_DIALOG_PATTERNS.")
+        # dismissed_benign / timeout / clean / error -> proceed.
+
     @com_thread_safe
     def new_2d_frame(self) -> None:
         """Starts a new planar frame (Frame 2D) project."""
         self._ensure_connected()
         self.project = self.robot_app.Project
-        self.project.New(RobotEnum.I_PT_BAR_2D)
+        self._guarded_project_new(RobotEnum.I_PT_BAR_2D)
         self.structure = self.project.Structure
         self._section_assignments.clear()
         self._node_coords.clear()
@@ -510,7 +605,7 @@ class RobotBridge:
         """Starts a new spatial frame (Frame 3D) project."""
         self._ensure_connected()
         self.project = self.robot_app.Project
-        self.project.New(RobotEnum.I_PT_BAR_3D)
+        self._guarded_project_new(RobotEnum.I_PT_BAR_3D)
         self.structure = self.project.Structure
         self._section_assignments.clear()
         self._node_coords.clear()
@@ -961,11 +1056,15 @@ class RobotBridge:
         """
         Triggers the FEA solver and blocks until Robot reports completion.
 
-        [FIX R4] IRobotStructure has no `Calc` member in RobotOM v27 — the
+        [FIX R4] IRobotStructure has no `Calc` member in RobotOM v27 - the
         calculation engine hangs off IRobotProject.CalcEngine (verified
         live). `Calculate()` is synchronous and IRobotCalcEngine exposes no
         CalcInProgress property, so the old (nonexistent-API) polling loop
         was removed. `timeout_s` is retained for API compatibility.
+
+        [OBS] Calculate() runs under an interactive-safe dialog guard that
+        auto-dismisses known dialogs (instability, calculation messages) but
+        NEVER force-kills Robot on an unrecognized one.
         """
         self._ensure_connected()
         engine = self.robot_app.Project.CalcEngine
@@ -975,13 +1074,9 @@ class RobotBridge:
             pass  # optional nicety; harmless if the version rejects it
 
         start = time.time()
-        engine.Calculate()
+        self._guarded_calculate(engine, timeout_s=min(float(timeout_s), 60.0))
         logger.info("Robot solver run completed in %.1fs.", time.time() - start)
         return True
-
-    # ------------------------------------------------------------------ #
-    # Result / data export
-    # ------------------------------------------------------------------ #
 
     @com_thread_safe
     def export_all_member_forces(
@@ -2439,8 +2534,9 @@ class RobotBridge:
             RobotEnum.I_PT_BAR_3D if project_type.lower() == "3d"
             else RobotEnum.I_PT_BAR_2D
         )
-        self.robot_app.Project.New(code)
-        self.structure = self.robot_app.Project.Structure
+        self.project = self.robot_app.Project
+        self._guarded_project_new(code)
+        self.structure = self.project.Structure
         self._node_coords.clear()
         self._bar_endpoints.clear()
         self._section_assignments.clear()

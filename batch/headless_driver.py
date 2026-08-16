@@ -32,6 +32,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import numpy as np
 
 from tools.robot_tool import RobotBridge, RobotEnum
+from tools.win_dialogs import (
+    _enum_windows, _window_text, _click_button,
+    _is_dialog_like, _robot_pids,
+)
 
 logger = logging.getLogger("structural_copilot.batch.headless_driver")
 
@@ -83,104 +87,7 @@ _DIALOG_MARKERS = ("instabilit", "continue", "warning", "error",
                   "question", "confirm", "do you want")
 
 
-def _is_dialog_like(title_lower: str) -> bool:
-    return any(m in title_lower for m in _DIALOG_MARKERS)
 
-
-def _enum_windows(pids) -> List[Tuple[int, str, str]]:
-    """Visible top-level windows owned by any of the given PIDs:
-    [(hwnd, title, class_name)]. Pure Win32 (ctypes), no COM."""
-    import ctypes
-    from ctypes import wintypes
-    user32 = ctypes.windll.user32
-    wproc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-    out = []
-    def _cb(hwnd, _lparam):
-        if user32.IsWindowVisible(hwnd):
-            wpid = wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(wpid))
-            if wpid.value in pids:
-                cls = ctypes.create_unicode_buffer(128)
-                user32.GetClassNameW(hwnd, cls, 128)
-                n = user32.GetWindowTextLengthW(hwnd)
-                if n:
-                    buf = ctypes.create_unicode_buffer(n + 1)
-                    user32.GetWindowTextW(hwnd, buf, n + 1)
-                    out.append((hwnd, buf.value, cls.value))
-        return True
-    user32.EnumWindows(wproc(_cb), 0)
-    return out
-
-
-def _window_text(hwnd) -> str:
-    """Title plus all child control texts — the dialog BODY, which holds
-    the real message when a dialog's title is just the generic app name
-    (as observed: the instability modal's title is "Robot Structural
-    Analysis Professional 2027" while its static/button children carry
-    "Instability ... Do you want to continue?" / Yes / No)."""
-    import ctypes
-    from ctypes import wintypes
-    user32 = ctypes.windll.user32
-    parts = []
-    n = user32.GetWindowTextLengthW(hwnd)
-    if n:
-        buf = ctypes.create_unicode_buffer(n + 1)
-        user32.GetWindowTextW(hwnd, buf, n + 1)
-        parts.append(buf.value)
-    cproc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-    def _cb(h, _lparam):
-        nn = user32.GetWindowTextLengthW(h)
-        if nn:
-            b = ctypes.create_unicode_buffer(nn + 1)
-            user32.GetWindowTextW(h, b, nn + 1)
-            parts.append(b.value)
-        return True
-    user32.EnumChildWindows(hwnd, cproc(_cb), 0)
-    return " | ".join(parts)
-
-
-def _click_button(parent_hwnd, text) -> int:
-    """Sends BM_CLICK to the first Button child whose text contains
-    `text`. Returns how many buttons were clicked."""
-    import ctypes
-    from ctypes import wintypes
-    user32 = ctypes.windll.user32
-    cproc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-    found = []
-    def _cb(hwnd, _lparam):
-        cls = ctypes.create_unicode_buffer(64)
-        user32.GetClassNameW(hwnd, cls, 64)
-        if cls.value.lower() == "button":
-            n = user32.GetWindowTextLengthW(hwnd)
-            if n:
-                buf = ctypes.create_unicode_buffer(n + 1)
-                user32.GetWindowTextW(hwnd, buf, n + 1)
-                if text and text.lower() in buf.value.lower():
-                    found.append(hwnd)
-        return True
-    user32.EnumChildWindows(parent_hwnd, cproc(_cb), 0)
-    for h in found:
-        user32.SendMessageW(h, 0x00F5, 0, 0)  # BM_CLICK
-    return len(found)
-
-
-def _robot_pids() -> Set[int]:
-    """Returns the set of live robot.exe PIDs (tasklist; no new deps)."""
-    try:
-        out = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq robot.exe", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=20).stdout
-    except Exception:  # noqa: BLE001
-        return set()
-    pids = set()
-    for line in out.splitlines():
-        parts = [p.strip().strip('"') for p in line.split('","')]
-        if len(parts) >= 2 and parts[0].lower() == "robot.exe":
-            try:
-                pids.add(int(parts[1]))
-            except ValueError:
-                continue
-    return pids
 
 
 class HeadlessSession:
