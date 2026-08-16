@@ -24,6 +24,7 @@ import pandas as pd
 from tools.robot_tool import RobotBridge
 from tools.excel_tool import ExcelReporter
 from tools.diagram_tool import DiagramGenerator
+from tools.section_sizing import check_section_proportions
 from tools.word_tool import WordReporter
 from tools.pptx_tool import PowerPointReporter
 from tools.result_store import ResultStore
@@ -152,11 +153,10 @@ TOOL_SCHEMAS = [
                 "end_node": {"type": "integer"},
                 "section_name": {
                     "type": "string",
-                    "description": "Catalog section name, e.g. 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26'. Unspaced forms like 'IPE300' are auto-corrected.",
-                    "default": "HEA 200",
+                    "description": "Catalog section name, e.g. 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26'. Unspaced forms like 'IPE300' are auto-corrected. SCALE-AWARE: pick a depth ~= span/18 for beams and ~= height/25 for columns; prefer the create_* template tools, which auto-size sections from the span when none is given.",
                 },
             },
-            "required": ["bar_id", "start_node", "end_node"],
+            "required": ["bar_id", "start_node", "end_node", "section_name"],
         },
     },
     {
@@ -339,7 +339,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "create_rectangular_grid_frame",
-        "description": "Builds a 3D rectangular grid moment frame: multi-level, multi-bay columns with floor beams and pinned column bases.",
+        "description": "Builds a 3D rectangular grid moment frame: multi-level, multi-bay columns with floor beams and pinned column bases. SCALE-AWARE: sections AUTO-SIZE from the bay widths / storey height when not specified (beams ~span/18, columns ~height/25) — do NOT reuse sections from other models with different spans.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -349,42 +349,70 @@ TOOL_SCHEMAS = [
                 "bay_width_x": {"type": "number", "default": 5.0},
                 "bay_width_y": {"type": "number", "default": 5.0},
                 "level_height": {"type": "number", "default": 3.5},
-                "column_section": {"type": "string", "default": "HEB 200"},
-                "beam_x_section": {"type": "string", "default": "IPE 300"},
-                "beam_y_section": {"type": "string", "default": "IPE 300"},
+                "column_section": {"type": "string", "description": "Optional explicit column section; if omitted an H-family section is auto-sized from the storey height."},
+                "beam_x_section": {"type": "string", "description": "Optional explicit X-beam section; if omitted an IPE is auto-sized from bay_width_x."},
+                "beam_y_section": {"type": "string", "description": "Optional explicit Y-beam section; if omitted an IPE is auto-sized from bay_width_y."},
             },
             "required": [],
         },
     },
     {
         "name": "create_truss",
-        "description": "Builds a planar Pratt truss (top/bottom chords, verticals, diagonals) pinned at both ends.",
+        "description": "Builds a planar Pratt truss (top/bottom chords, verticals, diagonals) pinned at both ends. SCALE-AWARE: sections AUTO-SIZE from the span when not specified (chords ~span/18, light angle web) — a 1m truss should NOT use the same sections as a 30m truss.",
         "parameters": {
             "type": "object",
             "properties": {
                 "span": {"type": "number", "default": 12.0},
                 "height": {"type": "number", "default": 2.0},
                 "panels": {"type": "integer", "default": 6},
-                "top_section": {"type": "string", "default": "IPE 200"},
-                "bottom_section": {"type": "string", "default": "IPE 200"},
-                "web_section": {"type": "string", "default": "L 50x50x5"},
+                "top_section": {"type": "string", "description": "Optional explicit top-chord section; if omitted it is auto-sized from the span."},
+                "bottom_section": {"type": "string", "description": "Optional explicit bottom-chord section; if omitted it is auto-sized from the span."},
+                "web_section": {"type": "string", "description": "Optional explicit web (vertical/diagonal) section; if omitted a light angle is auto-sized."},
             },
             "required": [],
         },
     },
     {
         "name": "create_braced_frame",
-        "description": "Builds a single-bay braced frame (two columns, one beam, one diagonal brace) with pinned bases.",
+        "description": "Builds a single-bay braced frame (two columns, one beam, one diagonal brace) with pinned bases. SCALE-AWARE: sections AUTO-SIZE when not specified (columns ~height/25, beam ~span/18, brace on the diagonal length).",
         "parameters": {
             "type": "object",
             "properties": {
                 "height": {"type": "number", "default": 6.0},
                 "width": {"type": "number", "default": 6.0},
-                "column_section": {"type": "string", "default": "HEB 200"},
-                "beam_section": {"type": "string", "default": "IPE 360"},
-                "brace_section": {"type": "string", "default": "IPE 200"},
+                "column_section": {"type": "string", "description": "Optional explicit column section; if omitted auto-sized from the height."},
+                "beam_section": {"type": "string", "description": "Optional explicit beam section; if omitted auto-sized from the width."},
+                "brace_section": {"type": "string", "description": "Optional explicit brace section; if omitted auto-sized from the diagonal length."},
             },
             "required": [],
+        },
+    },
+    {
+        "name": "create_arch_truss",
+        "description": "Builds a planar arch truss in the X-Z plane (bowstring: arched top chord + straight bottom chord, or inverted: arched bottom chord + straight top deck) with circular-arc geometry and a Pratt web, pinned at both ends. SCALE-AWARE: sections AUTO-SIZE from the span when not specified (chords ~span/18, light angle web).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "span": {"type": "number", "default": 30.0, "description": "Arch span in meters."},
+                "rise": {"type": "number", "default": 5.0, "description": "Arch rise at mid-span in meters (span/rise ~ 4-8 typical)."},
+                "panels": {"type": "integer", "default": 10, "description": "Number of panels along each chord."},
+                "top_section": {"type": "string", "description": "Optional explicit top-chord section; if omitted auto-sized from the span."},
+                "bottom_section": {"type": "string", "description": "Optional explicit bottom-chord section; if omitted auto-sized from the span."},
+                "web_section": {"type": "string", "description": "Optional explicit web section; if omitted a light angle is auto-sized."},
+                "arch_chord": {"type": "string", "enum": ["top", "bottom"], "default": "top", "description": "'top' = bowstring (arch on top, straight deck at z=0); 'bottom' = arch below with a straight deck above at z=rise."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "check_section_proportions",
+        "description": "Pure offline sanity check (no Robot needed): flags bars whose span/depth ratio is far outside structural norms (beams/chords ~10-25, columns ~8-40). Pass any structure spec dict (the same {nodes, bars} shape the create_* template tools accept) — useful to validate a hand-built spec BEFORE building it, or to review the auto-sized sections of a just-built model.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spec": {"type": "object", "description": "Structure spec dict: {\"nodes\": [{\"id\",\"x\",\"y\",\"z\"}], \"bars\": [{\"id\",\"n1\",\"n2\",\"section\"}]}."},
+            },
+            "required": ["spec"],
         },
     },
     {
@@ -551,8 +579,8 @@ TOOL_SCHEMAS = [
                 "height": {"type": "number", "default": 5.0, "description": "Tank height in meters."},
                 "segments": {"type": "integer", "default": 16, "description": "Number of polygon segments around the circle (16-32 for a smooth cylinder)."},
                 "ring_levels": {"type": "integer", "default": 2, "description": "Number of horizontal rings including base and top (add mid rings for tall tanks)."},
-                "section_vertical": {"type": "string", "default": "IPE 200", "description": "Section for the vertical columns."},
-                "section_ring": {"type": "string", "default": "IPE 200", "description": "Section for the circumferential ring beams."},
+                "section_vertical": {"type": "string", "description": "Optional explicit section for the vertical columns; if omitted auto-sized from the tank height."},
+                "section_ring": {"type": "string", "description": "Optional explicit section for the circumferential ring beams; if omitted auto-sized from the tank diameter."},
             },
             "required": ["radius", "height"],
         },
@@ -622,7 +650,7 @@ TOOL_SCHEMAS = [
                 "normal": {"type": "string", "enum": ["X", "Y", "Z"], "default": "Y", "description": "Panel plane normal: Y=horizontal slab (X-Z plane), X or Z = wall."},
                 "divisions_x": {"type": "integer", "default": 4},
                 "divisions_z": {"type": "integer", "default": 4},
-                "section": {"type": "string", "default": "IPE 100"},
+                "section": {"type": "string", "description": "Optional explicit grillage-bar section; if omitted auto-sized from the panel's smaller plan dimension."},
                 "diagonals": {"type": "boolean", "default": False},
             },
             "required": ["panel_id"],
@@ -1075,7 +1103,7 @@ class ToolExecutor:
         return {"status": "ok", "node_id": node_id, "x": x, "y": y, "z": z}
 
     def _tool_create_bar(
-        self, bar_id: int, start_node: int, end_node: int, section_name: str = "HEA 200"
+        self, bar_id: int, start_node: int, end_node: int, section_name: str
     ) -> dict:
         self._ensure_robot()
         self.robot.create_bar(bar_id, start_node, end_node, section_name)
@@ -1549,8 +1577,8 @@ class ToolExecutor:
     def _tool_create_rectangular_grid_frame(
         self, levels: int = 2, bays_x: int = 2, bays_y: int = 2,
         bay_width_x: float = 5.0, bay_width_y: float = 5.0,
-        level_height: float = 3.5, column_section: str = "HEB 200",
-        beam_x_section: str = "IPE 300", beam_y_section: str = "IPE 300",
+        level_height: float = 3.5, column_section: str = None,
+        beam_x_section: str = None, beam_y_section: str = None,
     ) -> dict:
         self._ensure_robot()  # [WP1 fix]
         summary = self.robot.create_rectangular_grid_frame(
@@ -1563,8 +1591,8 @@ class ToolExecutor:
 
     def _tool_create_truss(
         self, span: float = 12.0, height: float = 2.0, panels: int = 6,
-        top_section: str = "IPE 200", bottom_section: str = "IPE 200",
-        web_section: str = "L 50x50x5",
+        top_section: str = None, bottom_section: str = None,
+        web_section: str = None,
     ) -> dict:
         self._ensure_robot()  # [WP1 fix]
         summary = self.robot.create_truss(
@@ -1575,8 +1603,8 @@ class ToolExecutor:
 
     def _tool_create_braced_frame(
         self, height: float = 6.0, width: float = 6.0,
-        column_section: str = "HEB 200", beam_section: str = "IPE 360",
-        brace_section: str = "IPE 200",
+        column_section: str = None, beam_section: str = None,
+        brace_section: str = None,
     ) -> dict:
         self._ensure_robot()  # [WP1 fix]
         summary = self.robot.create_braced_frame(
@@ -1584,6 +1612,25 @@ class ToolExecutor:
             beam_section=beam_section, brace_section=brace_section,
         )
         return {"status": "ok", **summary}
+
+    def _tool_create_arch_truss(
+        self, span: float = 30.0, rise: float = 5.0, panels: int = 10,
+        top_section: str = None, bottom_section: str = None,
+        web_section: str = None, arch_chord: str = "top",
+    ) -> dict:
+        self._ensure_robot()  # [Part A] bowstring / arch truss template
+        summary = self.robot.create_arch_truss(
+            span=span, rise=rise, panels=panels, top_section=top_section,
+            bottom_section=bottom_section, web_section=web_section,
+            arch_chord=arch_chord,
+        )
+        return {"status": "ok", **summary}
+
+    def _tool_check_section_proportions(self, spec: dict) -> dict:
+        # [Part B] Pure offline check — no Robot connection required.
+        warnings = check_section_proportions(spec or {})
+        return {"status": "ok", "warning_count": len(warnings),
+                "section_proportion_warnings": warnings}
 
     # ------------------------------------------------------------------ #
     # Phase 1: element modification (iterative design)
@@ -1716,7 +1763,7 @@ class ToolExecutor:
     def _tool_create_cylindrical_tank(
         self, radius: float = 2.5, height: float = 5.0,
         segments: int = 16, ring_levels: int = 2,
-        section_vertical: str = "IPE 200", section_ring: str = "IPE 200",
+        section_vertical: str = None, section_ring: str = None,
     ) -> dict:
         self._ensure_robot()
         summary = self.robot.create_cylindrical_tank(
@@ -1812,7 +1859,7 @@ class ToolExecutor:
         self, panel_id: int, x: float = 0.0, y: float = 0.0, z: float = 0.0,
         width: float = 4.0, height: float = 3.0, normal: str = "Y",
         divisions_x: int = 4, divisions_z: int = 4,
-        section: str = "IPE 100", diagonals: bool = False,
+        section: str = None, diagonals: bool = False,
     ) -> dict:
         self._ensure_robot()
         return {"status": "ok", **self.robot.create_panel(

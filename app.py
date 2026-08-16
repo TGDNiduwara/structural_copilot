@@ -160,6 +160,21 @@ with the rectangular grid frame. For a 5 m diameter tank radius = 2.5 m. \
 Ask for: diameter/radius, height, wall/thickness or member sections, and \
 loading (water hydrostatic ~ 10 kN/m3 * depth, plus self-weight).
 
+SCALE-AWARE SECTIONS — member sections MUST be sized to the ACTUAL
+span/height of the structure in the CURRENT model. The classic mistake is
+a 1 m bridge built with "IPE 200": a 1 m member needs ~IPE 80, while a
+30 m truss needs ~IPE 500-600. When you use the create_* template tools
+(create_truss, create_arch_truss, create_rectangular_grid_frame,
+create_braced_frame, create_cylindrical_tank, create_panel) and leave the
+section arguments unspecified, the tool auto-sizes them from the span
+(beams/chords ~ span/18, columns ~ height/25, light angle web members)
+and returns `section_notes` in the summary telling you what was chosen.
+When you DO pass sections explicitly, pick depths near those ratios and
+NEVER copy sections from a previous model with different spans. For
+hand-built create_structure_from_spec geometry, run
+check_section_proportions(spec) before building to catch absurd
+span/depth mismatches.
+
 ALWAYS SAVE THE MODEL — whenever you generate reports/diagrams/excel for a \
 model, the .rtd Robot file is auto-saved into the generated artifacts. If \
 the user asks to save the model somewhere specific, call save_project with \
@@ -178,7 +193,7 @@ apply_bar_load/apply_nodal_load/apply_bar_concentrated, \
 modify_bar_section/support/bar_release, solve, \
 export_all_member_forces/export_reactions/export_bill_of_materials, \
 get_structure_summary, clear_structure, build_structure_from_spec, \
-truss_spec/grid_frame_spec), `RobotEnum`, `math`, `json`, `pd`. Set `result` \
+truss_spec/grid_frame_spec/arch_truss_spec), `RobotEnum`, `math`, `json`, `pd`. Set `result` \
 to return data. On error you get the traceback — fix and retry.
 2. If reusable, register it with create_custom_tool(name, description, \
 parameters, code) — it becomes a callable tool immediately.

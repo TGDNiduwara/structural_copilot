@@ -30,6 +30,10 @@ import time
 from dataclasses import dataclass
 from typing import Optional, List, Tuple, Dict, Any
 
+from tools.geometry_primitives import (
+    nodes_along_curve, connect_chords, radial_ring, circular_arc_fn)
+from tools.section_sizing import suggest_section, check_section_proportions
+
 import pandas as pd
 
 try:
@@ -975,6 +979,41 @@ class RobotBridge:
                     "case id."
                 )
             logger.info("Using pre-existing load case %s.", case_id)
+
+        # [H2 DIAGNOSTIC - temporary] Verify the case number Robot actually
+        # assigned matches the requested case_id. If CreateSimple silently
+        # renumbers, or the FIX-R4 fallback hit a T2 auto-created proxy,
+        # apply_bar_load/solve/export all operate on the WRONG case -> zeros.
+        try:
+            actual = int(created.Number) if created is not None else None
+        except Exception as exc:  # noqa: BLE001
+            actual = '<err %s>' % exc
+        if created is not None and actual != int(case_id):
+            logger.error(
+                'H2DIAG: CreateSimple requested case %s but Robot reported Number=%s'
+                ' - load/export may target the wrong case!', case_id, actual)
+        else:
+            logger.info(
+                'H2DIAG: case %s Number readback = %s (requested %s).',
+                case_id, actual, case_id)
+        try:
+            logger.info('H2DIAG: cases.Exist(%s) = %s', case_id,
+                        bool(cases.Exist(int(case_id))))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('H2DIAG: cases.Exist probe failed: %s', exc)
+        try:
+            coll = cases.GetAll()
+            n = int(coll.Count) if coll is not None else 0
+            nums = []
+            for k in range(1, n + 1):
+                try:
+                    nums.append(int(coll.Get(k).Number))
+                except Exception:
+                    continue
+            logger.info('H2DIAG: existing case numbers: %s', nums)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('H2DIAG: case enumeration failed: %s', exc)
+
         return case_id
 
     @com_thread_safe
@@ -1909,7 +1948,7 @@ class RobotBridge:
         normal: str = "Y",
         divisions_x: int = 4,
         divisions_z: int = 4,
-        section: str = "IPE 100",
+        section: str = None,
         diagonals: bool = False,
     ) -> dict:
         """
@@ -1919,8 +1958,16 @@ class RobotBridge:
         `divisions_x` x `divisions_z` cells. This is the standard
         engineering substitute for plate/slab bending and is fully
         supported by the verified bar pipeline.
+
+        `section` defaults to a scale-appropriate auto-size
+        (``suggest_section`` on the panel's smaller plan dimension — the
+        grillage bars bend in both directions) unless given explicitly.
         """
         self._ensure_connected()
+        if not section:
+            # [Part B] Scale-appropriate starting section for the grillage.
+            span_m = min(float(width), float(height))
+            section = suggest_section("beam", span_m, "IPE")
         dx = max(1, int(divisions_x))
         dz = max(1, int(divisions_z))
         normal = str(normal).upper()
@@ -2653,6 +2700,14 @@ class RobotBridge:
             )
 
         summary = self.get_structure_summary()
+        # [Part B] Scale-appropriateness safety net (pure, no COM): flag
+        # egregious span/depth mismatches (e.g. a 1m beam on a fixed
+        # "IPE 200"). Warnings only — never an exception. The agent can
+        # inspect these and re-size the section if it wants to.
+        summary["section_proportion_warnings"] = check_section_proportions(spec)
+        section_notes = spec.get("__section_notes") or []
+        if section_notes:
+            summary["section_notes"] = section_notes
         summary["status"] = "ok"
         return summary
 
@@ -2808,15 +2863,28 @@ class RobotBridge:
         bay_width_x: float = 5.0,
         bay_width_y: float = 5.0,
         level_height: float = 3.5,
-        column_section: str = "HEB 200",
-        beam_x_section: str = "IPE 300",
-        beam_y_section: str = "IPE 300",
+        column_section: str = None,
+        beam_x_section: str = None,
+        beam_y_section: str = None,
     ) -> Dict[str, Any]:
         """Spec for a 3D rectangular grid moment frame (columns + floor beams
-        with pinned column bases)."""
+        with pinned column bases).
+
+        Sections default to scale-appropriate auto-sizes via
+        ``suggest_section`` (columns slenderness-sized on the storey height,
+        beams span/18 on their bay width) whenever not given explicitly;
+        explicit sections always win.
+        """
         levels = max(1, int(levels))
         bx = max(1, int(bays_x))
         by = max(1, int(bays_y))
+        notes: List[str] = []
+        column_section = column_section or suggest_section(
+            "column", float(level_height), "HEB", notes=notes)
+        beam_x_section = beam_x_section or suggest_section(
+            "beam", float(bay_width_x), "IPE", notes=notes)
+        beam_y_section = beam_y_section or suggest_section(
+            "beam", float(bay_width_y), "IPE", notes=notes)
         xs = [i * bay_width_x for i in range(bx + 1)]
         ys = [j * bay_width_y for j in range(by + 1)]
         zs = [l * level_height for l in range(levels + 1)]
@@ -2857,57 +2925,81 @@ class RobotBridge:
 
         supports = [{"node": nid(ix, iy, 0), "type": "pinned"}
                     for ix in range(bx + 1) for iy in range(by + 1)]
-        return {"project": "3D", "nodes": nodes, "bars": bars,
+        spec = {"project": "3D", "nodes": nodes, "bars": bars,
                 "supports": supports, "__tpl": "rectangular_grid_frame"}
+        if notes:
+            spec["__section_notes"] = notes
+        return spec
 
     @staticmethod
     def truss_spec(span: float = 12.0, height: float = 2.0, panels: int = 6,
-                   top_section: str = "IPE 200", bottom_section: str = "IPE 200",
-                   web_section: str = "L 50x50x5") -> Dict[str, Any]:
+                   top_section: str = None, bottom_section: str = None,
+                   web_section: str = None) -> Dict[str, Any]:
         """Spec for a planar Pratt truss in the X-Z plane (y = 0), top and
-        bottom chords joined by verticals and diagonals, pinned at both ends."""
+        bottom chords joined by verticals and diagonals, pinned at both ends.
+
+        Sections default to scale-appropriate auto-sizes via
+        ``suggest_section`` (chords span/18, light angle web) whenever a
+        section is not given explicitly; explicit sections always win and
+        are never overridden.
+        """
         n = max(2, int(panels))
-        dx = span / n
-        nodes, nid_counter = [], [0]
+        notes: List[str] = []
+        top_section = top_section or suggest_section(
+            "truss_chord", span, "IPE", notes=notes)
+        bottom_section = bottom_section or suggest_section(
+            "truss_chord", span, "IPE", notes=notes)
+        web_section = web_section or suggest_section(
+            "web", span, "L", notes=notes)
 
-        def N(i, top):
-            nid_counter[0] += 1
-            nodes.append({
-                "id": nid_counter[0], "x": round(i * dx, 6), "y": 0.0,
-                "z": height if top else 0.0,
-            })
-            return nid_counter[0]
+        # Flat chords via the composable primitives. ``xs`` is precomputed
+        # so node x-coordinates match the historical ``round(i*dx, 6)``
+        # layout exactly (the index k is reconstructed from t).
+        xs = [round(i * span / n, 6) for i in range(n + 1)]
 
-        top = [N(i, True) for i in range(n + 1)]
-        bot = [N(i, False) for i in range(n + 1)]
+        def top_fn(t: float):
+            k = min(n, max(0, int(round(t * n))))
+            return (xs[k], 0.0, float(height))
 
-        bars, bid = [], [0]
+        def bot_fn(t: float):
+            k = min(n, max(0, int(round(t * n))))
+            return (xs[k], 0.0, 0.0)
 
-        def B(n1, n2, section):
-            bid[0] += 1
-            bars.append({"id": bid[0], "n1": n1, "n2": n2, "section": section})
-
-        for i in range(n):
-            B(top[i], top[i + 1], top_section)
-            B(bot[i], bot[i + 1], bottom_section)
-        for i in range(n + 1):
-            B(top[i], bot[i], web_section)
-        for i in range(n):
-            B(top[i], bot[i + 1], web_section)
-            B(top[i + 1], bot[i], web_section)
-
-        return {"project": "3D", "nodes": nodes, "bars": bars,
-                "supports": [{"node": bot[0], "type": "pinned"},
-                             {"node": bot[-1], "type": "pinned"}],
+        top = nodes_along_curve(top_fn, n + 1, start_id=1)
+        bot = nodes_along_curve(bot_fn, n + 1, start_id=n + 2)
+        bars = connect_chords(
+            [nd["id"] for nd in top], [nd["id"] for nd in bot],
+            web_section, pattern="pratt",
+            chord_a_section=top_section, chord_b_section=bottom_section,
+            start_id=1)
+        spec = {"project": "3D", "nodes": top + bot, "bars": bars,
+                "supports": [{"node": bot[0]["id"], "type": "pinned"},
+                             {"node": bot[-1]["id"], "type": "pinned"}],
                 "__tpl": "truss"}
+        if notes:
+            spec["__section_notes"] = notes
+        return spec
 
     @staticmethod
     def braced_frame_spec(height: float = 6.0, width: float = 6.0,
-                          column_section: str = "HEB 200",
-                          beam_section: str = "IPE 360",
-                          brace_section: str = "IPE 200") -> Dict[str, Any]:
+                          column_section: str = None,
+                          beam_section: str = None,
+                          brace_section: str = None) -> Dict[str, Any]:
         """Spec for a single-bay braced frame (two columns, top beam, and a
-        diagonal brace) in the X-Z plane, pinned bases."""
+        diagonal brace) in the X-Z plane, pinned bases.
+
+        Sections default to scale-appropriate auto-sizes via
+        ``suggest_section`` (columns slenderness-sized on the storey height,
+        beam span/18 on the bay width, brace on the diagonal length) whenever
+        not given explicitly; explicit sections always win.
+        """
+        notes: List[str] = []
+        column_section = column_section or suggest_section(
+            "column", float(height), "HEB", notes=notes)
+        beam_section = beam_section or suggest_section(
+            "beam", float(width), "IPE", notes=notes)
+        brace_section = brace_section or suggest_section(
+            "brace", float(math.hypot(width, height)), "IPE", notes=notes)
         nodes = [
             {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
             {"id": 2, "x": width, "y": 0.0, "z": 0.0},
@@ -2920,10 +3012,13 @@ class RobotBridge:
             {"id": 3, "n1": 3, "n2": 4, "section": beam_section},
             {"id": 4, "n1": 1, "n2": 4, "section": brace_section},
         ]
-        return {"project": "3D", "nodes": nodes, "bars": bars,
+        spec = {"project": "3D", "nodes": nodes, "bars": bars,
                 "supports": [{"node": 1, "type": "pinned"},
                              {"node": 2, "type": "pinned"}],
                 "__tpl": "braced_frame"}
+        if notes:
+            spec["__section_notes"] = notes
+        return spec
 
     @staticmethod
     def cylindrical_tank_spec(
@@ -2931,8 +3026,8 @@ class RobotBridge:
         height: float = 5.0,
         segments: int = 16,
         ring_levels: int = 2,
-        section_vertical: str = "IPE 200",
-        section_ring: str = "IPE 200",
+        section_vertical: str = None,
+        section_ring: str = None,
     ) -> Dict[str, Any]:
         """
         [TANK-FIX] Spec for a FACETED CYLINDRICAL water-tank frame — a
@@ -2940,29 +3035,34 @@ class RobotBridge:
         connected by vertical columns and circumferential ring beams, with
         pinned base supports. This gives a true cylindrical geometry (not a
         square box). Ring levels count includes the base and top.
+
+        The ring geometry is built with the shared ``radial_ring`` primitive
+        (constant radius -> cylinder). Sections default to scale-appropriate
+        auto-sizes via ``suggest_section`` (vertical members on the tank
+        height, ring members on the tank diameter) whenever not given
+        explicitly; explicit sections always win.
         """
         segs = max(6, int(segments))
         rings = max(2, int(ring_levels))
         r = float(radius)
         h = float(height)
+        notes: List[str] = []
+        section_vertical = section_vertical or suggest_section(
+            "beam", h, "IPE", notes=notes)
+        section_ring = section_ring or suggest_section(
+            "beam", 2.0 * r, "IPE", notes=notes)
 
-        def z_at(ring: int) -> float:
-            return round(h * ring / (rings - 1), 6)
+        def center_fn(ratio: float):
+            # Reconstruct the historical ring index from the ratio so node
+            # ids and z-coordinates stay byte-identical to the old code.
+            k = int(round(ratio * (rings - 1)))
+            return (0.0, 0.0, round(h * k / (rings - 1), 6))
+
+        nodes = radial_ring(center_fn, lambda ratio: r, segs, rings,
+                            start_id=1)
 
         def nid(ring: int, seg: int) -> int:
             return ring * segs + seg + 1
-
-        nodes = []
-        for ring in range(rings):
-            z = z_at(ring)
-            for seg in range(segs):
-                theta = 2.0 * math.pi * seg / segs
-                nodes.append({
-                    "id": nid(ring, seg),
-                    "x": round(r * math.cos(theta), 6),
-                    "y": round(r * math.sin(theta), 6),
-                    "z": z,
-                })
 
         bars = []
         bid = 0
@@ -2982,8 +3082,11 @@ class RobotBridge:
                 B(nid(ring, seg), nid(ring, (seg + 1) % segs), section_ring)
 
         supports = [{"node": nid(0, seg), "type": "pinned"} for seg in range(segs)]
-        return {"project": "3D", "nodes": nodes, "bars": bars,
+        spec = {"project": "3D", "nodes": nodes, "bars": bars,
                 "supports": supports, "__tpl": "cylindrical_tank"}
+        if notes:
+            spec["__section_notes"] = notes
+        return spec
 
     def create_cylindrical_tank(self, **kwargs) -> Dict[str, Any]:
         return self.build_structure_from_spec(
@@ -2997,6 +3100,75 @@ class RobotBridge:
 
     def create_braced_frame(self, **kwargs) -> Dict[str, Any]:
         return self.build_structure_from_spec(self.braced_frame_spec(**kwargs))
+
+    @staticmethod
+    def arch_truss_spec(
+        span: float = 30.0,
+        rise: float = 5.0,
+        panels: int = 10,
+        top_section: str = None,
+        bottom_section: str = None,
+        web_section: str = None,
+        arch_chord: str = "top",
+    ) -> Dict[str, Any]:
+        """Spec for a planar arch truss in the X-Z plane (y = 0), pinned at
+        both bottom ends.
+
+        The arched chord follows a circular arc (``circular_arc_fn``) rising
+        from 0 to ``rise`` at mid-span; the other chord is straight.
+        ``arch_chord`` selects which chord is arched:
+
+          "top"    -> top chord arched, bottom chord straight on z=0
+                       (classic bowstring / tied-arch truss)
+          "bottom" -> bottom chord arched, top chord straight at z=rise
+                       (arch bridge with a straight deck above the arch)
+
+        The two chains are produced by ``nodes_along_curve`` and joined by
+        ``connect_chords`` exactly like the flat Pratt truss. Sections
+        default to scale-appropriate auto-sizes via ``suggest_section``
+        (chords span/18, light angle web) whenever not given explicitly.
+        """
+        n = max(2, int(panels))
+        rise = max(float(rise), 0.0)
+        notes: List[str] = []
+        top_section = top_section or suggest_section(
+            "truss_chord", span, "IPE", notes=notes)
+        bottom_section = bottom_section or suggest_section(
+            "truss_chord", span, "IPE", notes=notes)
+        web_section = web_section or suggest_section(
+            "web", span, "L", notes=notes)
+
+        arc = circular_arc_fn(float(span), rise)
+        if str(arch_chord).lower() == "bottom":
+            # Arched bottom chord + straight top chord (deck above the arch).
+            bot_fn = arc
+
+            def top_fn(t: float, _span=float(span), _rise=rise):
+                return (round(t * _span, 6), 0.0, _rise)
+        else:
+            # Straight bottom chord + arched top chord (bowstring).
+            top_fn = arc
+
+            def bot_fn(t: float, _span=float(span)):
+                return (round(t * _span, 6), 0.0, 0.0)
+
+        top = nodes_along_curve(top_fn, n + 1, start_id=1)
+        bot = nodes_along_curve(bot_fn, n + 1, start_id=n + 2)
+        bars = connect_chords(
+            [nd["id"] for nd in top], [nd["id"] for nd in bot],
+            web_section, pattern="pratt",
+            chord_a_section=top_section, chord_b_section=bottom_section,
+            start_id=1)
+        spec = {"project": "3D", "nodes": top + bot, "bars": bars,
+                "supports": [{"node": bot[0]["id"], "type": "pinned"},
+                             {"node": bot[-1]["id"], "type": "pinned"}],
+                "__tpl": "arch_truss"}
+        if notes:
+            spec["__section_notes"] = notes
+        return spec
+
+    def create_arch_truss(self, **kwargs) -> Dict[str, Any]:
+        return self.build_structure_from_spec(self.arch_truss_spec(**kwargs))
 
 
 # --------------------------------------------------------------------------
