@@ -288,6 +288,56 @@ candidates). The batch tools import into `batch/` only — `batch/` never
 imports `agent/tool_registry.py`, preserving the isolation from Phase 0.
 
 
+## Eurocode member checks (EN 1993) — v1 scope and explicit caveats
+
+The repo adds Eurocode-graded member checks on top of the existing elastic
+utilization screen (see `eurocode_scope.md` for the locked decisions D1–D8):
+
+- **Bracing data model** (`tools/bracing_registry.py`): Robot has no bracing
+  concept, so unbraced lengths are an engineer-input layer
+  (`set_bracing` / `get_bracing`). **Default-and-warn**: any check running
+  without an explicit `Lcr_*` uses the FULL bar length and tags the result
+  `lcr_*_source: defaulted` with a warning — a default is a conservative
+  assumption, NOT a verified bracing condition.
+- **Classification** (`tools/section_classification.py`): EN 1993-1-1
+  Table 5.2, Class 1–3 fully supported; **Class 4 -> NOT_CHECKABLE**
+  (no EN 1993-1-5 effective width in v1). Dimensions are read LIVE from
+  Robot (`GetValue` 12/13/14/15/16 = h/b/tw/tf/r — probe-verified).
+- **LTB** (`tools/ltb_check.py`): **EN 1993-1-1 §6.3.2.2 (general method)
+  only — §6.3.2.3 NOT implemented.** Doubly-symmetric rolled I-sections
+  only (ShapeType-verified). It/Iw are not exposed by Robot so they are
+  computed from the live geometry (It within ~10%, Iw <1% of published
+  values). C1 comes from the exported moment shape (ENV 1993-1-1 Annex F —
+  withdrawn-annex material used as standard practice, stated, never
+  hidden); load assumed at the shear center. Beam-column interaction per
+  §6.3.3 eqs. (6.61)/(6.62) with Annex B factors. Non-I / Class 4 /
+  unavailable-dimension sections -> NOT_CHECKABLE (never a guessed value).
+- **Connections** (`tools/connection_check.py`): **simple shear only**
+  (fin plate / double angle / end plate), EN 1993-1-8 §3 bolts
+  (Table 3.4), §3.10.2 block shear, §4.5.3 fillet welds. **No moment
+  connections, no base plates in v1.** The governing failure mode is always
+  named (bolt shear / bearing / block shear / weld). Block-shear geometry
+  is a documented v1 single-line-end-bolt model, flagged for validation
+  against the SCI "Green Book" numbers (D8).
+- **Partial factors** are EN recommended values (γM0=γM1=1.0, γM2=1.25),
+  configurable constants in `tools/eurocode_params.py` (National-Annex
+  override point). Grades S235/S275/S355/S460 with EN 10025-2
+  thickness-dependent fy/fu; Robot's material RE is the source of truth but
+  is capped by the EN table at the actual flange thickness.
+- **Integration** (`check_eurocode_members`): per-bar worst-governing
+  across elastic / Euler buckling / LTB / connection with the governing
+  check named. NOT_CHECKABLE means "not certified", never a silent pass.
+- **Validation oracles (D8)**: the Designers' Guide to EN 1993-1-1 LTB
+  worked example and the SCI "Green Book" simple-joint numbers are the
+  agreed targets; the tests currently carry independent hand calcs (swap
+  points clearly marked) until the published numbers are pasted in.
+
+KNOWN BUILD DEFECT (separately tracked — see `eurocode_scope.md` §6):
+a stale attached Robot session and PINNED supports both return zero solver
+results on this build; live Eurocode tests therefore use a fresh instance
+and fixed/roller supports (the simply-supported closed-form Mcr is
+conservative for the stiffer fixed end).
+
 ## Extending
 
 - Add new tool methods to the relevant `tools/*.py` bridge class.

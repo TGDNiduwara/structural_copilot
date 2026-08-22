@@ -54,6 +54,8 @@ class ResultStore:
         reactions: Optional[pd.DataFrame],
         boq: Optional[pd.DataFrame],
         utilization: Optional[pd.DataFrame] = None,
+        ltb_status: Optional[str] = None,
+        connection_status: Optional[str] = None,
     ) -> str:
         """Saves a snapshot under `key` (overwrites if the key exists) and
         returns a one-line confirmation summary."""
@@ -110,6 +112,8 @@ class ResultStore:
             "max_abs_my_knm": max_my,
             "max_utilization": max_util,
             "governing_check": gov_check,
+            "ltb_status": ltb_status,
+            "connection_status": connection_status,
             "n_pass": n_pass,
             "n_fail": n_fail,
             "n_not_checkable": n_uncheckable,
@@ -184,6 +188,10 @@ class ResultStore:
                 verdict = ("PASS" if snap.get("n_fail", 0) == 0 else "FAIL")
                 bits.append(f"util {snap['max_utilization']:.2f} "
                             f"({snap.get('governing_check')}) [{verdict}]")
+            if snap.get("ltb_status"):
+                bits.append(f"ltb {snap['ltb_status']}")
+            if snap.get("connection_status"):
+                bits.append(f"conn {snap['connection_status']}")
             lines.append(" | ".join(bits))
         return "\n".join(lines)
 

@@ -33,6 +33,11 @@ from typing import Optional, List, Tuple, Dict, Any
 from tools.geometry_primitives import (
     nodes_along_curve, connect_chords, radial_ring, circular_arc_fn)
 from tools.section_sizing import suggest_section, check_section_proportions
+from tools.bracing_registry import BracingRegistry
+from tools.connection_check import (ConnectionRegistry,
+                                    check_simple_shear_connection)
+from tools.section_data import read_section_props
+from tools.eurocode_params import fu_for_grade
 
 import pandas as pd
 
@@ -232,6 +237,13 @@ class RobotBridge:
         self._bar_endpoints: Dict[int, Tuple[int, int]] = {}
         # [WP4] Bookkeeping for grillage panels (node grid + bar ids).
         self._panel_meta: Dict[int, Dict[str, Any]] = {}
+        # [EUROCODE Phase A] Engineer-specified bracing / unbraced lengths
+        # side-table (Robot has no such property). Session-scoped; the
+        # batch runner reaches it via bridge.bracing.
+        self.bracing: BracingRegistry = BracingRegistry()
+        # [EUROCODE Phase D] Engineer-specified connection side-table
+        # (Robot has no connection-design server).
+        self.connections: ConnectionRegistry = ConnectionRegistry()
         # [OBS] PID of the robot.exe process this bridge is connected to
         # (None when not connected). Captured at connect() for observability.
         self.connected_pid: Optional[int] = None
@@ -602,6 +614,8 @@ class RobotBridge:
         self._section_assignments.clear()
         self._node_coords.clear()
         self._bar_endpoints.clear()
+        self.bracing.clear()
+        self.connections.clear()
         logger.info("New 2D frame project created.")
 
     @com_thread_safe
@@ -614,6 +628,8 @@ class RobotBridge:
         self._section_assignments.clear()
         self._node_coords.clear()
         self._bar_endpoints.clear()
+        self.bracing.clear()
+        self.connections.clear()
         logger.info("New 3D frame project created.")
 
     # ------------------------------------------------------------------ #
@@ -1617,6 +1633,160 @@ class RobotBridge:
                 continue
         return out
 
+    # ------------------------------------------------------------------ #
+    # [EUROCODE Phase A] Bracing / unbraced-length side-table
+    # ------------------------------------------------------------------ #
+
+    def _real_bar_ids(self) -> List[int]:
+        """Real, existing bar numbers (T2: never trust a bare .Get()).
+
+        Bare ``.Get(n)`` on Robot collections SILENTLY auto-creates proxies
+        for nonexistent IDs on this build — validation always goes through
+        a real enumeration.
+        """
+        out: List[int] = []
+        try:
+            coll = self.structure.Bars.GetAll()
+            n = int(coll.Count) if coll is not None else 0
+        except Exception:
+            n = 0
+        for i in range(1, n + 1):
+            try:
+                out.append(int(coll.Get(i).Number))
+            except Exception:
+                continue
+        return out
+
+    @com_thread_safe
+    def set_bar_bracing(
+        self,
+        bar_id: int,
+        lcr_y: Optional[float] = None,
+        lcr_z: Optional[float] = None,
+        lcr_lt: Optional[float] = None,
+        brace_points: Optional[List[float]] = None,
+    ) -> Dict[str, Any]:
+        """[EUROCODE Phase A] Records engineer-specified unbraced lengths /
+        bracing points for a bar in the session bracing registry.
+
+        Robot has no bracing property — this is an explicit input layer.
+        The bar is validated against real ids (T2) and its physical length
+        is read so the resolved summary can tag defaults and suspicious
+        K-factors. See tools.bracing_registry for the default-and-warn
+        contract (an unspecified value resolves to the FULL bar length with
+        a warning, which is a conservative assumption — NOT a verified
+        bracing condition).
+        """
+        self._ensure_connected()
+        bar_id = int(bar_id)
+        if bar_id not in self._real_bar_ids():
+            raise ValueError(
+                f"bar {bar_id} does not exist in the model "
+                f"(real bars: {sorted(self._real_bar_ids())[:10]}"
+                f"{'...' if len(self._real_bar_ids()) > 10 else ''}).")
+        length_m = self._bar_length(bar_id)
+        self.bracing.set_bracing(
+            bar_id, lcr_y=lcr_y, lcr_z=lcr_z, lcr_lt=lcr_lt,
+            brace_points=brace_points, bar_length=length_m)
+        return self.bracing.resolve(bar_id, length_m)
+
+    @com_thread_safe
+    def get_bar_bracing(self, bar_id: Optional[int] = None) -> Dict[str, Any]:
+        """[EUROCODE Phase A] Resolved bracing summary for one bar (or all
+        bars that have any entry, plus all real bars when none are set).
+
+        Each row carries the resolved Lcr values with their source
+        ("explicit" | "brace_points" | "defaulted") and any warnings, so
+        results are traceable to what was specified vs assumed.
+        """
+        self._ensure_connected()
+        real = self._real_bar_ids()
+        if bar_id is not None:
+            bar_id = int(bar_id)
+            if bar_id not in real:
+                raise ValueError(
+                    f"bar {bar_id} does not exist in the model "
+                    f"(real bars: {sorted(real)[:10]}).")
+            return self.bracing.resolve(bar_id, self._bar_length(bar_id))
+        rows = []
+        for bid in sorted(real):
+            rows.append(self.bracing.resolve(bid, self._bar_length(bid)))
+        return {"bars": rows,
+                "note": "lcr_*_source 'defaulted' = conservative full-length "
+                        "assumption, not a verified bracing condition."}
+
+    # ------------------------------------------------------------------ #
+    # [EUROCODE Phase D] Simple-shear connection side-table + checks
+    # ------------------------------------------------------------------ #
+
+    @com_thread_safe
+    def define_connection(self, bar_id: int, joint_end: str = "end",
+                          **kwargs) -> Dict[str, Any]:
+        """[EUROCODE Phase D] Stores a simple-shear connection definition
+        (fin plate / double angle / end plate) in the session side-table.
+
+        Robot has no connection-design server, so this is an explicit
+        engineer-input layer. See tools.connection_check for the schema and
+        the EN 1993-1-8 checks. Multi-column bolt layouts are rejected in
+        v1 (block-shear geometry model is single-line only).
+        """
+        self._ensure_connected()
+        bar_id = int(bar_id)
+        if bar_id not in self._real_bar_ids():
+            raise ValueError(
+                f"bar {bar_id} does not exist in the model "
+                f"(real bars: {sorted(self._real_bar_ids())[:10]}).")
+        return {"bar_id": bar_id, "joint_end": str(joint_end or "end").lower(),
+                "connection": self.connections.set_connection(
+                    bar_id, joint_end, **kwargs)}
+
+    @com_thread_safe
+    def check_connection_capacity(self, bar_id: int, joint_end: str = "end",
+                                  case_id: int = 1) -> Dict[str, Any]:
+        """[EUROCODE Phase D] Checks the DEFINED connection at ``joint_end``
+        against the solved end shear (EN 1993-1-8 simple shear). Bearing on
+        the beam web uses the live section web thickness; the member grade
+        for web bearing is read from the material name when it declares an
+        EN grade (else that sub-check is skipped, honestly)."""
+        self._ensure_connected()
+        bar_id = int(bar_id)
+        if bar_id not in self._real_bar_ids():
+            raise ValueError(
+                f"bar {bar_id} does not exist in the model "
+                f"(real bars: {sorted(self._real_bar_ids())[:10]}).")
+        joint_end = str(joint_end or "end").lower()
+        conn = self.connections.get(bar_id, joint_end)
+        base = {"bar_id": bar_id, "joint_end": joint_end}
+        if conn is None:
+            return {**base, "status": "NOT_CHECKABLE",
+                    "reason": "no connection defined for this bar/joint_end "
+                              "(call define_connection first)."}
+        df = self.export_all_member_forces(case_id=int(case_id), divisions=8)
+        sub = df[df["Bar_ID"] == bar_id] if df is not None else None
+        if sub is None or sub.empty:
+            return {**base, "status": "NOT_CHECKABLE",
+                    "reason": "no force results for this case — solve first."}
+        row = sub.iloc[0] if joint_end == "start" else sub.iloc[-1]
+        fy_kn, fz_kn = float(row.get("FY_kN", 0.0)), float(row.get("FZ_kN", 0.0))
+        v_ed_n = math.hypot(fy_kn, fz_kn) * 1e3
+
+        member_fu, member_tw = None, None
+        try:
+            bar_obj = self.structure.Bars.Get(bar_id)
+            sec_name = str(bar_obj.GetLabelName(RobotEnum.I_LT_BAR_SECTION))
+            props = read_section_props(self, sec_name)
+            if props:
+                member_tw = props["tw_m"] * 1000.0
+            _fy, mat_name, _r = self._bar_strength_mpa(bar_obj)
+            member_fu = fu_for_grade(mat_name)
+        except Exception:
+            pass
+
+        res = check_simple_shear_connection(conn, v_ed_n,
+                                            member_fu_mpa=member_fu,
+                                            member_web_t_mm=member_tw)
+        return {**base, **res}
+
     def _as_combination(self, case_obj) -> Optional[Any]:
         """[P5] Returns the IRobotCaseCombination view of a case, or None.
 
@@ -2587,6 +2757,8 @@ class RobotBridge:
         self._node_coords.clear()
         self._bar_endpoints.clear()
         self._section_assignments.clear()
+        self.bracing.clear()
+        self.connections.clear()
         logger.info(
                 "clear_structure called (project_type=%s, pid=%s) - model reset "
                 "to blank %s frame.",
@@ -2723,6 +2895,8 @@ class RobotBridge:
             ) from exc
         self._section_assignments.pop(bar_id, None)
         self._bar_endpoints.pop(bar_id, None)
+        self.bracing.remove(bar_id)
+        self.connections.remove(bar_id)
         logger.info("Bar %s deleted.", bar_id)
         return f"Bar {bar_id} deleted."
 

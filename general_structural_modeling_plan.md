@@ -316,3 +316,40 @@ solid first.
 
 These four should be probed early — ideally before finalizing Phase 4–9
 scope — since the answers materially affect how much work each phase is.
+
+## 9. Eurocode member checks (EN 1993) — scope + explicit caveats
+
+Implemented on top of the elastic-utilization / Euler screening pipeline
+(see `eurocode_scope.md` for the locked decisions D1–D8 and the live-probe
+results that govern the data sources):
+
+- EN 1993-1-1 **§6.3.2.2 (general method) LTB is implemented; §6.3.2.3 is
+  NOT** (deferred). Doubly-symmetric rolled I-sections only, detected via
+  the verified ShapeType map (IPE=20, IPN=25, HEA=10, HEB=12, HEM=14).
+- **Class 1–3 sections are supported; Class 4 → NOT_CHECKABLE** (no EN
+  1993-1-5 effective width in v1). Section dimensions (h/b/tw/tf/r) are
+  read LIVE from Robot's `GetValue` map (probe-verified); It/Iw are
+  computed from the live geometry via closed forms (Robot does not expose
+  them), NOT from a data-entry table.
+- **Connections are simple shear only** (fin plate / double angle / end
+  plate), EN 1993-1-8 §3 bolts + §3.10.2 block shear + §4.5.3 fillet
+  welds. No moment connections, no base plates in v1. Block-shear geometry
+  is a documented single-line-end-bolt model flagged for validation
+  against the D8 SCI "Green Book" numbers.
+- **Bracing lengths are engineer-specified** (Robot has no bracing
+  concept); any check running without an explicit Lcr uses the full bar
+  length with an explicit warning (default-and-warn) — a default is never a
+  verified bracing condition.
+- **Partial factors are EN recommended values** (γM0=γM1=1.0, γM2=1.25) as
+  configurable constants; grades S235/S275/S355/S460 with EN 10025-2
+  thickness-dependent fy/fu (RE capped by the EN table at the flange
+  thickness).
+- Validation oracles: Designers' Guide to EN 1993-1-1 (LTB) and SCI "Green
+  Book" (connections); the current tests carry independent hand calcs with
+  clearly marked swap points until the published numbers are pasted in.
+
+Live-Robot notes (probe-verified): a stale attached session and PINNED
+supports both return zero solver results on this build — live Eurocode
+tests use a fresh instance and fixed/roller supports. This is the
+separately-tracked zero-results bug; see eurocode_scope.md §6.
+

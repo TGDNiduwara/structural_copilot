@@ -25,6 +25,8 @@ from tools.robot_tool import RobotBridge
 from tools.excel_tool import ExcelReporter
 from tools.diagram_tool import DiagramGenerator
 from tools.section_sizing import check_section_proportions
+from tools.ltb_check import check_lateral_torsional_buckling
+from tools.eurocode_members import check_eurocode_members
 from tools.word_tool import WordReporter
 from tools.pptx_tool import PowerPointReporter
 from tools.result_store import ResultStore
@@ -413,6 +415,91 @@ TOOL_SCHEMAS = [
                 "spec": {"type": "object", "description": "Structure spec dict: {\"nodes\": [{\"id\",\"x\",\"y\",\"z\"}], \"bars\": [{\"id\",\"n1\",\"n2\",\"section\"}]}."},
             },
             "required": ["spec"],
+        },
+    },
+    {
+        "name": "set_bracing",
+        "description": "[EUROCODE] Defines member unbraced lengths / bracing points for a bar (Robot has no such property — this is an explicit engineer-input layer). lcr_y / lcr_z / lcr_lt are buckling lengths in meters. When unset they default to the FULL bar length, which is a CONSERVATIVE assumption and is explicitly warned — a default is not a verified bracing condition. brace_points are intermediate bracing positions as fractions of the bar length in [0,1] (e.g. [0.5] = a purlin at mid-span) and shorten lcr_lt only. Negative lengths are rejected; lengths > 2.5x the bar length are flagged as suspicious K-factors.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bar_id": {"type": "integer", "description": "Existing bar id."},
+                "lcr_y": {"type": "number", "description": "Major-axis buckling length (m); default = full bar length (conservative)."},
+                "lcr_z": {"type": "number", "description": "Minor-axis buckling length (m); default = full bar length (conservative)."},
+                "lcr_lt": {"type": "number", "description": "Lateral-torsional unbraced length (m); default = longest sub-span from brace_points, else full bar length."},
+                "brace_points": {"type": "array", "items": {"type": "number"}, "description": "Intermediate bracing positions as fractions of bar length in [0,1], e.g. [0.5] for a mid-span purlin. Shortens lcr_lt only."},
+            },
+            "required": ["bar_id"],
+        },
+    },
+    {
+        "name": "get_bracing",
+        "description": "[EUROCODE] Returns the resolved bracing/unbraced-length data for one bar (or all bars): each Lcr value with its source ('explicit', 'brace_points', or 'defaulted' = conservative full-length assumption) plus any warnings, so results are traceable to what was actually specified vs assumed.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bar_id": {"type": "integer", "description": "Optional bar id; omit to list all bars."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "check_lateral_torsional_buckling",
+        "description": "[EUROCODE] Per-member lateral-torsional buckling + beam-column interaction check (EN 1993-1-1 §6.3.2.2 general method + §6.3.3 eqs. 6.61/6.62 with Annex B factors) for a SOLVED case. Doubly-symmetric rolled I-sections only (ShapeType-verified); It/Iw computed from live geometry; C1 from the exported moment shape (ENV Annex F); §6.3.2.3 NOT implemented. Class 4 / non-I sections return NOT_CHECKABLE with a stated reason. Lcr_LT (and Lcr_y/z for the interaction part) come from set_bracing; unset lengths default to the FULL bar length with an explicit warning — a default is not a verified bracing condition.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "case_id": {"type": "integer", "default": 1, "description": "Solved case/combination id."},
+                "bar_ids": {"type": "array", "items": {"type": "integer"}, "description": "Optional bar ids to check; omit to check all bars."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "define_connection",
+        "description": "[EUROCODE] Defines a SIMPLE SHEAR connection at a bar end (Robot has no connection-design server — this is an explicit engineer-input layer). Types: fin_plate (single shear) / double_angle (double shear) / end_plate (single shear). EN 1993-1-8 bolt (Table 3.4), block shear (§3.10.2) and fillet-weld (§4.5.3) checks apply when check_connection_capacity runs. v1 supports a single column of bolts (bolt_columns=1) and no moment connections / base plates.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bar_id": {"type": "integer", "description": "Existing bar id."},
+                "joint_end": {"type": "string", "enum": ["start", "end"], "default": "end", "description": "Which bar end the connection is at."},
+                "connection_type": {"type": "string", "enum": ["fin_plate", "double_angle", "end_plate"], "default": "fin_plate"},
+                "bolt_grade": {"type": "string", "enum": ["4.6", "5.6", "8.8", "10.9"], "default": "8.8"},
+                "bolt_diameter": {"type": "number", "default": 20, "description": "Bolt diameter in mm."},
+                "bolt_rows": {"type": "integer", "default": 2, "description": "Number of bolts in the vertical line."},
+                "pitch_mm": {"type": "number", "default": 60, "description": "p1 vertical bolt pitch (mm)."},
+                "edge_dist_mm": {"type": "number", "default": 30, "description": "e2 side edge distance (mm)."},
+                "end_dist_mm": {"type": "number", "default": 30, "description": "e1 end distance (mm)."},
+                "plate_thickness": {"type": "number", "default": 10, "description": "Fin/end plate thickness (mm)."},
+                "plate_grade": {"type": "string", "enum": ["S235", "S275", "S355", "S460"], "default": "S275"},
+                "weld_leg_mm": {"type": "number", "description": "Fillet weld leg size (mm) if the connection is welded; omitted = bolted."},
+            },
+            "required": ["bar_id"],
+        },
+    },
+    {
+        "name": "check_connection_capacity",
+        "description": "[EUROCODE] Checks a DEFINED simple shear connection (define_connection first) against the solved end shear at the joint (EN 1993-1-8 §3 bolts, §3.10.2 block shear, §4.5.3 fillet welds). Reports the governing failure mode (bolt shear / bearing / block shear / weld) with PASS/FAIL/NOT_CHECKABLE. Bearing on the beam web uses the live section web thickness; web-bearing is skipped honestly if the member grade is not an EN grade.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "bar_id": {"type": "integer", "description": "Existing bar id with a defined connection."},
+                "joint_end": {"type": "string", "enum": ["start", "end"], "default": "end"},
+                "case_id": {"type": "integer", "default": 1, "description": "Solved case/combination id."},
+            },
+            "required": ["bar_id"],
+        },
+    },
+    {
+        "name": "check_eurocode_members",
+        "description": "[EUROCODE Phase E] Worst-governing per-bar verdict across ALL checks for a SOLVED case: elastic utilization, minor-axis Euler buckling, lateral-torsional buckling (§6.3.2.2 + §6.3.3 interaction), and defined simple-shear connections (EN 1993-1-8). Each bar reports overall_status (FAIL > NOT_CHECKABLE > PASS) with the governing check named, and the four individual sub-results. NOT_CHECKABLE means 'not certified' (never a silent pass).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "case_id": {"type": "integer", "default": 1, "description": "Solved case/combination id."},
+                "bar_ids": {"type": "array", "items": {"type": "integer"}, "description": "Optional bar ids to check; omit to check all bars."},
+            },
+            "required": [],
         },
     },
     {
@@ -1632,6 +1719,85 @@ class ToolExecutor:
         return {"status": "ok", "warning_count": len(warnings),
                 "section_proportion_warnings": warnings}
 
+    def _tool_set_bracing(
+        self, bar_id: int, lcr_y: Optional[float] = None,
+        lcr_z: Optional[float] = None, lcr_lt: Optional[float] = None,
+        brace_points: Optional[list] = None,
+    ) -> dict:
+        # [EUROCODE Phase A] Explicit unbraced-length input layer.
+        self._ensure_robot()
+        resolved = self.robot.set_bar_bracing(
+            bar_id=bar_id, lcr_y=lcr_y, lcr_z=lcr_z, lcr_lt=lcr_lt,
+            brace_points=brace_points)
+        return {"status": "ok", "bracing": resolved}
+
+    def _tool_get_bracing(self, bar_id: Optional[int] = None) -> dict:
+        # [EUROCODE Phase A] Read back resolved bracing data (defaults
+        # tagged, so the engineer sees what was assumed).
+        self._ensure_robot()
+        return {"status": "ok",
+                "bracing": self.robot.get_bar_bracing(bar_id=bar_id)}
+
+    def _tool_check_lateral_torsional_buckling(
+        self, case_id: int = 1, bar_ids: Optional[list] = None,
+    ) -> dict:
+        # [EUROCODE Phase C] §6.3.2.2 LTB + §6.3.3 Annex B interaction.
+        self._ensure_robot()
+        result = check_lateral_torsional_buckling(self.robot, case_id, bar_ids)
+        return {"status": "ok", **result}
+
+    def _tool_define_connection(
+        self, bar_id: int, joint_end: str = "end",
+        connection_type: str = "fin_plate", bolt_grade: str = "8.8",
+        bolt_diameter: float = 20, bolt_rows: int = 2,
+        pitch_mm: float = 60, edge_dist_mm: float = 30,
+        end_dist_mm: float = 30, plate_thickness: float = 10,
+        plate_grade: str = "S275", weld_leg_mm: Optional[float] = None,
+    ) -> dict:
+        # [EUROCODE Phase D] Simple-shear connection input layer.
+        self._ensure_robot()
+        result = self.robot.define_connection(
+            bar_id=bar_id, joint_end=joint_end,
+            connection_type=connection_type, bolt_grade=bolt_grade,
+            bolt_diameter=bolt_diameter, bolt_rows=bolt_rows,
+            pitch_mm=pitch_mm, edge_dist_mm=edge_dist_mm,
+            end_dist_mm=end_dist_mm, plate_thickness=plate_thickness,
+            plate_grade=plate_grade, weld_leg_mm=weld_leg_mm)
+        return {"status": "ok", **result}
+
+    def _tool_check_connection_capacity(
+        self, bar_id: int, joint_end: str = "end", case_id: int = 1,
+    ) -> dict:
+        # [EUROCODE Phase D] EN 1993-1-8 simple shear connection check.
+        self._ensure_robot()
+        result = self.robot.check_connection_capacity(
+            bar_id=bar_id, joint_end=joint_end, case_id=case_id)
+        return {"status": "ok", **result}
+
+    def _tool_check_eurocode_members(
+        self, case_id: int = 1, bar_ids: Optional[list] = None,
+    ) -> dict:
+        # [EUROCODE Phase E] Worst-governing across all four checks.
+        self._ensure_robot()
+        result = check_eurocode_members(self.robot, case_id, bar_ids)
+        # Cache the worst per-bar verdicts so store_result can include the
+        # LTB / connection status in its one-line snapshot (Phase E.3).
+        bars = result.get("bars") or []
+        worst_ltb = "FAIL" if any(
+            b.get("checks", {}).get("ltb", {}).get("status") == "FAIL"
+            for b in bars) else ("NOT_CHECKABLE" if any(
+            b.get("checks", {}).get("ltb", {}).get("status") == "NOT_CHECKABLE"
+            for b in bars) else "PASS")
+        worst_conn = "FAIL" if any(
+            b.get("checks", {}).get("connection", {}).get("status") == "FAIL"
+            for b in bars) else ("NOT_CHECKABLE" if any(
+            b.get("checks", {}).get("connection", {}).get("status")
+            == "NOT_CHECKABLE" for b in bars) else "PASS")
+        self._eurocode_member_summary = {
+            "ltb_status": worst_ltb, "connection_status": worst_conn,
+        }
+        return {"status": "ok", **result}
+
     # ------------------------------------------------------------------ #
     # Phase 1: element modification (iterative design)
     # ------------------------------------------------------------------ #
@@ -1672,6 +1838,9 @@ class ToolExecutor:
             reactions=self.reactions_df,
             boq=self.boq_df,
             utilization=self.utilization_df,
+            ltb_status=(self._eurocode_member_summary or {}).get("ltb_status"),
+            connection_status=(self._eurocode_member_summary or {})
+                              .get("connection_status"),
         )
         if self.member_forces_df.empty and self.reactions_df.empty:
             message += (" Note: no exported results were cached — run "

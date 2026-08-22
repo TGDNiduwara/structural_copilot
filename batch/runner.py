@@ -35,6 +35,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from batch.buckling_check import check_euler_buckling, EULER_NOTE
 from batch.design_space import DesignSpace, DesignSpaceError
+from tools.ltb_check import check_lateral_torsional_buckling
 from batch.headless_driver import (
     HeadlessSession,
     MechanismError,
@@ -167,22 +168,68 @@ def _evaluate_candidate(
     buckling_status, buckling_pass = _buckling_for_candidate(
         session.bridge, util, eval_case_id)
 
+    # [EUROCODE Phase E] Optional LTB + connection integration when the
+    # design-space objective constraint requests them, e.g.
+    #   "max_utilization <= 1.0 AND buckling_pass == True AND
+    #    ltb_pass == True AND connection_pass == True"
+    objective = (design_space.objective or {}).get("constraint", "") or ""
+    want_ltb = "ltb_pass" in str(objective)
+    want_conn = "connection_pass" in str(objective)
+    ltb_status, ltb_pass = "PASS (not requested)", True
+    if want_ltb:
+        try:
+            ltb_res = check_lateral_torsional_buckling(
+                session.bridge, eval_case_id)
+            statuses = [r.get("status") for r in ltb_res.get("bars", [])]
+            ltb_status = ("FAIL" if "FAIL" in statuses else
+                          ("NOT_CHECKABLE" if "NOT_CHECKABLE" in statuses
+                           else "PASS"))
+            ltb_pass = "FAIL" not in statuses
+        except Exception as exc:  # noqa: BLE001
+            ltb_status = f"UNKNOWN ({exc})"
+            ltb_pass = False
+    conn_status, conn_pass = "PASS (not requested)", True
+    if want_conn:
+        defined = session.bridge.connections.all_connections()
+        if not defined:
+            conn_status = "PASS (no connections defined)"
+        else:
+            try:
+                statuses = []
+                for c in defined:
+                    r = session.bridge.check_connection_capacity(
+                        c["bar_id"], c["joint_end"], eval_case_id)
+                    statuses.append(r.get("status"))
+                conn_status = ("FAIL" if "FAIL" in statuses else
+                               ("NOT_CHECKABLE" if "NOT_CHECKABLE" in statuses
+                                else "PASS"))
+                conn_pass = "FAIL" not in statuses
+            except Exception as exc:  # noqa: BLE001
+                conn_status = f"UNKNOWN ({exc})"
+                conn_pass = False
+
     max_util = util.get("max_utilization")
     gov = util.get("governing_check")
     util_ok = (max_util is not None and max_util <= 1.0)
-    pass_fail = bool(util_ok and buckling_pass)
+    pass_fail = bool(util_ok and buckling_pass and ltb_pass and conn_pass)
     return {
         "weight_kg": weight.get("weight_kg"),
         "max_utilization": max_util,
         "governing_check": gov,
         "buckling_status": buckling_status,
+        "ltb_status": ltb_status,
+        "connection_status": conn_status,
         "pass_fail": pass_fail,
         "raw": {
             "weight": weight,
             "utilization": util,
             "buckling_status": buckling_status,
-            "note": "Elastic stress check + basic Euler buckling screening "
-                    "only - not full code compliance.",
+            "ltb_status": ltb_status,
+            "connection_status": conn_status,
+            "note": "Elastic stress + Euler buckling screening; LTB "
+                    "(§6.3.2.2) and connection (EN 1993-1-8) run only when "
+                    "the objective constraint requests ltb_pass / "
+                    "connection_pass.",
         },
     }
 def _choose_eval_case(design_space: DesignSpace) -> int:
