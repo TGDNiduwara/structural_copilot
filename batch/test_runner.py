@@ -37,13 +37,19 @@ from batch.headless_driver import (
 
 # --------------------------------------------------------------------------- #
 # Shared test spec (SPEC A from Phase 4, plus load cases/loads so the model
-# actually solves). 2D portal frame: 2 columns + 1 beam, pinned base.
+# actually solves). Portal frame: 2 columns + 1 beam, pinned base.
 # 4 column options x 3 beam options = 12 candidates.
+#
+# project is "3D" (NOT "2D"): on this Robot build, project="2D" specs built
+# via build_structure_from_spec solve to a structurally invalid frame
+# (columns carry zero force, beam not in equilibrium) - see README
+# "Known issues" (2026-08-22). The 3D portal reproduces exact portal
+# statics and is asserted by batch/test_portal_statics.py.
 # --------------------------------------------------------------------------- #
 
 SPEC = {
     "geometry": {
-        "project": "2D",
+        "project": "3D",
         "nodes": [
             {"id": 1, "x": 0, "z": 0},
             {"id": 2, "x": 0, "z": 3},

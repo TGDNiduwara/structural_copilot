@@ -119,6 +119,54 @@ python smoke_test.py             # full Robot COM round trip + artifacts
   `IPE 300` from `Europe`. If a name isn't found, the tool raises a clear
   error listing tried catalogs instead of silently using a default profile.
 
+## Known issues (live-verified 2026-08-22)
+
+### `project: "2D"` specs produce structurally invalid frames on this build
+
+**Symptom (verified live via `build_structure_from_spec` on a 3-bar portal
+frame with columns):** the solved model is not the intended structure —
+
+- the columns carry **exactly zero force** (axial = shear = moment = 0) at
+  every section/support combination probed;
+- the beam's reactions do **not** equilibrate the applied load (e.g. sum of
+  vertical "reactions" −32 kN vs a 60 kN UDL, and +256 kN vs a 60 kN UDL in
+  another corner) and its end moments have no physical source (−94 kNm,
+  −350 kNm, +610 kNm depending on the beam section);
+- forces change wildly with the beam's *own* section size — behaviour a
+  correctly-connected frame does not have.
+
+**Root cause:** not yet probed inside Robot (needs a dedicated Robot-side
+investigation). The finding is behavioural: `new_2d_frame()` +
+`build_structure_from_spec` on this Robot build does not produce a coherent
+multi-member frame from the X-Z spec.
+
+**Workaround (validated):** model planar frames with `project: "3D"` (the
+mode every `RobotBridge` template uses). The same portal modelled as 3D
+reproduces exact portal-frame statics at both probe corners — column axial
+= wL/2 each (= 30 kN for w=10 kN/m, L=6 m), beam end moment M_end and
+midspan M_mid satisfying M_end + M_mid = wL²/8 (45 kNm), utilizations sane
+(0.17–0.43 range for the tested corners).
+
+**Affected / unaffected specs:**
+- AFFECTED (live-solve `"2D"` specs with columns — historical PASS/FAIL
+  results are suspect, not just untested):
+  - `batch/test_runner.py` `SPEC` (portal: bars 1,3 columns + bar 2 beam).
+    FIXED to `"3D"` in the same commit as this note.
+- UNEFFECTED (`"2D"` single-beam / stability-only models — the P1 baseline
+  6 m pinned beam still reproduces 45/90 kN·m midspan moments exactly):
+  - `batch/test_headless_driver.py` `BASELINE_SPEC`
+  - `batch/test_dialog_watcher.py` `BASE`
+  - `batch/test_stability_timeout.py` `BASE`
+- OFFLINE-ONLY (`"2D"` but never sent to Robot; no solve, results not
+  affected, kept for spec-shape parity):
+  - `batch/test_design_space.py` `_geometry()`
+  - `batch/test_surrogate_search.py` `_geometry()`
+
+**Regression guard:** `batch/test_portal_statics.py` (live test) asserts
+column axial force ≈ wL/2 and the beam moment balance
+M_end + M_mid = wL²/8 for a 3D portal — so a silent regression to the
+incoherent pattern is caught the next time it is run.
+
 ## Thread safety notes (Windows COM)
 
 `RobotBridge` wraps every public method in a `@com_thread_safe` decorator
@@ -290,6 +338,14 @@ the interactive app's Robot).
   that exhausting it is cheaper. Nothing is ever certified by the surrogate —
   `pareto.py`'s hard gate is unchanged. Offline tests:
   `batch/test_surrogate_search.py` (fake-session, brute-force validated).
+- **`batch/export_candidate.py`** — materialize an optimized design as a
+  real `.rtd` project so it can be opened in Robot: `export_candidate()`
+  builds + solves one design_vars (exactly like `runner._evaluate_candidate`)
+  in a `visible=True` session and saves via `RobotBridge.save_project()`;
+  `export_best_from_run(run_id, path, frontier_index=0)` exports the
+  lightest passing frontier candidate from a completed run. Warns (never
+  silently saves) when a spec still uses `project="2D"` (README known
+  issue). Offline tests: `batch/test_export_candidate.py`.
 
 **LLM-facing tools (Phase 7, in `agent/tool_registry.py`):**
 `start_optimization_run(spec)` (validate + estimate only — NEVER starts),
@@ -297,7 +353,15 @@ the interactive app's Robot).
 returns run_id immediately), `check_optimization_status(run_id)`,
 `get_optimization_results(run_id)` (Pareto markdown once completed; refuses
 partial results), `cancel_optimization_run(run_id)` (clean stop between
-candidates). The batch tools import into `batch/` only — `batch/` never
+candidates). Same staged-confirm + background-thread shape for large design
+spaces: `start_surrogate_search_run(spec, budget, patience, acquisition)`
+(validate + estimate only; recommends the grid tool instead when the grid
+is small enough that exhaustive search is cheaper) and
+`confirm_and_start_surrogate_search_run(run_config_id)` — surrogate runs
+poll through the same `check_optimization_status` / `get_optimization_results`
+tools. `export_best_design(run_id, file_name)` materializes the lightest
+passing candidate of a completed run as a `.rtd` project in `generated/`.
+The batch tools import into `batch/` only — `batch/` never
 imports `agent/tool_registry.py`, preserving the isolation from Phase 0.
 
 

@@ -43,6 +43,15 @@ from batch.design_space import DesignSpace, DesignSpaceError
 from batch.runner import run_batch
 from batch.storage import Storage
 from batch.pareto import pareto_summary
+from batch.surrogate_search import (
+    run_surrogate_search,
+    should_use_grid,
+    SurrogateSearchError,
+    DEFAULT_BUDGET as SURROGATE_DEFAULT_BUDGET,
+    DEFAULT_PATIENCE as SURROGATE_DEFAULT_PATIENCE,
+    ACQUISITION_MODES,
+)
+from batch.export_candidate import export_best_from_run
 
 logger = logging.getLogger("structural_copilot.tool_registry")
 logger.setLevel(logging.INFO)
@@ -71,7 +80,7 @@ def _ensure_generated_dir():
 # [FIX C2] Path traversal protection
 # --------------------------------------------------------------------------
 
-ALLOWED_EXTENSIONS = {".xlsx", ".docx", ".pptx", ".png", ".pdf"}
+ALLOWED_EXTENSIONS = {".xlsx", ".docx", ".pptx", ".png", ".pdf", ".rtd"}
 
 
 def safe_output_path(file_name: str, base_dir: str = GENERATED_DIR) -> str:
@@ -887,7 +896,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "start_optimization_run",
-        "description": "[P7 BATCH OPTIMIZER] Validates a design-space spec and estimates the run WITHOUT starting it. Translate the user's natural-language brief into the DesignSpace JSON schema: {\"geometry\": {...same as create_structure_from_spec's spec: nodes/bars with section/supports/cases/loads...}, \"variable_groups\": [{\"group_name\": \"columns\", \"bar_ids\": [1,3], \"candidate_sections\": [\"HEA 200\",\"HEA 220\"]}, ...], \"load_cases\": [{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}], \"analysis_types\": [\"static\"], \"objective\": {\"minimize\": \"weight\", \"constraint\": \"max_utilization <= 1.0 AND buckling_pass == True\"}}. HARD RULE: this tool NEVER starts a run - not ever, under ANY phrasing. It only validates + returns the candidate count, time estimate and a run_config_id. Do NOT call confirm_and_start_optimization_run in this same response, even if the user said 'just run it', 'go ahead', 'start it', 'yes do it', or anything that sounds like permission. A batch run consumes Robot license time, so confirmation ALWAYS requires a SEPARATE, LATER message from the user AFTER they have seen and approved this estimate. Your next reply after this tool must present the count + estimate to the user and ask for explicit confirmation - then STOP and wait for their next message. If you find yourself wanting to call confirm_and_start_optimization_run in this same turn, STOP: that is a violation.",
+        "description": "[P7 BATCH OPTIMIZER] Validates a design-space spec and estimates the run WITHOUT starting it. Translate the user's natural-language brief into the DesignSpace JSON schema: {\"geometry\": {...same as create_structure_from_spec's spec: nodes/bars with section/supports/cases/loads...}, \"variable_groups\": [{\"group_name\": \"columns\", \"bar_ids\": [1,3], \"candidate_sections\": [\"HEA 200\",\"HEA 220\"]}, ...], \"load_cases\": [{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}], \"analysis_types\": [\"static\"], \"objective\": {\"minimize\": \"weight\", \"constraint\": \"max_utilization <= 1.0 AND buckling_pass == True\"}}. HARD RULE: this tool NEVER starts a run - not ever, under ANY phrasing. It only validates + returns the candidate count, time estimate and a run_config_id. Do NOT call confirm_and_start_optimization_run in this same response, even if the user said 'just run it', 'go ahead', 'start it', 'yes do it', or anything that sounds like permission. A batch run consumes Robot license time, so confirmation ALWAYS requires a SEPARATE, LATER message from the user AFTER they have seen and approved this estimate. Your next reply after this tool must present the count + estimate to the user and ask for explicit confirmation - then STOP and wait for their next message. If you find yourself wanting to call confirm_and_start_optimization_run in this same turn, STOP: that is a violation. For LARGE design spaces (hundreds to thousands of candidates) where an exhaustive grid would be too slow, use start_surrogate_search_run instead.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -941,6 +950,49 @@ TOOL_SCHEMAS = [
                 "run_id": {"type": "integer", "description": "The run_id to cancel."},
             },
             "required": ["run_id"],
+        },
+    },
+    {
+        "name": "start_surrogate_search_run",
+        "description": "[P7 BATCH OPTIMIZER - SURROGATE] Validates a design-space spec for SURROGATE-GUIDED sizing search (batch/surrogate_search.py) and estimates the run WITHOUT starting it. Use this INSTEAD of start_optimization_run when the design space is LARGE (hundreds to thousands of candidates) and an exhaustive grid search would be too slow: the surrogate spends at most 'budget' Robot calls (default 300), and every proposed candidate is still really built/solved/checked in Robot through the same HeadlessSession path with the same Eurocode/buckling gates - only the SELECTION is model-guided (a Gaussian process trained on past runs). Same DesignSpace JSON 'spec' schema as start_optimization_run. If the grid is small enough that exhaustive search is cheaper, this tool says so and you MUST use start_optimization_run instead. HARD RULE: this tool NEVER starts a run - not ever, under ANY phrasing. It only validates + returns the candidate count, Robot-call budget estimate and a run_config_id. Do NOT call confirm_and_start_surrogate_search_run in this same response, even if the user said 'just run it' - a batch run consumes Robot license time, so confirmation ALWAYS requires a SEPARATE, LATER message from the user after they have seen and approved the estimate.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "spec": {
+                    "type": "object",
+                    "description": "DesignSpace JSON - same schema as start_optimization_run (geometry + variable_groups + load_cases + analysis_types + objective).",
+                },
+                "budget": {"type": "integer", "description": "Max Robot calls the surrogate search may spend (default 300).", "default": 300},
+                "patience": {"type": "integer", "description": "Stop after this many consecutive proposals that fail to improve the Pareto frontier (default 10).", "default": 10},
+                "acquisition": {"type": "string", "enum": ["ucb", "ehvi"], "description": "Acquisition function: 'ucb' (upper confidence bound on utilization - the current default) or 'ehvi' (expected hypervolume improvement over the Pareto frontier).", "default": "ucb"},
+                "kappa": {"type": "number", "description": "Exploration weight for the 'ucb' acquisition (default 2.0).", "default": 2.0},
+            },
+            "required": ["spec"],
+        },
+    },
+    {
+        "name": "confirm_and_start_surrogate_search_run",
+        "description": "[P7 BATCH OPTIMIZER - SURROGATE] STARTS a surrogate-guided batch optimization in the background (does not block the chat). Only call this AFTER the user has explicitly confirmed the candidate count + Robot-call budget estimate returned by start_surrogate_search_run - never start a batch run without explicit user confirmation (it consumes Robot license time). Pass the run_config_id returned by start_surrogate_search_run. Returns the run_id immediately; poll with check_optimization_status and read results with get_optimization_results (the same tools used for grid runs - they work for any run_id).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_config_id": {"type": "string", "description": "The run_config_id returned by start_surrogate_search_run."},
+            },
+            "required": ["run_config_id"],
+        },
+    },
+    {
+        "name": "export_best_design",
+        "description": "[P7 BATCH OPTIMIZER] Materializes the lightest PASSING candidate of a COMPLETED optimization run as a real Robot project (.rtd) saved into the generated/ directory, so the user can open and inspect the winning design in Robot. The run was previously started via confirm_and_start_optimization_run or confirm_and_start_surrogate_search_run, and check_optimization_status shows 'completed'. 'frontier_index' picks a different Pareto-frontier candidate (0 = the lightest passing one - the default; frontier is ranked by weight ascending with the same hard pass_fail gate as get_optimization_results). The candidate is built, solved and saved in its OWN Robot instance (HeadlessSession, visible by default) - note the one-seat license caveat if an interactive Robot is already open.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {"type": "integer", "description": "The run_id of a completed optimization run."},
+                "file_name": {"type": "string", "description": "Output file name (e.g. 'winner' or 'winner.rtd'); saved into the generated/ directory with .rtd appended if missing."},
+                "frontier_index": {"type": "integer", "description": "Index into the Pareto frontier sorted by weight ascending; 0 = lightest passing (default).", "default": 0},
+                "visible": {"type": "boolean", "description": "Open Robot visibly while building/solving/saving (default true - the user wants to look at it).", "default": True},
+            },
+            "required": ["run_id", "file_name"],
         },
     },
 ]
@@ -1334,10 +1386,11 @@ class ToolExecutor:
         SQLite, no Robot) so the run_id is known immediately; the thread
         then executes the batch with that run_id."""
         cfg = self._optimization_configs.pop(run_config_id, None)
-        if cfg is None:
+        if cfg is None or cfg.get("kind") == "surrogate":
             raise ToolExecutionError(
-                f"run_config_id '{run_config_id}' is not a staged config "
-                "(call start_optimization_run first).")
+                f"run_config_id '{run_config_id}' is not a staged grid-run "
+                "config (call start_optimization_run first; surrogate runs "
+                "use confirm_and_start_surrogate_search_run).")
         ds = DesignSpace(cfg["spec"])
         # Pre-create run + candidates (fast, no Robot) so run_id is immediate.
         st = Storage(db_path=self._batch_db_path)
@@ -1474,6 +1527,220 @@ class ToolExecutor:
                         "BETWEEN candidates (current candidate finishes and "
                         "is checkpointed first, then it exits). Progress so "
                         f"far: {n_eval}/{total} evaluated."),
+        }
+
+    def _tool_start_surrogate_search_run(
+        self, spec: dict,
+        budget: int = SURROGATE_DEFAULT_BUDGET,
+        patience: int = SURROGATE_DEFAULT_PATIENCE,
+        acquisition: str = "ucb",
+        kappa: float = 2.0,
+    ) -> dict:
+        """Validates a DesignSpace spec for surrogate-guided sizing search
+        and estimates the run WITHOUT starting it (same staged-confirmation
+        discipline as start_optimization_run). NEVER starts here."""
+        if not spec or not isinstance(spec, dict):
+            raise ToolExecutionError(
+                "start_surrogate_search_run requires a DesignSpace JSON "
+                "'spec' object (geometry + variable_groups + load_cases + "
+                "analysis_types + objective). See the schema description.")
+        try:
+            budget = int(budget)
+            patience = int(patience)
+            kappa = float(kappa)
+        except (TypeError, ValueError) as exc:
+            raise ToolExecutionError(
+                f"budget/patience/kappa must be numeric: {exc}") from exc
+        acquisition = str(acquisition or "ucb").lower()
+        try:
+            if budget < 1 or patience < 1 or kappa < 0.0:
+                raise SurrogateSearchError(
+                    "budget >= 1, patience >= 1, kappa >= 0 required")
+            if acquisition not in ACQUISITION_MODES:
+                raise SurrogateSearchError(
+                    f"acquisition must be one of {ACQUISITION_MODES}")
+            ds = DesignSpace(spec)
+            ds.generate_candidates()  # validates grid <= cap (Phase 4 errors)
+        except (DesignSpaceError, SurrogateSearchError) as exc:
+            raise ToolExecutionError(
+                f"Invalid surrogate-search design space or parameters: "
+                f"{exc}. Fix the spec and retry.") from exc
+
+        # The surrogate auto-falls back to exhaustive grid search when the
+        # grid is small enough to be cheaper - refuse to stage a run that
+        # would immediately do that; grid search is exact and preferable.
+        use_grid, reason = should_use_grid(ds, budget)
+        if use_grid:
+            return {
+                "status": "grid_recommended",
+                "candidate_count": ds.candidate_count(),
+                "budget": budget,
+                "reason": reason,
+                "message": (
+                    "This design space is small enough that exhaustive grid "
+                    "search is cheaper and exact. Do NOT call "
+                    "confirm_and_start_surrogate_search_run - use "
+                    "start_optimization_run / confirm_and_start_optimization_run "
+                    "instead for this spec."),
+            }
+
+        # Conservative estimate from Phase-1 T1 timing (5-11 s/candidate);
+        # the surrogate spends at most `budget` Robot calls.
+        lo_s, hi_s = budget * 5, budget * 11
+        cfg_id = f"surr_cfg_{int(time.time())}"
+        self._optimization_configs[cfg_id] = {
+            "kind": "surrogate", "spec": spec,
+            "budget": budget, "patience": patience,
+            "acquisition": acquisition, "kappa": kappa,
+            "created": time.time(),
+        }
+        return {
+            "status": "not_started",
+            "run_config_id": cfg_id,
+            "candidate_count": ds.candidate_count(),
+            "budget": budget,
+            "patience": patience,
+            "acquisition": acquisition,
+            "kappa": kappa,
+            "estimate_seconds_min": lo_s,
+            "estimate_seconds_max": hi_s,
+            "estimate": (f"up to {budget} Robot calls, roughly "
+                         f"{lo_s // 60}-{hi_s // 60} min (5-11 s/call, "
+                         f"reused Robot session)"),
+            "message": ("Run NOT started. Show the user the estimate, get "
+                        "explicit confirmation, then call "
+                        "confirm_and_start_surrogate_search_run with this "
+                        "run_config_id. HARD RULE: never start in this same "
+                        "turn."),
+        }
+
+    def _tool_confirm_and_start_surrogate_search_run(
+        self, run_config_id: str,
+    ) -> dict:
+        """Starts a staged surrogate search in a background thread and
+        returns immediately with the run_id (same shape as the grid path).
+        Only surrogate configs (kind == 'surrogate') can be started."""
+        cfg = self._optimization_configs.pop(run_config_id, None)
+        if cfg is None or cfg.get("kind") != "surrogate":
+            raise ToolExecutionError(
+                f"run_config_id '{run_config_id}' is not a staged surrogate "
+                "config (call start_surrogate_search_run first).")
+        ds = DesignSpace(cfg["spec"])
+        # Pre-create run + candidates (fast, no Robot) so run_id is immediate.
+        st = Storage(db_path=self._batch_db_path)
+        try:
+            run_id = st.create_run(ds.to_dict(),
+                                   objective=json.dumps(ds.objective, default=str))
+            for cand in ds.generate_candidates():
+                st.add_candidate(run_id, cand)
+        except Exception as exc:  # noqa: BLE001
+            raise ToolExecutionError(
+                f"Could not stage surrogate run: {exc}") from exc
+        finally:
+            st.close()
+
+        import threading
+
+        holder: Dict[str, Any] = {"run_id": run_id, "error": None}
+        t = threading.Thread(
+            target=self._run_surrogate_worker,
+            args=(ds, run_id, cfg, holder),
+            name="batch-surrogate-optimizer",
+            daemon=True,
+        )
+        t.start()
+        self._optimization_runs[run_id] = {"thread": t, "started": time.time()}
+        return {
+            "status": "started",
+            "run_id": run_id,
+            "strategy": "surrogate",
+            "budget": cfg["budget"],
+            "message": ("Surrogate-guided optimization started in the "
+                        "background. Poll check_optimization_status; then "
+                        "get_optimization_results once it is 'completed'."),
+        }
+
+    def _run_surrogate_worker(self, ds: DesignSpace, run_id: int,
+                              cfg: Dict[str, Any],
+                              holder: Dict[str, Any]) -> None:
+        """Runs run_surrogate_search on the background thread for the
+        pre-created run (its own Robot instance, never the interactive
+        session's)."""
+        try:
+            summary = run_surrogate_search(
+                ds, run_id=run_id,
+                budget=cfg["budget"], patience=cfg["patience"],
+                acquisition=cfg["acquisition"], kappa=cfg["kappa"],
+                db_path=self._batch_db_path)
+            holder["run_id"] = summary.get("run_id", run_id)
+            holder["status"] = summary.get("status")
+            if summary.get("status") == "grid_fallback":
+                # The start-tool pre-check should have prevented this; mark
+                # the pre-created run completed so it never dangles as
+                # 'running' with zero results.
+                try:
+                    st = Storage(db_path=self._batch_db_path)
+                    st.mark_run_status(run_id, "completed")
+                    st.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Surrogate optimizer worker failed: %s", exc)
+            holder["error"] = str(exc)
+
+    def _tool_export_best_design(
+        self, run_id: int, file_name: str, frontier_index: int = 0,
+        visible: bool = True,
+    ) -> dict:
+        """Exports the lightest passing candidate of a COMPLETED run as a
+        real Robot project (.rtd) so it can be opened in Robot. Builds +
+        solves + saves in its own visible HeadlessSession."""
+        if not file_name or not str(file_name).strip():
+            raise ToolExecutionError(
+                "export_best_design requires a 'file_name'.")
+        st = Storage(db_path=self._batch_db_path)
+        try:
+            run = st.get_run(int(run_id))
+            if run is None:
+                raise ToolExecutionError(
+                    f"run_id {run_id} does not exist in batch storage.")
+            status = str(run.get("status", "unknown"))
+            if status != "completed":
+                return {
+                    "status": "not_ready",
+                    "run_status": status,
+                    "message": (f"Run {run_id} is '{status}', not 'completed'. "
+                                "Results are NOT meaningful until the run "
+                                "finishes - poll check_optimization_status."),
+                }
+        finally:
+            st.close()
+
+        try:
+            path = safe_output_path(str(file_name), GENERATED_DIR)
+        except ValueError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+        if not path.lower().endswith(".rtd"):
+            path += ".rtd"
+        try:
+            t0 = time.time()
+            saved = export_best_from_run(
+                int(run_id), path, frontier_index=int(frontier_index),
+                db_path=self._batch_db_path, visible=bool(visible))
+            elapsed_s = round(time.time() - t0, 1)
+        except Exception as exc:  # noqa: BLE001
+            raise ToolExecutionError(
+                f"Could not export the best design from run {run_id}: "
+                f"{exc}") from exc
+        return {
+            "status": "ok",
+            "run_id": int(run_id),
+            "frontier_index": int(frontier_index),
+            "file_path": saved,
+            "elapsed_s": elapsed_s,
+            "message": ("Design built, solved and saved. Open the .rtd in "
+                        "Robot to inspect it. Note: this opened its OWN "
+                        "Robot instance (one-seat license caveat)."),
         }
 
     def _tool_export_member_forces(self, case_id: int = 1, divisions: int = 5) -> dict:

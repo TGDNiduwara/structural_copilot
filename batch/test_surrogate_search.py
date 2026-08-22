@@ -91,6 +91,9 @@ BEAMS_10 = ["IPE 200", "IPE 220", "IPE 240", "IPE 270", "IPE 300",
 
 
 def _geometry():
+    """Fake-session portal spec. OFFLINE-ONLY (no Robot solve): project
+    "2D" is kept for shape parity; live portal specs must use "3D" on this
+    build (README "Known issues", 2026-08-22)."""
     return {
         "project": "2D",
         "nodes": [

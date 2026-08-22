@@ -22,7 +22,13 @@ from batch.design_space import (
 
 
 def _geometry():
-    """A tiny 2-bar model spec (portal-ish) used by all test specs."""
+    """A tiny 2-bar model spec (portal-ish) used by all test specs.
+
+    NOTE: project "2D" here is OFFLINE-ONLY (no Robot solve) - kept for
+    spec-shape parity. Live "2D" portal specs are structurally invalid on
+    this build (see README "Known issues", 2026-08-22); live tests use
+    project "3D".
+    """
     return {
         "project": "2D",
         "nodes": [
