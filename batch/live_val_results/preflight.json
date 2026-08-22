@@ -1,0 +1,27 @@
+{
+  "baseline_robot_pids": [],
+  "orphan_pids_killed": [],
+  "grid_candidates": 100,
+  "budget": 40,
+  "probes": {
+    "light": {
+      "sections": {
+        "columns": "HEA 160",
+        "beam": "IPE 200"
+      },
+      "weight_kg": 316.8,
+      "max_utilization": 1.2376,
+      "elapsed_s": 95.4
+    },
+    "heavy": {
+      "sections": {
+        "columns": "HEB 240",
+        "beam": "IPE 500"
+      },
+      "weight_kg": 1043.4,
+      "max_utilization": 0.1742,
+      "elapsed_s": 94.7
+    }
+  },
+  "util_variety_expected": true
+}

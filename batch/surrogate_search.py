@@ -560,6 +560,11 @@ def _ucb_scores(pred_u_mean: np.ndarray, pred_u_std: np.ndarray,
 # Initial design of experiments (cold start)
 # --------------------------------------------------------------------------- #
 
+def _fmt_frontier(rw: np.ndarray, rm: np.ndarray) -> str:
+    """Compact 'weight/margin' list for the frontier-trace log lines."""
+    return "[" + ", ".join(f"{w:.1f}/{m:.3f}" for w, m in zip(rw, rm)) + "]"
+
+
 def _maximin_doe(X_all: np.ndarray, n: int) -> List[int]:
     """Deterministic-spread subset of grid rows: greedy maximin.
 
@@ -731,19 +736,23 @@ def run_surrogate_search(
     initial_hv: Optional[float] = None
 
     def _frontier_norm() -> Tuple[Optional[np.ndarray], Optional[np.ndarray],
-                                  int]:
-        """Normalized REAL frontier (via pareto.py's hard-gated machinery),
-        or (None, None, 0) when nothing passes yet."""
+                                  int, Optional[np.ndarray],
+                                  Optional[np.ndarray]]:
+        """Normalized + RAW REAL frontier (via pareto.py's hard-gated
+        machinery), or (None, None, 0, None, None) when nothing passes.
+        The raw (weight, strength_margin) pairs feed the per-improvement
+        log line the live-validation report parses to plot frontier
+        quality vs Robot-call count."""
         df = storage.get_all_results(run_id)
         frontier = compute_pareto_frontier(df)
         n = len(frontier)
         if n == 0:
-            return None, None, 0
+            return None, None, 0, None, None
         work = add_strength_margin(frontier.copy())
-        nw, nm = normalizer.norm(
-            np.asarray(work["weight_kg"], dtype=float),
-            np.asarray(work["strength_margin"], dtype=float))
-        return nw, nm, n
+        rw = np.asarray(work["weight_kg"], dtype=float)
+        rm = np.asarray(work["strength_margin"], dtype=float)
+        nw, nm = normalizer.norm(rw, rm)
+        return nw, nm, n, rw, rm
 
     def _pending_rows() -> List[int]:
         return [i for i in range(total)
@@ -758,12 +767,15 @@ def run_surrogate_search(
         if w_hist_l:
             normalizer.fit(np.asarray(w_hist_l, dtype=float),
                            1.0 - np.asarray(u_hist_l, dtype=float))
-        nw, nm, n = _frontier_norm()
+        nw, nm, n, rw, rm = _frontier_norm()
         hv0 = _hypervolume2d(nw, nm,
                              (normalizer.ref_w, normalizer.ref_m)) \
             if nw is not None else 0.0
         normalizer_frozen = True
         initial_hv = hv0
+        if rw is not None:
+            logger.info("  frontier baseline at call %d: pts %s",
+                        robot_calls, _fmt_frontier(rw, rm))
         return hv0, n
 
     def _propose() -> Optional[int]:
@@ -800,7 +812,7 @@ def run_surrogate_search(
         else:
             if not normalizer_frozen:
                 _freeze_normalizer()
-            nw, nm, _ = _frontier_norm()
+            nw, nm, _, _, _ = _frontier_norm()
             if nw is None:  # nothing passes yet: explore on utilization
                 scores = _ucb_scores(pu, pu_s, kappa)
             else:
@@ -921,13 +933,17 @@ def run_surrogate_search(
             if not doe_queue and not normalizer_frozen:
                 current_hv, frontier_n = _freeze_normalizer()
             elif normalizer_frozen:
-                nw, nm, frontier_n = _frontier_norm()
+                nw, nm, frontier_n, rw, rm = _frontier_norm()
                 hv_now = _hypervolume2d(
                     nw, nm, (normalizer.ref_w, normalizer.ref_m)) \
                     if nw is not None else 0.0
                 current_hv = hv_now
                 if hv_now > (initial_hv or 0.0) + _HV_EPS:
                     non_improving = 0
+                    if rw is not None:
+                        logger.info(
+                            "  frontier improved at call %d: pts %s",
+                            robot_calls, _fmt_frontier(rw, rm))
                 else:
                     non_improving += 1
                     logger.info("  frontier not improved (%d/%d)",
@@ -941,7 +957,7 @@ def run_surrogate_search(
     if status == "running":
         status = "completed"
     storage.mark_run_status(run_id, status)
-    _, _, frontier_n = _frontier_norm()
+    _, _, frontier_n, _, _ = _frontier_norm()
 
     logger.info(
         "Surrogate run %s: %s (%s) - %d evaluated, %d failed, %d Robot "
