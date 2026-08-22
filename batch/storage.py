@@ -237,6 +237,29 @@ class Storage:
             conn, params=(int(run_id),))
         return df
 
+    def get_all_results_all_runs(self) -> pd.DataFrame:
+        """[SURROGATE PHASE A] Same join as get_all_results but across EVERY
+        run in the database (no WHERE clause), ordered by run then candidate.
+
+        Read-only: used to train the surrogate model on all past evaluations
+        so history accumulates across batch runs. Rows keep their run_id so
+        callers can group/filter by run; candidate design_vars are only
+        comparable across runs whose specs encode the same design variables
+        (the surrogate applies its own compatibility filter on top).
+        """
+        conn = self._connect()
+        df = pd.read_sql_query(
+            "SELECT c.candidate_id, c.run_id, c.status AS candidate_status, "
+            "       c.design_vars_json, "
+            "       r.weight_kg, r.max_utilization, r.governing_check, "
+            "       r.buckling_status, r.pass_fail, r.raw_results_json, "
+            "       r.evaluated_at "
+            "FROM candidates c "
+            "LEFT JOIN results r ON r.candidate_id = c.candidate_id "
+            "ORDER BY c.run_id, c.candidate_id",
+            conn)
+        return df
+
     # ---------------- checkpoints ----------------
 
     def update_checkpoint(self, run_id: int, index: int) -> None:

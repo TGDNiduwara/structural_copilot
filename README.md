@@ -277,6 +277,19 @@ the interactive app's Robot).
   how light; then standard Pareto dominance over weight + strength_margin)
   and `pareto_summary()` (markdown ranked by weight with the "elastic stress
   + basic Euler buckling, not full code compliance" caveat).
+- **`batch/surrogate_search.py`** — [SURROGATE PHASE A] evaluation-efficient
+  alternative to the full grid: a pure-numpy Gaussian process trained on
+  EVERY compatible past run in `runs.db` (`Storage.get_all_results_all_runs`)
+  proposes which candidate gets the next Robot call (EHVI over the live
+  Pareto frontier, or UCB). Robot COM stays the only evaluator — every
+  proposal is really built/solved/checked through `runner._evaluate_candidate`
+  with identical checkpointing, failure isolation and cancellation. Stops on
+  a Robot-call budget (default 300), N non-improving proposals (patience),
+  space exhaustion or cancellation; auto-falls back to plain grid search
+  (status `grid_fallback`, zero calls spent) when the grid is small enough
+  that exhausting it is cheaper. Nothing is ever certified by the surrogate —
+  `pareto.py`'s hard gate is unchanged. Offline tests:
+  `batch/test_surrogate_search.py` (fake-session, brute-force validated).
 
 **LLM-facing tools (Phase 7, in `agent/tool_registry.py`):**
 `start_optimization_run(spec)` (validate + estimate only — NEVER starts),
