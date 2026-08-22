@@ -1,0 +1,115 @@
+{
+  "summary": {
+    "run_id": 1,
+    "status": "completed",
+    "evaluated": 94,
+    "failed": 6,
+    "total": 100,
+    "elapsed_s": 9180.9,
+    "resumed_from": null,
+    "failures": [
+      "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+      "RuntimeError: Robot COM server connection lost (server may have been closed externally). Please reconnect by calling connect(). Original error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+      "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+      "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+      "RuntimeError: Robot COM server connection lost (server may have been closed externally). Please reconnect by calling connect(). Original error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+      "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)"
+    ]
+  },
+  "wall_s": 9180.9,
+  "run_id": 1,
+  "calls": 100,
+  "evaluated": 94,
+  "failed": 6,
+  "frontier_pts": [
+    [
+      366.6,
+      0.1124
+    ],
+    [
+      399.0,
+      0.2599
+    ],
+    [
+      435.6,
+      0.3828
+    ],
+    [
+      477.0,
+      0.4862
+    ],
+    [
+      525.0,
+      0.574
+    ],
+    [
+      580.2,
+      0.6525
+    ],
+    [
+      648.0,
+      0.7225
+    ],
+    [
+      726.6,
+      0.7789
+    ],
+    [
+      397.2,
+      0.1993
+    ],
+    [
+      429.6,
+      0.3288
+    ],
+    [
+      466.2,
+      0.4344
+    ],
+    [
+      507.6,
+      0.5234
+    ],
+    [
+      555.6,
+      0.5998
+    ],
+    [
+      610.8,
+      0.6693
+    ],
+    [
+      678.6,
+      0.7327
+    ],
+    [
+      757.2,
+      0.7849
+    ],
+    [
+      719.4,
+      0.745
+    ],
+    [
+      798.0,
+      0.7925
+    ],
+    [
+      847.2,
+      0.8021
+    ],
+    [
+      912.0,
+      0.8036
+    ],
+    [
+      973.2,
+      0.8144
+    ],
+    [
+      1043.4,
+      0.8258
+    ]
+  ],
+  "frontier_n": 22
+}

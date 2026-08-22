@@ -30,6 +30,8 @@ from tools.eurocode_members import check_eurocode_members
 from tools.word_tool import WordReporter
 from tools.pptx_tool import PowerPointReporter
 from tools.result_store import ResultStore
+from tools.section_sizing import available_sections, section_families
+from tools.diagram_tool import plot_structure_wireframe
 from tools.custom_tools import (
     CustomToolRegistry,
     run_sandboxed,
@@ -172,15 +174,20 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "set_support",
-        "description": "Applies a boundary condition / support to a node.",
+        "description": "Applies a boundary condition / support to a node. Types: fixed / pinned / roller_x / roller_z (unchanged behaviour), plus 'spring' — an elastic-linear spring support that requires spring_stiffness, a dict of DOF -> stiffness ({UX/UY/UZ} in kN/m, {RX/RY/RZ} in kNm/rad), e.g. {\"UZ\": 100000.0}.",
         "parameters": {
             "type": "object",
             "properties": {
                 "node_id": {"type": "integer"},
                 "support_type": {
                     "type": "string",
-                    "enum": ["fixed", "pinned", "roller_x", "roller_z"],
+                    "enum": ["fixed", "pinned", "roller_x", "roller_z",
+                             "spring"],
                     "default": "fixed",
+                },
+                "spring_stiffness": {
+                    "type": "object",
+                    "description": "Required when support_type='spring': DOF -> stiffness (UX/UY/UZ in kN/m, RX/RY/RZ in kNm/rad). Ignored for the other types.",
                 },
             },
             "required": ["node_id"],
@@ -234,7 +241,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "solve",
-        "description": "Runs the Robot FEA solver on the current model. Must be called before exporting any results.",
+        "description": "Runs the Robot FEA solver on the current model. Must be called before exporting any results. For any MANUALLY-BUILT (non-template) structure, call check_model_stability FIRST to confirm the model is not a mechanism before solving (a mechanism triggers Robot's instability modal).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -896,7 +903,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "start_optimization_run",
-        "description": "[P7 BATCH OPTIMIZER] Validates a design-space spec and estimates the run WITHOUT starting it. Translate the user's natural-language brief into the DesignSpace JSON schema: {\"geometry\": {...same as create_structure_from_spec's spec: nodes/bars with section/supports/cases/loads...}, \"variable_groups\": [{\"group_name\": \"columns\", \"bar_ids\": [1,3], \"candidate_sections\": [\"HEA 200\",\"HEA 220\"]}, ...], \"load_cases\": [{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}], \"analysis_types\": [\"static\"], \"objective\": {\"minimize\": \"weight\", \"constraint\": \"max_utilization <= 1.0 AND buckling_pass == True\"}}. HARD RULE: this tool NEVER starts a run - not ever, under ANY phrasing. It only validates + returns the candidate count, time estimate and a run_config_id. Do NOT call confirm_and_start_optimization_run in this same response, even if the user said 'just run it', 'go ahead', 'start it', 'yes do it', or anything that sounds like permission. A batch run consumes Robot license time, so confirmation ALWAYS requires a SEPARATE, LATER message from the user AFTER they have seen and approved this estimate. Your next reply after this tool must present the count + estimate to the user and ask for explicit confirmation - then STOP and wait for their next message. If you find yourself wanting to call confirm_and_start_optimization_run in this same turn, STOP: that is a violation. For LARGE design spaces (hundreds to thousands of candidates) where an exhaustive grid would be too slow, use start_surrogate_search_run instead.",
+        "description": "[P7 BATCH OPTIMIZER] Validates a design-space spec and estimates the run WITHOUT starting it. Translate the user's natural-language brief into the DesignSpace JSON schema: {\"geometry\": {...same as create_structure_from_spec's spec: nodes/bars with section/supports/cases/loads...}, \"variable_groups\": [{\"group_name\": \"columns\", \"bar_ids\": [1,3], \"candidate_sections\": [\"HEA 200\",\"HEA 220\"]}, ...], \"load_cases\": [{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}], \"analysis_types\": [\"static\"], \"objective\": {\"minimize\": \"weight\", \"constraint\": \"max_utilization <= 1.0 AND buckling_pass == True\"}}. HARD RULE: this tool NEVER starts a run - not ever, under ANY phrasing. It only validates + returns the candidate count, time estimate and a run_config_id. Do NOT call confirm_and_start_optimization_run in this same response, even if the user said 'just run it', 'go ahead', 'start it', 'yes do it', or anything that sounds like permission. A batch run consumes Robot license time, so confirmation ALWAYS requires a SEPARATE, LATER message from the user AFTER they have seen and approved this estimate. Your next reply after this tool must present the count + estimate to the user and ask for explicit confirmation - then STOP and wait for their next message. If you find yourself wanting to call confirm_and_start_optimization_run in this same turn, STOP: that is a violation. For LARGE design spaces (hundreds to thousands of candidates) where an exhaustive grid would be too slow, use start_surrogate_search_run instead. When the user wants to OPTIMIZE AN ALREADY-BUILT model, call export_structure_spec FIRST and use its returned 'geometry' verbatim as spec.geometry (do NOT retype geometry from memory).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -993,6 +1000,83 @@ TOOL_SCHEMAS = [
                 "visible": {"type": "boolean", "description": "Open Robot visibly while building/solving/saving (default true - the user wants to look at it).", "default": True},
             },
             "required": ["run_id", "file_name"],
+        },
+    },
+    {
+        "name": "export_structure_spec",
+        "description": "Reads the LIVE model (nodes, bars with sections, supports, load cases, loads) and returns it as the same JSON 'geometry' object that create_structure_from_spec / start_optimization_run accept — the reverse of building from a spec. Use this BEFORE start_optimization_run when optimizing an already-built model: call export_structure_spec and pass its output verbatim as spec.geometry instead of retyping geometry from memory.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "list_available_sections",
+        "description": "Returns valid catalog section names (e.g. 'IPE 300', 'HEA 200') that the geometry templates and optimizer draw from, optionally filtered by family (IPE / HEA / HEB / HEM / IPN / UPN / UPE / L). Catalog-only and fast — no Robot solve needed. Use this to pick realistic candidate_sections for an optimization design space or a section for a bar.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "family": {"type": "string", "description": "Optional section family filter (case-insensitive), e.g. 'IPE', 'HEA', 'HEB', 'L'. Omit for all families."},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "apply_self_weight",
+        "description": "Applies each bar's self-weight as a uniform load in the given load case (global -Z) in one call — computed from each bar's section unit mass and member length. One call instead of manually computing and applying N separate loads.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "case_id": {"type": "integer", "description": "The load case to apply self-weight into (must already exist)."},
+                "density": {"type": "number", "description": "Steel density in kg/m3 (default 7850).", "default": 7850},
+            },
+            "required": ["case_id"],
+        },
+    },
+    {
+        "name": "preview_structure_geometry",
+        "description": "Renders a simple wireframe image (PNG in generated/) of the current node/bar geometry — axonometric for 3D models, dominant X-Z plane for planar ones — so a person can sanity-check span/height/panel count BEFORE committing to a solve or an optimization run. Uses the in-memory geometry only (no Robot COM needed).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "file_name": {"type": "string", "description": "Output PNG file name (default 'structure_geometry.png').", "default": "structure_geometry.png"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "check_model_stability",
+        "description": "Runs the mechanism pre-solve check on the CURRENT model - the same 2D rank check batch/runner.py runs before every candidate solve. Call any time after nodes/bars/supports are built and BEFORE solve. Returns ok/mechanism-detected with the rank info and the nodes/DOFs involved in any nullspace. If mechanism=True, fix supports/geometry first - solving a mechanism triggers Robot's instability modal.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "generate_code_combinations",
+        "description": "Auto-generates the standard EN 1990 load combination set from the currently defined load cases (using their 'nature': permanent / imposed). ULS = 1.35 x permanent + 1.5 x leading variable + 1.05 (1.5*0.7) x each other variable (one ULS per variable case as leading); SLS characteristic = 1.0 x all. Calls the existing define_combination for each - manual define_combination is unchanged; this is a convenience layer on top. Requires at least one simple load case.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "combination_set": {"type": "string", "enum": ["ULS_SLS_basic", "ULS_only", "SLS_only"], "description": "Which combinations to generate (default 'ULS_SLS_basic' = ULS + SLS characteristic).", "default": "ULS_SLS_basic"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "compare_topologies",
+        "description": "Sizes SEVERAL named topology variants (truss / arch truss / braced frame / rectangular grid frame) under the SAME load spec through the existing optimizer machinery and returns a ranked comparison - lightest passing design per topology, one call instead of manually repeating the build/optimize workflow per candidate. Each variant runs as its own batch run (run_id returned); may take minutes (each variant is a small grid search). Use export_best_design to materialize a winner afterwards.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "variants": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "generator": {"type": "string", "enum": ["create_truss", "create_arch_truss", "create_braced_frame", "create_rectangular_grid_frame"]}, "generator_args": {"type": "object"}}}, "description": "List of {name, generator, generator_args} variants to size and compare."},
+                "load_spec": {"type": "object", "description": "The SAME load spec applied to every variant: {cases: [{id,name,nature}], loads: [{kind,bar,case,direction,value}...]} (the geometry spec's cases/loads keys)."},
+                "objective": {"type": "object", "description": "Optional DesignSpace objective dict (default: minimize weight with max_utilization <= 1.0 AND buckling_pass == True)."},
+                "budget": {"type": "integer", "description": "Optional Robot-call budget for large variant grids (default 300)."},
+            },
+            "required": ["variants", "load_spec"],
         },
     },
 ]
@@ -1248,10 +1332,18 @@ class ToolExecutor:
         self.robot.create_bar(bar_id, start_node, end_node, section_name)
         return {"status": "ok", "bar_id": bar_id, "section": section_name}
 
-    def _tool_set_support(self, node_id: int, support_type: str = "fixed") -> dict:
+    def _tool_set_support(self, node_id: int, support_type: str = "fixed",
+                          spring_stiffness: dict = None) -> dict:
         self._ensure_robot()
-        self.robot.set_support(node_id, support_type)
-        return {"status": "ok", "node_id": node_id, "support_type": support_type}
+        if support_type == "spring" and not spring_stiffness:
+            raise ToolExecutionError(
+                "support_type='spring' requires spring_stiffness, e.g. "
+                "{'UZ': 100000.0} (UX/UY/UZ in kN/m, RX/RY/RZ in kNm/rad).")
+        self.robot.set_support(node_id, support_type,
+                               spring_stiffness=spring_stiffness)
+        return {"status": "ok", "node_id": node_id,
+                "support_type": support_type,
+                "spring_stiffness": spring_stiffness}
 
     def _tool_create_load_case(
         self, case_id: int, case_name: str = "Dead Load", nature: str = "permanent"
@@ -1742,6 +1834,126 @@ class ToolExecutor:
                         "Robot to inspect it. Note: this opened its OWN "
                         "Robot instance (one-seat license caveat)."),
         }
+
+    def _tool_export_structure_spec(self) -> dict:
+        """Reverse of build_structure_from_spec: the LIVE model as the
+        'geometry' JSON object the optimizer / create_structure_from_spec
+        accept."""
+        self._ensure_robot()
+        spec = self.robot.export_structure_spec()
+        return {
+            "status": "ok",
+            "geometry": spec,
+            "counts": {k: len(v) for k, v in spec.items()
+                       if isinstance(v, list)},
+        }
+
+    def _tool_list_available_sections(self, family: str = None) -> dict:
+        """Catalog-only section names (no Robot solve)."""
+        try:
+            sections = available_sections(family)
+        except ValueError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+        return {
+            "status": "ok",
+            "family": family,
+            "count": len(sections),
+            "families": section_families(),
+            "sections": sections,
+        }
+
+    def _tool_apply_self_weight(self, case_id: int,
+                                density: float = 7850.0) -> dict:
+        """Applies every bar's self-weight (global -Z) into the case."""
+        self._ensure_robot()
+        summary = self.robot.apply_self_weight(int(case_id),
+                                               density=float(density))
+        return {"status": "ok", **summary}
+
+    def _tool_preview_structure_geometry(
+        self, file_name: str = "structure_geometry.png",
+    ) -> dict:
+        """Renders a wireframe of the in-memory geometry (no Robot COM)."""
+        geometry = self.robot.get_model_geometry()
+        if not geometry.get("nodes"):
+            raise ToolExecutionError(
+                "No geometry to preview yet - build or load a model first "
+                "(create_structure_from_spec / create_node / create_bar).")
+        try:
+            path = safe_output_path(str(file_name), GENERATED_DIR)
+        except ValueError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+        if not path.lower().endswith(".png"):
+            path += ".png"
+        plot_structure_wireframe(geometry["nodes"], geometry["bars"], path)
+        return {
+            "status": "ok",
+            "file_path": path,
+            "project": geometry.get("project"),
+            "nodes": len(geometry["nodes"]),
+            "bars": len(geometry["bars"]),
+        }
+
+    def _tool_check_model_stability(self) -> dict:
+        """The mechanism pre-solve check on the current model."""
+        self._ensure_robot()
+        r = self.robot.validate_stability()
+        return {"status": "ok", **r}
+
+    def _tool_generate_code_combinations(
+        self, combination_set: str = "ULS_SLS_basic",
+    ) -> dict:
+        """EN 1990 combination set from the currently defined simple cases
+        (manual define_combination untouched - this is a convenience layer)."""
+        self._ensure_robot()
+        cases = []
+        for num, obj in self.robot._iter_all_cases():
+            try:
+                if self.robot._as_combination(obj) is not None:
+                    continue   # combinations are not simple cases
+                nat = int(obj.Nature)
+            except Exception:  # noqa: BLE001
+                continue
+            nature = next((k for k, v in RobotBridge._NATURE_MAP.items()
+                           if v == nat), None)
+            if nature is None:
+                continue
+            cases.append((int(num), nature))
+        if not cases:
+            raise ToolExecutionError(
+                "generate_code_combinations needs at least one simple load "
+                "case with nature permanent/imposed (create_load_case "
+                "first).")
+        try:
+            plans = RobotBridge.eurocode_combination_factors(cases,
+                                                             combination_set)
+        except ValueError as exc:
+            raise ToolExecutionError(str(exc)) from exc
+        created = []
+        for plan in plans:
+            res = self.robot.define_combination(
+                plan["name"], plan["case_factors"], plan["combination_type"])
+            created.append({
+                "name": plan["name"], "case_factors": plan["case_factors"],
+                "combination_type": plan["combination_type"], "result": res,
+            })
+        return {"status": "ok", "combination_set": combination_set,
+                "count": len(created), "created": created}
+
+    def _tool_compare_topologies(self, variants: list, load_spec: dict,
+                                 objective: dict = None,
+                                 budget: int = None) -> dict:
+        """Sizes several topology variants under the same load spec and
+        ranks them by lightest passing design (batch/topology_compare)."""
+        from batch.topology_compare import compare_topologies
+        try:
+            result = compare_topologies(
+                variants, load_spec, objective=objective, budget=budget,
+                db_path=self._batch_db_path)
+        except Exception as exc:  # noqa: BLE001
+            raise ToolExecutionError(
+                f"compare_topologies failed: {exc}") from exc
+        return {"status": "ok", **result}
 
     def _tool_export_member_forces(self, case_id: int = 1, divisions: int = 5) -> dict:
         # [FIX M11] Clamp divisions to safe range

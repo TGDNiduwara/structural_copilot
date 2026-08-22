@@ -60,6 +60,33 @@ _DEPTH_TO_SPAN = {
     "beam": 18.0,        # span/15..span/20 band -> span/18 default
     "truss_chord": 18.0, # chord member depth band, same as beams
 }
+
+#: Catalog-style section names available for the LLM tools, built from the
+#: SAME nominal series suggest_section()/the geometry templates use
+#: (FAMILY_SIZES). Names are "family + space + size" (e.g. "IPE 300") — the
+#: form Robot's EURO catalog and _get_or_create_section_label accept.
+def section_families() -> List[str]:
+    """Sorted family codes available from the nominal catalog table."""
+    return sorted(FAMILY_SIZES)
+
+
+def available_sections(family: Optional[str] = None) -> List[str]:
+    """Valid catalog-style section names ("IPE 300", "HEA 200", ...) from
+    the same nominal series suggest_section() draws on, optionally filtered
+    to one family (case-insensitive: "IPE" / "ipe" / "L").
+
+    The names are guaranteed to resolve against Robot's live catalogs at
+    build time by the existing _get_or_create_section_label() safety net.
+    """
+    if family:
+        key = str(family).strip().upper()
+        if key not in FAMILY_SIZES:
+            raise ValueError(
+                f"Unknown section family '{family}'. Known families: "
+                f"{sorted(FAMILY_SIZES)}")
+        return [f"{key} {size}" for size in FAMILY_SIZES[key]]
+    return [f"{fam} {size}" for fam in sorted(FAMILY_SIZES)
+            for size in FAMILY_SIZES[fam]]
 #: Column sizing: depth = height / (k * lambda_target) with radius of
 #: gyration ~= 0.25 * depth for H-family and target slenderness 100.
 _COLUMN_RG_FACTOR = 0.25

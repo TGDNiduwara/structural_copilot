@@ -1,1 +1,3 @@
 [16:46:25] chain started; waiting for the running grid stage to complete...
+[18:37:26] grid DONE (was launched separately)
+[18:37:26] starting stage surrogate

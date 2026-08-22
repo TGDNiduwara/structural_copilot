@@ -37,6 +37,80 @@ logger = logging.getLogger("structural_copilot.diagram_tool")
 logger.setLevel(logging.INFO)
 
 
+def plot_structure_wireframe(
+    nodes,
+    bars,
+    save_path: str,
+    title: str = "Structure geometry",
+) -> str:
+    """Renders a simple node/bar wireframe of the current model.
+
+    ``nodes``: dict {id: [x, y, z]} (or list of {id, x, y, z}) and
+    ``bars``: dict {id: [n1, n2]} — the shape RobotBridge.get_model_geometry
+    returns. Planar models (all y ~ 0) are drawn in the dominant X-Z plane;
+    3D models get an axonometric view with equal axis aspect. Returns the
+    saved path. Pure function (no Robot COM); matplotlib is imported lazily.
+    """
+    plt, _ = _ensure_matplotlib()
+
+    if isinstance(nodes, dict):
+        coords = {int(k): [float(v[0]), float(v[1]), float(v[2])]
+                  for k, v in nodes.items()}
+    else:
+        coords = {int(n["id"]): [float(n.get("x", 0.0)),
+                                 float(n.get("y", 0.0)),
+                                 float(n.get("z", 0.0))] for n in nodes}
+    if not coords:
+        raise ValueError("No nodes to preview - build geometry first.")
+    if isinstance(bars, dict):
+        pairs = {int(k): (int(v[0]), int(v[1])) for k, v in bars.items()}
+    else:
+        pairs = {int(b["id"]): (int(b["n1"]), int(b["n2"])) for b in bars}
+
+    all_flat = all(abs(c[1]) < 1e-9 for c in coords.values())
+    fig = plt.figure(figsize=(9, 6))
+    if all_flat:
+        ax = fig.add_subplot(111)
+        xs = [c[0] for c in coords.values()]
+        zs = [c[2] for c in coords.values()]
+        for (n1, n2) in pairs.values():
+            if n1 in coords and n2 in coords:
+                ax.plot([coords[n1][0], coords[n2][0]],
+                        [coords[n1][2], coords[n2][2]],
+                        color="#1F618D", lw=1.6)
+        ax.scatter(xs, zs, color="#C0392B", s=24, zorder=3)
+        for nid, c in coords.items():
+            ax.annotate(str(nid), (c[0], c[2]),
+                        textcoords="offset points", xytext=(4, 4),
+                        fontsize=7, color="#444444")
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Z (m)")
+        ax.set_title(title)
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect("equal", adjustable="datalim")
+    else:
+        ax = fig.add_subplot(111, projection="3d")
+        xs = [c[0] for c in coords.values()]
+        ys = [c[1] for c in coords.values()]
+        zs = [c[2] for c in coords.values()]
+        for (n1, n2) in pairs.values():
+            if n1 in coords and n2 in coords:
+                ax.plot([coords[n1][0], coords[n2][0]],
+                        [coords[n1][1], coords[n2][1]],
+                        [coords[n1][2], coords[n2][2]],
+                        color="#1F618D", lw=1.6)
+        ax.scatter(xs, ys, zs, color="#C0392B", s=24, zorder=3)
+        ax.set_xlabel("X (m)")
+        ax.set_ylabel("Y (m)")
+        ax.set_zlabel("Z (m)")
+        ax.set_title(title)
+        ax.set_box_aspect((1, 1, 1))
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+    return save_path
+
+
 class DiagramGenerator:
     """Generates SFD / BMD figures from Robot member-force export DataFrames."""
 

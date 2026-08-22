@@ -27,6 +27,7 @@ import os
 import re
 import threading
 import time
+import numpy as np
 from dataclasses import dataclass
 from typing import Optional, List, Tuple, Dict, Any
 
@@ -235,6 +236,9 @@ class RobotBridge:
         self._section_assignments: Dict[int, str] = {}   # bar_id -> section label name
         self._node_coords: Dict[int, Tuple[float, float, float]] = {}
         self._bar_endpoints: Dict[int, Tuple[int, int]] = {}
+        # In-memory project type ('2D' | '3D'); set by new_2d_frame /
+        # new_3d_frame / clear_structure, consumed by export_structure_spec.
+        self._project_type: str = "3D"
         # [WP4] Bookkeeping for grillage panels (node grid + bar ids).
         self._panel_meta: Dict[int, Dict[str, Any]] = {}
         # [EUROCODE Phase A] Engineer-specified bracing / unbraced lengths
@@ -610,6 +614,7 @@ class RobotBridge:
         self._ensure_connected()
         self.project = self.robot_app.Project
         self._guarded_project_new(RobotEnum.I_PT_BAR_2D)
+        self._project_type = "2D"
         self.structure = self.project.Structure
         self._section_assignments.clear()
         self._node_coords.clear()
@@ -624,6 +629,7 @@ class RobotBridge:
         self._ensure_connected()
         self.project = self.robot_app.Project
         self._guarded_project_new(RobotEnum.I_PT_BAR_3D)
+        self._project_type = "3D"
         self.structure = self.project.Structure
         self._section_assignments.clear()
         self._node_coords.clear()
@@ -817,13 +823,18 @@ class RobotBridge:
         self,
         node_id: int,
         support_type: str = "fixed",
+        spring_stiffness: Optional[Dict[str, float]] = None,
     ) -> None:
         """
         Applies a support condition to a node.
 
         support_type: one of {"fixed", "pinned", "roller_x", "roller_z"}
+        plus "spring" — an elastic-linear spring support requiring
+        ``spring_stiffness``: a dict of DOF -> stiffness
+        (UX/UY/UZ in kN/m, RX/RY/RZ in kNm/rad), e.g. {"UZ": 100000.0}.
+        The fixed/pinned/roller_* behaviour is unchanged.
         """
-        self._apply_node_support(node_id, support_type)
+        self._apply_node_support(node_id, support_type, spring_stiffness)
 
     # Fixity flag sets (1 = fixed, 0 = free) shared by set_support and
     # modify_support — UX, UY, UZ, RX, RY, RZ.
@@ -834,19 +845,35 @@ class RobotBridge:
         "roller_z": dict(UX=1, UY=0, UZ=1, RX=0, RY=0, RZ=0),
     }
 
-    def _apply_node_support(self, node_id: int, support_type: str) -> None:
+    # DOF -> elastic-spring stiffness member on IRobotNodeSupportData
+    # (verified against the RobotOM v27 type library: translations KX/KY/KZ
+    # in kN/m, rotations HX/HY/HZ in kNm/rad, plus the ElasticLinear flag).
+    _SPRING_VALUE_MEMBERS = {
+        "UX": "KX", "UY": "KY", "UZ": "KZ",
+        "RX": "HX", "RY": "HY", "RZ": "HZ",
+    }
+
+    def _apply_node_support(self, node_id: int, support_type: str,
+                            spring_stiffness: Optional[Dict[str, float]] = None) -> None:
         """
         [PHASE 1 refactor] Shared support-application helper used by both
         set_support and modify_support: validates the type, creates/reuses
         the fixity label, and assigns it to the existing node (the node and
-        any connected bars are left untouched).
+        any connected bars are left untouched). support_type="spring"
+        delegates to _apply_spring_support (elastic-linear springs).
         """
         self._ensure_connected()
+        support_type = str(support_type or "").lower()
+        if support_type == "spring":
+            self._apply_spring_support(node_id, spring_stiffness)
+            return
+
         # [FIX M10] Validate support_type
         valid_supports = set(self._SUPPORT_FLAG_SETS.keys())
         if support_type not in valid_supports:
             raise ValueError(
-                f"Invalid support_type '{support_type}'. Must be one of {valid_supports}."
+                f"Invalid support_type '{support_type}'. Must be one of "
+                f"{valid_supports} or 'spring'."
             )
 
         labels = self.structure.Labels
@@ -877,15 +904,253 @@ class RobotBridge:
         node.SetLabel(RobotEnum.I_LT_SUPPORT, label_name)
         logger.info("Support '%s' applied to node %s.", support_type, node_id)
 
+    def _apply_spring_support(self, node_id: int,
+                              spring_stiffness: Optional[Dict[str, float]]) -> None:
+        """Applies an elastic-linear (spring) support to a node via
+        IRobotNodeSupportData.ElasticLinear + KX/KY/KZ / HX/HY/HZ
+        (verified against the RobotOM v27 type library)."""
+        stiffness = dict(spring_stiffness or {})
+        if not stiffness:
+            raise ValueError(
+                "support_type='spring' requires a non-empty spring_stiffness "
+                "dict, e.g. {'UZ': 100000.0} (translations UX/UY/UZ in kN/m, "
+                "rotations RX/RY/RZ in kNm/rad).")
+        unknown = sorted(set(stiffness) - set(self._SPRING_VALUE_MEMBERS))
+        if unknown:
+            raise ValueError(
+                f"Unknown spring stiffness DOF(s) {unknown}; valid: "
+                f"{sorted(self._SPRING_VALUE_MEMBERS)}")
+
+        labels = self.structure.Labels
+        label_name = "AUTO_SPRING"
+        try:
+            support_label = labels.Get(RobotEnum.I_LT_SUPPORT, label_name)
+        except Exception:
+            support_label = None
+
+        if support_label is None:
+            support_label = labels.Create(RobotEnum.I_LT_SUPPORT, label_name)
+            try:
+                support_data = CastTo(support_label.Data,
+                                      "IRobotNodeSupportData")
+            except Exception:
+                support_data = support_label.Data
+            try:
+                # Elastic-linear support: every springed DOF is blocked
+                # (fixity flag 1) with its stiffness attached.
+                support_data.ElasticLinear = 1
+                for dof in ("UX", "UY", "UZ", "RX", "RY", "RZ"):
+                    setattr(support_data, dof,
+                            1 if dof in stiffness else 0)
+                for dof, value in stiffness.items():
+                    member = self._SPRING_VALUE_MEMBERS[dof]
+                    setattr(support_data, member, float(value))
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError(
+                    "RobotOM on this build does not expose the elastic "
+                    "support API (IRobotNodeSupportData.ElasticLinear / "
+                    f"K*/H*): spring support failed: {exc}") from exc
+            labels.Store(support_label)
+
+        node = self.structure.Nodes.Get(node_id)
+        node.SetLabel(RobotEnum.I_LT_SUPPORT, label_name)
+        logger.info("Spring support applied to node %s: %s", node_id, stiffness)
+
     @com_thread_safe
-    def modify_support(self, node_id: int, support_type: str) -> str:
+    def modify_support(self, node_id: int, support_type: str,
+                       spring_stiffness: Optional[Dict[str, float]] = None) -> str:
         """
         [PHASE 1] Changes the support condition of an EXISTING node without
         deleting it or any connected bars. Re-solve afterwards to refresh
-        results.
+        results. support_type="spring" additionally accepts
+        ``spring_stiffness`` (same contract as set_support).
         """
-        self._apply_node_support(node_id, support_type)
+        self._apply_node_support(node_id, support_type, spring_stiffness)
         return f"Node {node_id} support set to '{support_type}'."
+
+    # --- stability (mechanism) pre-solve check --------------------------- #
+    # [STEP 2] The SAME check HeadlessSession.validate_stability() runs
+    # (headless_driver delegates here), exposed standalone for the chat
+    # tool. Pure numpy, 2D Euler-Bernoulli frame assembly, rank check.
+
+    _DOF_NAMES_2D = ("UX", "UZ", "RY")
+
+    @staticmethod
+    def _support_flags_2d(support_name: str) -> Tuple[int, int, int]:
+        """(UX, UZ, RY) fixity flags for a support label name. Mirrors
+        _SUPPORT_FLAG_SETS; unknown labels are treated as full fixity
+        (conservative for mechanism detection)."""
+        name = str(support_name or "").upper()
+        for marker, flags in (("PINNED", (1, 1, 0)),
+                              ("ROLLER", (0, 1, 0)),
+                              ("FIXED", (1, 1, 1))):
+            if marker in name:
+                return flags
+        return (1, 1, 1)
+
+    def _section_a_i(self, section_name: str) -> Tuple[float, float]:
+        """(A, I) for a section label via the empirical GetValue map
+        (0=A, 4/5=I). Falls back to unit values; exact magnitudes do not
+        affect singularity detection."""
+        try:
+            data = self.structure.Labels.Get(
+                RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
+            a = float(data.GetValue(0))
+            i = min(float(data.GetValue(4)), float(data.GetValue(5)))
+            if a > 0.0 and i > 0.0:
+                return a, i
+        except Exception:  # noqa: BLE001
+            pass
+        return 1.0, 1.0
+
+    @staticmethod
+    def _mechanism_check(coords, bars, fixity) -> Dict[str, Any]:
+        """PURE (numpy only): 2D mechanism check shared by the live
+        RobotBridge.validate_stability and the offline tests.
+
+        coords : {node_id: (x, z)}
+        bars   : [(n1, n2, A, I), ...]   (node ids; E cancels for rank)
+        fixity : {node_id: (UX, UZ, RY)}  (1 = fixed)
+
+        Returns the same dict shape the HeadlessSession check returns:
+        {ok, mechanism, nodes, dofs, message} with the identical messages.
+        """
+        node_ids = sorted(coords)
+        if not node_ids:
+            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
+                    "message": "no nodes in model"}
+        n = len(node_ids)
+        idx = {nid: k for k, nid in enumerate(node_ids)}
+
+        k = np.zeros((3 * n, 3 * n))
+        for n1, n2, a, ii in bars:
+            if n1 not in idx or n2 not in idx:
+                continue
+            (x1, z1), (x2, z2) = coords[n1], coords[n2]
+            dx, dz = x2 - x1, z2 - z1
+            length = float(np.hypot(dx, dz))
+            if length < 1e-12:
+                continue
+            c, s = dx / length, dz / length
+            ea, ei = 1.0 * a, 1.0 * ii
+            k_local = np.array([
+                [ea / length, 0, 0, -ea / length, 0, 0],
+                [0, 12 * ei / length ** 3, 6 * ei / length ** 2,
+                 0, -12 * ei / length ** 3, 6 * ei / length ** 2],
+                [0, 6 * ei / length ** 2, 4 * ei / length,
+                 0, -6 * ei / length ** 2, 2 * ei / length],
+                [-ea / length, 0, 0, ea / length, 0, 0],
+                [0, -12 * ei / length ** 3, -6 * ei / length ** 2,
+                 0, 12 * ei / length ** 3, -6 * ei / length ** 2],
+                [0, 6 * ei / length ** 2, 2 * ei / length,
+                 0, -6 * ei / length ** 2, 4 * ei / length],
+            ])
+            t = np.array([
+                [c, -s, 0, 0, 0, 0],
+                [s, c, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0],
+                [0, 0, 0, c, -s, 0],
+                [0, 0, 0, s, c, 0],
+                [0, 0, 0, 0, 0, 1],
+            ])
+            k_e = t.T @ k_local @ t
+            i1, i2 = idx[n1], idx[n2]
+            dofs = [3 * i1, 3 * i1 + 1, 3 * i1 + 2,
+                    3 * i2, 3 * i2 + 1, 3 * i2 + 2]
+            for r, dr in enumerate(dofs):
+                for c_, dc in enumerate(dofs):
+                    k[dr, dc] += k_e[r, c_]
+
+        free = []
+        for nid in node_ids:
+            fx, fz, ry = fixity.get(nid, (0, 0, 0))
+            base = 3 * idx[nid]
+            for j, locked in enumerate((fx, fz, ry)):
+                if not locked:
+                    free.append(base + j)
+        if not free:
+            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
+                    "message": "all DOFs are fixed by supports"}
+
+        kf = k[np.ix_(free, free)]
+        kf = (kf + kf.T) / 2.0
+        rank = int(np.linalg.matrix_rank(kf, tol=1e-8))
+        if rank == len(free):
+            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
+                    "message": f"no mechanism detected (rank {rank}/{len(free)})"}
+
+        # rank-deficient -> nodes whose DOFs participate in the nullspace
+        _, _, vt = np.linalg.svd(kf)
+        null = vt[-1] if len(vt) else np.zeros(len(free))
+        mag = float(np.max(np.abs(null))) if len(null) else 0.0
+        flagged: List[int] = []
+        dofs: List[str] = []
+        dof_names = ("UX", "UZ", "RY")
+        for j, dof in enumerate(free):
+            if mag > 0 and abs(null[j]) > 0.25 * mag:
+                node = node_ids[dof // 3]
+                dofs.append(f"node {node} {dof_names[dof % 3]}")
+                if node not in flagged:
+                    flagged.append(node)
+        return {
+            "ok": False, "mechanism": True, "nodes": flagged, "dofs": dofs[:8],
+            "message": ("likely mechanism at " + (", ".join(dofs[:8]) or "?")
+                        + " — refusing to call Calculate()."),
+        }
+
+    @com_thread_safe
+    def validate_stability(self) -> Dict[str, Any]:
+        """[STEP 2] Detects likely kinematic mechanisms BEFORE Calculate()
+        is ever called, using the 2D Euler-Bernoulli frame rank check that
+        HeadlessSession.validate_stability delegates to (single source of
+        truth). Returns {ok, mechanism, nodes, dofs, message}."""
+        self._ensure_connected()
+        st = self.structure
+
+        nodes_coll = st.Nodes.GetAll()
+        n_count = int(nodes_coll.Count) if nodes_coll is not None else 0
+        coords: Dict[int, Tuple[float, float]] = {}
+        node_ids: List[int] = []
+        for i in range(1, n_count + 1):
+            try:
+                obj = nodes_coll.Get(i)
+                nid = int(obj.Number)
+                node_ids.append(nid)
+                coords[nid] = (float(obj.X), float(obj.Z))
+            except Exception:  # noqa: BLE001
+                continue
+        if not node_ids:
+            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
+                    "message": "no nodes in model"}
+
+        fixity: Dict[int, Tuple[int, int, int]] = {}
+        for nid in node_ids:
+            try:
+                node = st.Nodes.Get(nid)
+                if bool(node.HasLabel(RobotEnum.I_LT_SUPPORT)):
+                    fixity[nid] = self._support_flags_2d(
+                        node.GetLabelName(RobotEnum.I_LT_SUPPORT))
+                else:
+                    fixity[nid] = (0, 0, 0)
+            except Exception:  # noqa: BLE001
+                fixity[nid] = (0, 0, 0)
+
+        bars: List[Tuple[int, int, float, float]] = []
+        bars_coll = st.Bars.GetAll()
+        b_count = int(bars_coll.Count) if bars_coll is not None else 0
+        for i in range(1, b_count + 1):
+            try:
+                bobj = bars_coll.Get(i)
+                n1, n2 = int(bobj.StartNode), int(bobj.EndNode)
+                if n1 not in coords or n2 not in coords:
+                    continue
+                sec = str(bobj.GetLabelName(RobotEnum.I_LT_BAR_SECTION))
+                a, ii = self._section_a_i(sec)
+                bars.append((n1, n2, a, ii))
+            except Exception:  # noqa: BLE001
+                continue
+
+        return self._mechanism_check(coords, bars, fixity)
 
     # --- [PHASE1_RELEASE] ---
     @com_thread_safe
@@ -2742,6 +3007,79 @@ class RobotBridge:
         "imposed": RobotEnum.I_CN_IMPOSED,
     }
 
+    @staticmethod
+    def eurocode_combination_factors(
+        cases, combination_set: str = "ULS_SLS_basic",
+    ) -> List[Dict[str, Any]]:
+        """PURE: EN 1990 combination-factor plans for a set of load cases.
+
+        ``cases`` is a list of (case_id, nature) with nature in
+        {"permanent", "imposed"} (the create_load_case schema vocabulary;
+        imposed == variable action). Returns a list of
+        {name, case_factors: {case_id: factor}, combination_type} ready
+        for define_combination():
+
+          * ULS:      1.35 x every permanent + 1.5 x the leading variable
+                      + 1.5*0.7 = 1.05 x each other variable (one ULS per
+                      variable case as leading; plain 1.35G if none).
+          * SLS char: 1.0 x every case (characteristic combination).
+
+        ``combination_set``: "ULS_SLS_basic" (default) | "ULS_only" |
+        "SLS_only". Raises ValueError on an empty case list or an unknown
+        nature/set.
+        """
+        combo_set = str(combination_set or "").strip()
+        if combo_set not in ("ULS_SLS_basic", "ULS_only", "SLS_only"):
+            raise ValueError(
+                f"combination_set must be one of "
+                f"{{'ULS_SLS_basic','ULS_only','SLS_only'}} "
+                f"(got '{combination_set}').")
+        if not cases:
+            raise ValueError(
+                "generate_code_combinations needs at least one load case "
+                "with a 'nature' (create_load_case first).")
+
+        permanent = [(int(cid), str(nat)) for cid, nat in cases
+                     if str(nat).lower() == "permanent"]
+        variable = [(int(cid), str(nat)) for cid, nat in cases
+                    if str(nat).lower() == "imposed"]
+        unknown = sorted({str(nat) for _, nat in cases}
+                         - {"permanent", "imposed"})
+        if unknown:
+            raise ValueError(
+                f"Unknown load-case nature(s) {unknown}; supported: "
+                "permanent / imposed.")
+
+        plans: List[Dict[str, Any]] = []
+
+        def _uls(q_lead):
+            factors = {cid: 1.35 for cid, _ in permanent}
+            factors.update({cid: 1.5 for cid, _ in variable if cid == q_lead})
+            factors.update({cid: 1.05 for cid, _ in variable
+                            if cid != q_lead})
+            return factors
+
+        if combo_set in ("ULS_SLS_basic", "ULS_only"):
+            if variable:
+                for cid, _ in variable:
+                    plans.append({
+                        "name": f"ULS_{cid}", "case_factors": _uls(cid),
+                        "combination_type": "ULS",
+                    })
+            else:
+                plans.append({
+                    "name": "ULS", "case_factors": _uls(None),
+                    "combination_type": "ULS",
+                })
+
+        if combo_set in ("ULS_SLS_basic", "SLS_only"):
+            plans.append({
+                "name": "SLS_char",
+                "case_factors": {cid: 1.0 for cid, _ in cases},
+                "combination_type": "SLS",
+            })
+        return plans
+
     @com_thread_safe
     def clear_structure(self, project_type: str = "3D") -> None:
         """[MILESTONE A] Resets the current project to a blank model of the
@@ -2753,6 +3091,7 @@ class RobotBridge:
         )
         self.project = self.robot_app.Project
         self._guarded_project_new(code)
+        self._project_type = "3D" if project_type.lower() == "3d" else "2D"
         self.structure = self.project.Structure
         self._node_coords.clear()
         self._bar_endpoints.clear()
@@ -2812,7 +3151,10 @@ class RobotBridge:
             )
 
         for s in spec.get("supports", []) or []:
-            self.set_support(int(s["node"]), str(s.get("type") or "pinned"))
+            self.set_support(
+                int(s["node"]), str(s.get("type") or "pinned"),
+                spring_stiffness=s.get("spring_stiffness"),
+            )
 
         for c in spec.get("cases", []) or []:
             nature = str(c.get("nature") or "permanent")
@@ -2944,6 +3286,299 @@ class RobotBridge:
             ) from exc
         logger.info("Project saved to %s", path)
         return f"Project saved to '{path}'."
+
+    # ------------------------------------------------------------------ #
+    # Geometry read-back (in-memory, no COM) + self-weight loads
+    # ------------------------------------------------------------------ #
+
+    @com_thread_safe
+    def get_model_geometry(self) -> Dict[str, Any]:
+        """Returns the CURRENT in-memory geometry (no COM): project type,
+        node coords and bar endpoints, exactly as the bridge has been
+        building them. Used by the preview_structure_geometry tool so a
+        wireframe can be drawn without contacting Robot."""
+        return {
+            "project": self._project_type,
+            "nodes": {int(k): list(v) for k, v in self._node_coords.items()},
+            "bars": {int(k): list(v) for k, v in self._bar_endpoints.items()},
+        }
+
+    @staticmethod
+    def _self_weight_kn_m(unit_mass_kg_m: float, g: float = 9.81) -> float:
+        """Gravity load per metre of a member from its unit mass (kg/m).
+        Returns kN/m (positive downward, to be applied in global -Z)."""
+        return float(unit_mass_kg_m) * float(g) / 1000.0
+
+    @com_thread_safe
+    def apply_self_weight(self, case_id: int, density: float = 7850.0) -> Dict[str, Any]:
+        """Applies each bar's self-weight as a uniform load in the given
+        case (global -Z), computed from the section unit mass (static
+        table first, live Robot property lookup as fallback) and the
+        member length. Returns a per-bar summary dict."""
+        self._ensure_connected()
+        case = self.structure.Cases.Get(int(case_id))   # raises if missing
+
+        per_bar: List[Dict[str, Any]] = []
+        total_kn = 0.0
+        for bar_id in sorted(self._bar_endpoints):
+            length = self._bar_length(bar_id)
+            if length <= 0.0:
+                continue
+            sec = self._section_assignments.get(bar_id) or ""
+            unit_mass = self._lookup_unit_mass(sec, float(density)) \
+                if sec else 0.0
+            kn_m = self._self_weight_kn_m(unit_mass)
+            self.apply_bar_load(bar_id, int(case_id), -kn_m, "Z")
+            total_kn += kn_m * length
+            per_bar.append({
+                "bar_id": bar_id, "section": sec, "length_m": round(length, 3),
+                "unit_mass_kg_m": round(unit_mass, 3),
+                "load_kn_m": round(kn_m, 5),
+                "weight_kn": round(kn_m * length, 4),
+            })
+        return {
+            "case_id": int(case_id),
+            "bars": len(per_bar),
+            "total_self_weight_kn": round(total_kn, 4),
+            "density_kg_m3": float(density),
+            "per_bar": per_bar,
+        }
+
+
+    # ------------------------------------------------------------------ #
+    # Model spec export (reverse of build_structure_from_spec)
+    # ------------------------------------------------------------------ #
+
+    @com_thread_safe
+    def export_structure_spec(self) -> Dict[str, Any]:
+        """Reverse of build_structure_from_spec: reads the LIVE model and
+        returns the same geometry JSON shape (project / nodes / bars /
+        supports / cases / loads) so it can be passed verbatim to
+        create_structure_from_spec or used as spec.geometry by the batch
+        optimizer.
+
+        Supports map back to the known type names via the AUTO_* label
+        prefix (falling back to the fixity-flag pattern); elastic (spring)
+        supports additionally carry spring_stiffness. Loads are read for
+        simple static cases only (bar_uniform / bar_concentrated / nodal);
+        combinations and exotic record types are skipped with a log note.
+        """
+        self._ensure_connected()
+        spec: Dict[str, Any] = {
+            "project": self._project_type,
+            "nodes": [], "bars": [], "supports": [], "cases": [], "loads": [],
+        }
+
+        # ---- nodes ------------------------------------------------------ #
+        try:
+            node_coll = self.structure.Nodes.GetAll()
+            if node_coll is not None:
+                for i in range(1, int(node_coll.Count) + 1):
+                    try:
+                        n = node_coll.Get(i)
+                        spec["nodes"].append({
+                            "id": int(n.Number),
+                            "x": float(n.X), "y": float(n.Y), "z": float(n.Z),
+                        })
+                    except Exception:
+                        continue
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("export_structure_spec: node read failed: %s", exc)
+
+        # ---- bars ------------------------------------------------------- #
+        try:
+            bar_coll = self.structure.Bars.GetAll()
+            if bar_coll is not None:
+                for i in range(1, int(bar_coll.Count) + 1):
+                    try:
+                        b = bar_coll.Get(i)
+                        sec = b.GetLabelName(RobotEnum.I_LT_BAR_SECTION) or ""
+                        spec["bars"].append({
+                            "id": int(b.Number),
+                            "n1": int(b.StartNode), "n2": int(b.EndNode),
+                            "section": sec,
+                        })
+                    except Exception:
+                        continue
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("export_structure_spec: bar read failed: %s", exc)
+
+        # ---- supports --------------------------------------------------- #
+        for node_id in [n["id"] for n in spec["nodes"]]:
+            try:
+                label_name = str(self.structure.Nodes.Get(node_id)
+                                 .GetLabelName(RobotEnum.I_LT_SUPPORT) or "")
+            except Exception:  # noqa: BLE001
+                continue
+            stype = self._support_type_from_label(label_name)
+            if stype is None:
+                continue  # node has no support label
+            entry: Dict[str, Any] = {"node": int(node_id), "type": stype}
+            if stype == "spring":
+                stiffness = self._spring_stiffness_of(label_name)
+                if stiffness:
+                    entry["spring_stiffness"] = stiffness
+            elif stype == "custom":
+                entry["label"] = label_name
+            spec["supports"].append(entry)
+
+        # ---- cases + loads ---------------------------------------------- #
+        for num, case in self._iter_all_cases():
+            name = ""
+            nature = "permanent"
+            try:
+                name = str(case.Name or "")
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                nat = int(case.Nature)
+                nature = next(
+                    (k for k, v in self._NATURE_MAP.items() if v == nat),
+                    "permanent")
+            except Exception:  # noqa: BLE001
+                pass
+            spec["cases"].append({"id": int(num), "name": name,
+                                  "nature": nature})
+            try:
+                spec["loads"].extend(self._read_case_loads(case, int(num)))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "export_structure_spec: load read failed for case %s: %s",
+                    num, exc)
+        return spec
+
+    def _support_type_from_label(self, label_name: str) -> Optional[str]:
+        """Maps a support label name back to a spec support_type (or None
+        when the node carries no support). AUTO_* labels map by prefix;
+        custom labels map by their fixity-flag pattern; anything unmatched
+        is 'custom' (round-trip documented as a limitation)."""
+        name = str(label_name or "").strip()
+        if not name:
+            return None
+        if name.upper().startswith("AUTO_"):
+            return name[5:].lower()
+        try:
+            support_label = self.structure.Labels.Get(
+                RobotEnum.I_LT_SUPPORT, name)
+            data = CastTo(support_label.Data, "IRobotNodeSupportData")
+            flags = {dof: int(getattr(data, dof)) for dof in
+                     ("UX", "UY", "UZ", "RX", "RY", "RZ")}
+            for stype, pattern in self._SUPPORT_FLAG_SETS.items():
+                if all(flags.get(d) == v for d, v in pattern.items()):
+                    return stype
+            try:
+                if int(data.ElasticLinear) == 1:
+                    return "spring"
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+        return "custom"
+
+    def _spring_stiffness_of(self, label_name: str) -> Dict[str, float]:
+        """Reads an elastic (spring) support label's stiffness values back
+        as {DOF: value} (translations in kN/m, rotations in kNm/rad)."""
+        out: Dict[str, float] = {}
+        try:
+            support_label = self.structure.Labels.Get(
+                RobotEnum.I_LT_SUPPORT, label_name)
+            data = CastTo(support_label.Data, "IRobotNodeSupportData")
+            if int(data.ElasticLinear) != 1:
+                return out
+            for dof, member in self._SPRING_VALUE_MEMBERS.items():
+                try:
+                    v = float(getattr(data, member))
+                except Exception:  # noqa: BLE001
+                    continue
+                if abs(v) > 1e-12:
+                    out[dof] = round(v, 4)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not read spring stiffness '%s': %s",
+                           label_name, exc)
+        return out
+
+    def _read_case_loads(self, case, case_id: int) -> List[Dict[str, Any]]:
+        """Reads a simple case's load records into spec-style load dicts.
+        Supports the three kinds the spec schema defines (bar_uniform /
+        bar_concentrated / nodal); anything else is skipped with a note."""
+        out: List[Dict[str, Any]] = []
+        try:
+            records = case.Records
+            n = int(records.Count)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("_read_case_loads: case %s has no readable "
+                           "Records: %s", case_id, exc)
+            return out
+
+        for i in range(1, n + 1):
+            try:
+                record = records.Get(i)
+                rtype = int(record.Type)
+                objs = self._record_object_ids(record)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("_read_case_loads: record %s unreadable: %s",
+                               i, exc)
+                continue
+            try:
+                if rtype == RobotEnum.I_LRT_BAR_UNIFORM:
+                    vals = [float(record.GetValue(j)) for j in (0, 1, 2)]
+                    axis = next((a for a, v in zip(("X", "Y", "Z"), vals)
+                                 if abs(v) > 1e-12), None)
+                    if axis is not None:
+                        for bar_id in objs:
+                            out.append({
+                                "kind": "bar_uniform", "bar": bar_id,
+                                "case": case_id, "direction": axis,
+                                "value": round(vals["XYZ".index(axis)], 5),
+                            })
+                elif rtype == RobotEnum.I_LRT_NODE_FORCE:
+                    vals = [float(record.GetValue(j)) for j in range(6)]
+                    for node_id in objs:
+                        out.append({
+                            "kind": "nodal", "node": node_id, "case": case_id,
+                            "fx": round(vals[0], 5), "fz": round(vals[2], 5),
+                            "my": round(vals[4], 5),
+                        })
+                elif rtype == RobotEnum.I_LRT_BAR_FORCE_CONCENTRATED:
+                    fx = float(record.GetValue(RobotEnum.I_BFCRV_FX))
+                    fy = float(record.GetValue(RobotEnum.I_BFCRV_FY))
+                    fz = float(record.GetValue(RobotEnum.I_BFCRV_FZ))
+                    try:
+                        ratio = float(record.GetValue(RobotEnum.I_BFCRV_REL))
+                    except Exception:  # noqa: BLE001
+                        ratio = 0.5
+                    for bar_id in objs:
+                        out.append({
+                            "kind": "bar_concentrated", "bar": bar_id,
+                            "case": case_id, "fx": round(fx, 5),
+                            "fy": round(fy, 5), "fz": round(fz, 5),
+                            "ratio": round(ratio, 4),
+                        })
+                else:
+                    logger.info(
+                        "_read_case_loads: record type %s not in the spec "
+                        "schema (skipped).", rtype)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("_read_case_loads: record %s value read "
+                               "failed: %s", i, exc)
+        return out
+
+    def _record_object_ids(self, record) -> List[int]:
+        """Bar/node ids a load record applies to, from its Objects range.
+        Tries the Text property (inverse of FromText), then Count/Get."""
+        try:
+            text = str(record.Objects.Text or "")
+            ids = [int(t) for t in re.findall(r"\d+", text)]
+            if ids:
+                return ids
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            rng = record.Objects
+            n = int(rng.Count)
+            return [int(rng.Get(k).Number) for k in range(1, n + 1)]
+        except Exception:  # noqa: BLE001
+            return []
 
     @com_thread_safe
     def get_structure_summary(self) -> Dict[str, Any]:

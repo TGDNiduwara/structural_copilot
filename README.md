@@ -364,6 +364,28 @@ passing candidate of a completed run as a `.rtd` project in `generated/`.
 The batch tools import into `batch/` only — `batch/` never
 imports `agent/tool_registry.py`, preserving the isolation from Phase 0.
 
+**Build-and-optimize round-trip chat tools:** `export_structure_spec()` reads
+the LIVE model back into the same `geometry` JSON shape
+`create_structure_from_spec`/`start_optimization_run` accept (the reverse of
+building from a spec — use it as `spec.geometry` when optimizing an
+already-built model); `list_available_sections(family=None)` returns the
+catalog section names (`tools/section_sizing.py`) with no Robot solve;
+`apply_self_weight(case_id, density=7850)` applies every bar's self-weight
+as one call (unit mass × length × g); `set_support` gained `"spring"`
+(elastic-linear via `IRobotNodeSupportData.ElasticLinear` + K*/H* stiffness,
+additive to the fixed/pinned/roller_* types); `preview_structure_geometry()`
+renders a wireframe PNG of the in-memory geometry (matplotlib, no COM).
+`check_model_stability()` runs the same mechanism rank check
+`batch/runner.py` uses (now on `RobotBridge.validate_stability`, which
+`HeadlessSession` delegates to — call it before `solve` on manually-built
+models); `generate_code_combinations(combination_set="ULS_SLS_basic")`
+builds the EN 1990 set (1.35G+1.5Q, 1.05 multi-variable, SLS 1.0) via the
+existing `define_combination`; `compare_topologies(variants, load_spec)`
+sizes truss/arch/braced-frame/grid variants under one load spec through the
+existing optimizer and ranks them by lightest passing design
+(`batch/topology_compare.py`, one run per variant).
+Offline tests: `batch/test_chat_build_tools.py` + `batch/test_topology_compare.py`.
+
 
 ## Eurocode member checks (EN 1993) — v1 scope and explicit caveats
 

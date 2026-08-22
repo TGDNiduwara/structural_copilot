@@ -1,0 +1,16 @@
+NOTE - check 4 (spring) pass band tightened - report must apply the
+tighter band when judging live_check_4.json.
+
+- The live backlog driver pid 21272 was launched BEFORE this patch and
+  already holds the OLD tolerance (err < 0.3, i.e. +/-30%) in memory.
+  Python does not re-read run_live_backlog.py mid-flight, so that run's
+  PASS/FAIL flag will use the old band. It must NOT be restarted (one-seat
+  Robot license; chain still running).
+- The hand-calc target, comparison logic, and recorded numbers are
+  unchanged. live_check_4.json always records the raw uz_m, target_m and
+  rel_err, so the report can re-judge with +/-10% independent of the flag.
+- run_live_backlog.py itself is patched: tolerance = 0.10 (+/-10%) and the
+  JSON payload carries "tolerance_band": 0.10. Any FRESH invocation of the
+  backlog (e.g. a re-run after CHAIN_DONE) uses the tight band directly.
+- Decision rule for the report: check 4 PASS <=> rel_err <= 0.10
+  (from live_check_4.json), regardless of the flag the old process wrote.

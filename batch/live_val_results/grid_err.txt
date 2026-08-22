@@ -192,3 +192,341 @@ watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', 
 INFO:   -> w=597.6 kg util=0.3995 PASS
 INFO:   checkpoint 36 after 95.4s | [36/100] run elapsed 3396s, ETA ~6037s
 INFO: [37/100] evaluating candidate 37
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=645.6 kg util=0.3417 PASS
+INFO:   checkpoint 37 after 96.3s | [37/100] run elapsed 3492s, ETA ~5946s
+INFO: [38/100] evaluating candidate 38
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=700.8 kg util=0.2892 PASS
+INFO:   checkpoint 38 after 94.0s | [38/100] run elapsed 3586s, ETA ~5851s
+INFO: [39/100] evaluating candidate 39
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=768.6 kg util=0.2402 PASS
+INFO:   checkpoint 39 after 94.9s | [39/100] run elapsed 3681s, ETA ~5758s
+INFO: [40/100] evaluating candidate 40
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=847.2 kg util=0.1979 PASS
+INFO:   checkpoint 40 after 98.0s | [40/100] run elapsed 3779s, ETA ~5669s
+INFO: [41/100] evaluating candidate 41
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=496.2 kg util=1.4669 FAIL
+INFO:   checkpoint 41 after 95.1s | [41/100] run elapsed 3874s, ETA ~5575s
+INFO: [42/100] evaluating candidate 42
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=519.0 kg util=1.0977 FAIL
+INFO:   checkpoint 42 after 94.7s | [42/100] run elapsed 3969s, ETA ~5481s
+INFO: [43/100] evaluating candidate 43
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=546.0 kg util=0.8196 PASS
+INFO:   checkpoint 43 after 96.0s | [43/100] run elapsed 4065s, ETA ~5388s
+INFO: [44/100] evaluating candidate 44
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=578.4 kg util=0.5812 PASS
+INFO:   checkpoint 44 after 94.1s | [44/100] run elapsed 4159s, ETA ~5293s
+INFO: [45/100] evaluating candidate 45
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=615.0 kg util=0.4287 PASS
+INFO:   checkpoint 45 after 92.5s | [45/100] run elapsed 4252s, ETA ~5196s
+INFO: [46/100] evaluating candidate 46
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=656.4 kg util=0.3651 PASS
+INFO:   checkpoint 46 after 93.4s | [46/100] run elapsed 4345s, ETA ~5101s
+INFO: [47/100] evaluating candidate 47
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=704.4 kg util=0.3131 PASS
+INFO:   checkpoint 47 after 93.8s | [47/100] run elapsed 4439s, ETA ~5005s
+INFO: [48/100] evaluating candidate 48
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=759.6 kg util=0.267 PASS
+INFO:   checkpoint 48 after 93.5s | [48/100] run elapsed 4532s, ETA ~4910s
+INFO: [49/100] evaluating candidate 49
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=827.4 kg util=0.2242 PASS
+INFO:   checkpoint 49 after 93.4s | [49/100] run elapsed 4626s, ETA ~4814s
+INFO: [50/100] evaluating candidate 50
+WARNING:   -> com_error: (-2147023174, 'The RPC server is unavailable.', None, None)
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+Robot.Application.Quit raised: (-2147023174, 'The RPC server is unavailable.', None, None)
+INFO:   checkpoint 50 after 59.4s | [50/100] run elapsed 4685s, ETA ~4685s
+INFO: [51/100] evaluating candidate 51
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=390.0 kg util=1.2615 FAIL
+INFO:   checkpoint 51 after 95.8s | [51/100] run elapsed 4781s, ETA ~4593s
+INFO: [52/100] evaluating candidate 52
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=412.8 kg util=0.9465 PASS
+INFO:   checkpoint 52 after 94.4s | [52/100] run elapsed 4875s, ETA ~4500s
+INFO: [53/100] evaluating candidate 53
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+WARNING:   -> RuntimeError: Robot COM server connection lost (server may have been closed externally). Please reconnect by calling connect(). Original error: (-2147023174, 'The RPC server is unavailable.', None, None)
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+INFO:   checkpoint 53 after 105.2s | [53/100] run elapsed 4980s, ETA ~4417s
+INFO: [54/100] evaluating candidate 54
+WARNING:   -> com_error: (-2147023174, 'The RPC server is unavailable.', None, None)
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+Robot.Application.Quit raised: (-2147023174, 'The RPC server is unavailable.', None, None)
+INFO:   checkpoint 54 after 43.4s | [54/100] run elapsed 5024s, ETA ~4280s
+INFO: [55/100] evaluating candidate 55
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=508.8 kg util=0.5665 PASS
+INFO:   checkpoint 55 after 91.9s | [55/100] run elapsed 5116s, ETA ~4186s
+INFO: [56/100] evaluating candidate 56
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=550.2 kg util=0.4773 PASS
+INFO:   checkpoint 56 after 91.3s | [56/100] run elapsed 5207s, ETA ~4091s
+INFO: [57/100] evaluating candidate 57
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=598.2 kg util=0.4007 PASS
+INFO:   checkpoint 57 after 91.4s | [57/100] run elapsed 5298s, ETA ~3997s
+INFO: [58/100] evaluating candidate 58
+INFO:   -> w=653.4 kg util=0.3311 PASS
+INFO:   checkpoint 58 after 91.6s | [58/100] run elapsed 5390s, ETA ~3903s
+INFO: [59/100] evaluating candidate 59
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=721.2 kg util=0.2676 PASS
+INFO:   checkpoint 59 after 91.6s | [59/100] run elapsed 5482s, ETA ~3809s
+INFO: [60/100] evaluating candidate 60
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=799.8 kg util=0.2152 PASS
+INFO:   checkpoint 60 after 91.5s | [60/100] run elapsed 5573s, ETA ~3715s
+INFO: [61/100] evaluating candidate 61
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=441.6 kg util=1.3595 FAIL
+INFO:   checkpoint 61 after 91.8s | [61/100] run elapsed 5665s, ETA ~3622s
+INFO: [62/100] evaluating candidate 62
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=464.4 kg util=0.9897 PASS
+INFO:   checkpoint 62 after 91.5s | [62/100] run elapsed 5756s, ETA ~3528s
+INFO: [63/100] evaluating candidate 63
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=491.4 kg util=0.7213 PASS
+INFO:   checkpoint 63 after 91.5s | [63/100] run elapsed 5848s, ETA ~3434s
+INFO: [64/100] evaluating candidate 64
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=523.8 kg util=0.6033 PASS
+INFO:   checkpoint 64 after 91.8s | [64/100] run elapsed 5940s, ETA ~3341s
+INFO: [65/100] evaluating candidate 65
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=560.4 kg util=0.5107 PASS
+INFO:   checkpoint 65 after 91.4s | [65/100] run elapsed 6031s, ETA ~3248s
+INFO: [66/100] evaluating candidate 66
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=601.8 kg util=0.4344 PASS
+INFO:   checkpoint 66 after 91.4s | [66/100] run elapsed 6123s, ETA ~3154s
+INFO: [67/100] evaluating candidate 67
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=649.8 kg util=0.369 PASS
+INFO:   checkpoint 67 after 91.9s | [67/100] run elapsed 6214s, ETA ~3061s
+INFO: [68/100] evaluating candidate 68
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=705.0 kg util=0.3092 PASS
+INFO:   checkpoint 68 after 93.2s | [68/100] run elapsed 6308s, ETA ~2968s
+INFO: [69/100] evaluating candidate 69
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=772.8 kg util=0.2537 PASS
+INFO:   checkpoint 69 after 93.5s | [69/100] run elapsed 6401s, ETA ~2876s
+INFO: [70/100] evaluating candidate 70
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=851.4 kg util=0.2066 PASS
+INFO:   checkpoint 70 after 93.7s | [70/100] run elapsed 6495s, ETA ~2784s
+INFO: [71/100] evaluating candidate 71
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=502.2 kg util=1.427 FAIL
+INFO:   checkpoint 71 after 92.2s | [71/100] run elapsed 6587s, ETA ~2691s
+INFO: [72/100] evaluating candidate 72
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=525.0 kg util=1.0569 FAIL
+INFO:   checkpoint 72 after 94.8s | [72/100] run elapsed 6682s, ETA ~2599s
+INFO: [73/100] evaluating candidate 73
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=552.0 kg util=0.7792 PASS
+INFO:   checkpoint 73 after 94.2s | [73/100] run elapsed 6776s, ETA ~2506s
+INFO: [74/100] evaluating candidate 74
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=584.4 kg util=0.5475 PASS
+INFO:   checkpoint 74 after 94.4s | [74/100] run elapsed 6871s, ETA ~2414s
+INFO: [75/100] evaluating candidate 75
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=621.0 kg util=0.4623 PASS
+INFO:   checkpoint 75 after 93.4s | [75/100] run elapsed 6964s, ETA ~2321s
+INFO: [76/100] evaluating candidate 76
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=662.4 kg util=0.3945 PASS
+INFO:   checkpoint 76 after 94.3s | [76/100] run elapsed 7058s, ETA ~2229s
+INFO: [77/100] evaluating candidate 77
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=710.4 kg util=0.3376 PASS
+INFO:   checkpoint 77 after 92.8s | [77/100] run elapsed 7151s, ETA ~2136s
+INFO: [78/100] evaluating candidate 78
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=765.6 kg util=0.2861 PASS
+INFO:   checkpoint 78 after 94.9s | [78/100] run elapsed 7246s, ETA ~2044s
+INFO: [79/100] evaluating candidate 79
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=833.4 kg util=0.238 PASS
+INFO:   checkpoint 79 after 92.9s | [79/100] run elapsed 7339s, ETA ~1951s
+INFO: [80/100] evaluating candidate 80
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=912.0 kg util=0.1964 PASS
+INFO:   checkpoint 80 after 93.4s | [80/100] run elapsed 7432s, ETA ~1858s
+INFO: [81/100] evaluating candidate 81
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=563.4 kg util=1.4714 FAIL
+INFO:   checkpoint 81 after 95.0s | [81/100] run elapsed 7527s, ETA ~1766s
+INFO: [82/100] evaluating candidate 82
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=586.2 kg util=1.1024 FAIL
+INFO:   checkpoint 82 after 93.7s | [82/100] run elapsed 7621s, ETA ~1673s
+INFO: [83/100] evaluating candidate 83
+WARNING:   -> com_error: (-2147023174, 'The RPC server is unavailable.', None, None)
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+Robot.Application.Quit raised: (-2147023174, 'The RPC server is unavailable.', None, None)
+INFO:   checkpoint 83 after 27.7s | [83/100] run elapsed 7649s, ETA ~1567s
+INFO: [84/100] evaluating candidate 84
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=645.6 kg util=0.5859 PASS
+INFO:   checkpoint 84 after 94.4s | [84/100] run elapsed 7743s, ETA ~1475s
+INFO: [85/100] evaluating candidate 85
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=682.2 kg util=0.4245 PASS
+INFO:   checkpoint 85 after 93.0s | [85/100] run elapsed 7836s, ETA ~1383s
+INFO: [86/100] evaluating candidate 86
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=723.6 kg util=0.3614 PASS
+INFO:   checkpoint 86 after 93.0s | [86/100] run elapsed 7929s, ETA ~1291s
+INFO: [87/100] evaluating candidate 87
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=771.6 kg util=0.3099 PASS
+INFO:   checkpoint 87 after 92.9s | [87/100] run elapsed 8022s, ETA ~1199s
+INFO: [88/100] evaluating candidate 88
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=826.8 kg util=0.2644 PASS
+INFO:   checkpoint 88 after 93.0s | [88/100] run elapsed 8115s, ETA ~1107s
+INFO: [89/100] evaluating candidate 89
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=894.6 kg util=0.2223 PASS
+INFO:   checkpoint 89 after 93.5s | [89/100] run elapsed 8209s, ETA ~1015s
+INFO: [90/100] evaluating candidate 90
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=973.2 kg util=0.1856 PASS
+INFO:   checkpoint 90 after 93.2s | [90/100] run elapsed 8302s, ETA ~922s
+INFO: [91/100] evaluating candidate 91
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=633.6 kg util=1.5028 FAIL
+INFO:   checkpoint 91 after 93.6s | [91/100] run elapsed 8395s, ETA ~830s
+INFO: [92/100] evaluating candidate 92
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=656.4 kg util=1.1351 FAIL
+INFO:   checkpoint 92 after 93.4s | [92/100] run elapsed 8489s, ETA ~738s
+INFO: [93/100] evaluating candidate 93
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=683.4 kg util=0.8577 PASS
+INFO:   checkpoint 93 after 93.4s | [93/100] run elapsed 8582s, ETA ~646s
+INFO: [94/100] evaluating candidate 94
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=715.8 kg util=0.6194 PASS
+INFO:   checkpoint 94 after 93.0s | [94/100] run elapsed 8675s, ETA ~554s
+INFO: [95/100] evaluating candidate 95
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=752.4 kg util=0.4492 PASS
+INFO:   checkpoint 95 after 93.1s | [95/100] run elapsed 8768s, ETA ~461s
+INFO: [96/100] evaluating candidate 96
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+WARNING:   -> RuntimeError: Robot COM server connection lost (server may have been closed externally). Please reconnect by calling connect(). Original error: (-2147023174, 'The RPC server is unavailable.', None, None)
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+INFO:   checkpoint 96 after 104.0s | [96/100] run elapsed 8872s, ETA ~370s
+INFO: [97/100] evaluating candidate 97
+WARNING:   -> com_error: (-2147023174, 'The RPC server is unavailable.', None, None)
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+Robot.Application.Quit raised: (-2147023174, 'The RPC server is unavailable.', None, None)
+INFO:   checkpoint 97 after 25.9s | [97/100] run elapsed 8898s, ETA ~275s
+INFO: [98/100] evaluating candidate 98
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=897.0 kg util=0.2442 PASS
+INFO:   checkpoint 98 after 94.5s | [98/100] run elapsed 8993s, ETA ~184s
+INFO: [99/100] evaluating candidate 99
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=964.8 kg util=0.2067 PASS
+INFO:   checkpoint 99 after 92.9s | [99/100] run elapsed 9085s, ETA ~92s
+INFO: [100/100] evaluating candidate 100
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=1043.4 kg util=0.1742 PASS
+INFO:   checkpoint 100 after 92.0s | [100/100] run elapsed 9177s, ETA ~0s
+INFO: Run 1 completed: 94 evaluated, 6 failed in 9180.9s.
