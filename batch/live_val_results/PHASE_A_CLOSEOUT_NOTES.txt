@@ -1,0 +1,89 @@
+# Phase-A report numbers + the three closure items
+
+## 1. report.json contents (the original multi-hour deliverable)
+All numbers below are read verbatim from batch/live_val_results/report.json
+(preflight / grid / surrogate / resume / reconnect / crossrun / ehvi).
+
+### GRID (ground truth, 100-candidate run, wall 9180.9 s)
+- evaluated 94 / failed 6 (all RPC-server-unavailable during the app.py
+  collision window) / frontier_n 22.
+- Pareto frontier (weight_kg, strength_margin = 1-util), weight ascending:
+  366.6/0.1124, 397.2/0.1993, 399.0/0.2599, 429.6/0.3288, 435.6/0.3828,
+  466.2/0.4344, 477.0/0.4862, 507.6/0.5234, 525.0/0.5740, 555.6/0.5998,
+  580.2/0.6525, 610.8/0.6693, 648.0/0.7225, 678.6/0.7327, 719.4/0.7450,
+  726.6/0.7789, 757.2/0.7849, 798.0/0.7925, 847.2/0.8021, 912.0/0.8036,
+  973.2/0.8144, 1043.4/0.8258
+- hv_grid (frozen normalizer reference) = 1.6275
+
+### SURROGATE (UCB, budget 40 = 40% of 100)
+- robot_calls 40, call_fraction 0.40, wall 3732.5 s
+- frontier_n 6: [399.0/0.2599, 525.0/0.574, 580.2/0.6525, 678.6/0.7327,
+  651.6/0.6887, 705.0/1.0]
+- hv 1.5568, hv_ratio 0.9566 (95.7% of grid HV at 40% of the calls)
+- training_rows 0 (cold start; cross-run training activates later)
+
+### RESUME (kill + resume same run)
+- killed_after_evaluated 6, orphan robot killed 6012, phase2_wall_s 1111.8
+- candidates_sent_total 19, unique 18, duplicate [77] (the one in flight at
+  kill time, never recorded -> re-sent), final_evaluated 17, ok False
+  (17 != 18 unique; see resume.json note: duplicate allowed for in-flight)
+
+### RECONNECT
+- robot_launches 2, reconnect_logged True, wall 844.5 s
+- simulated force-kill -> SolverInstabilityError -> HeadlessSession.reconnect
+  -> fresh robot, run continued (evaluated 8/failed 1)
+
+### CROSSRUN (cold vs warm, cross-run training)
+- calls 40, training_rows 35 from grid run 1
+- cold_run1 final_hv 1.5568 (35 calls to its own final HV)
+- warm_run2 calls_to_run1_final_hv = -1 (never reached cold's final HV in
+  40 calls) -> cross-run training did NOT help on this world
+- hv 1.3867, hv_ratio 0.852, frontier_n 15
+
+### EHVI vs UCB (both budget 40, call_fraction 0.40)
+- EHVI: hv 1.6275, hv_ratio 1.0000 (full grid HV at 40% calls), frontier_n 20
+- UCB : hv 1.5568, hv_ratio 0.9566, frontier_n 6
+- EHVI materially beats UCB on this world -> default acquisition should flip
+  to "ehvi" (pending the live-report gate).
+
+## 2. Instability type 3 - what headless actually does
+Evidence, not assumption:
+- The live dialog text (probe6 window capture) is: "Instability type 3"
+  warning ... with Yes/No/Cancel and a link to Autodesk's article "Can
+  instability type 3 error be ignored in Autodesk Robot Structural
+  Analysis". The official article itself could NOT be fetched (403/404 on
+  every mirror tried), so its exact wording is not quoted here.
+- headless (HeadlessSession) sets robot_app.Interactive=0 in connect()
+  (headless_driver.py L152). grid.log across 100 candidates contains ZERO
+  'instabilit' mentions - the prompt is suppressed, not answered.
+- Interactive=1 shows the dialog: 'No' -> ALL results silently zero;
+  'Yes' -> correct results. probe7 (interactive + Yes) produced EXACTLY the
+  same numbers as probe4 (headless): reactions 25.407 + 25.407 = 50.814 kN
+  vs 50.8138 kN applied (0.00% error), member forces non-zero.
+- CONCLUSION: headless default is genuinely equivalent to "continue" (the
+  underlying numerical condition - a planar structure in a 3D project has
+  unrestrained out-of-plane DOFs - IS present; Interactive=0 suppresses the
+  prompt and Robot proceeds). It is NOT that headless never encounters it.
+  This is verified by identical results, not assumed.
+- Forward flagging: _guarded_calculate now records instability_seen and the
+  solve tool returns status="ok_with_warning" with an explicit warning the
+  LLM/user is forced to see; also logged at WARNING level. Never silent.
+
+## 3. Did the apply_self_weight / export_structure_spec bugs affect Phase-A?
+CONFIRMED NO (by source inspection, not assumption):
+- batch/runner.py _evaluate_candidate uses: build_from_spec (loads applied
+  via apply_bar_load from spec 'loads' list), session.solve_all,
+  get_weight (BOQ), get_utilization_summary, _buckling_for_candidate.
+  It NEVER calls apply_self_weight or export_structure_spec.
+- The grid/surrogate world (validate_surrogate_live.make_spec) defines
+  loads as bar_uniform -25 kN/m on bar 2; those flow through apply_bar_load.
+- apply_self_weight and export_structure_spec are only used by chat tools /
+  the backlog checks; their bugs (self-weight value; load read-back) could
+  not have touched any grid/surrogate number.
+- CAVEAT discovered while confirming: the SURROGATE logged util=0.0
+  (per-bar N/A) for candidates 49 & 68, both AFTER the 19:08 reconnect,
+  while the GRID scored the SAME designs at util 0.2242 / 0.3092. This is a
+  zero-results data-quality caveat in the surrogate run. Quantified impact
+  on the reported HV: NIL - the phantom margin=1.0 lies on the normalizer
+  reference axis, so hv_corrected == hv_reported == 1.5568 (ratio 0.9566).
+  The EHVI run had ZERO util=0.0 rows, so its hv_ratio 1.0000 is clean.

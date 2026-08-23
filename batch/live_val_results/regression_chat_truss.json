@@ -3,7 +3,7 @@
     {
       "name": "fresh app connect claims seat (no SeatBusyError)",
       "ok": true,
-      "detail": "connected=True pid=18488 via=launched seat_owner=33728 seat_file={\n  \"schema\": 1,\n  \"project\": \"structural_multi_app_agent\",\n  \"owner_pid\": 33728,\n  \"owner_kind\": \"app\",\n  \"connected_vi"
+      "detail": "connected=True pid=32592 via=launched seat_owner=27460 seat_file={\n  \"schema\": 1,\n  \"project\": \"structural_multi_app_agent\",\n  \"owner_pid\": 27460,\n  \"owner_kind\": \"app\",\n  \"connected_vi"
     },
     {
       "name": "create_truss explicit angle web",
@@ -23,12 +23,12 @@
     {
       "name": "solve",
       "ok": true,
-      "detail": "{\"status\": \"ok\", \"message\": \"Solver run completed successfully.\"}"
+      "detail": "{\"status\": \"ok_with_warning\", \"message\": \"Solver run completed successfully.\", \"warning\": \"Robot reported an INSTABILITY during the solve and the dialog was auto-answered 'Yes' (continue): 'Robot Structural Analysis Professional 2027'. Results may only be valid for the stable planes. Run check_model"
     },
     {
       "name": "robot_session_status consistent (ONE session)",
       "ok": true,
-      "detail": "pid before=18488 after=18488 via=launched"
+      "detail": "pid before=32592 after=32592 via=launched"
     },
     {
       "name": "equilibrium: reactions balance applied loads",
@@ -48,49 +48,49 @@
   ],
   "session_before": {
     "connected": true,
-    "connected_pid": 18488,
+    "connected_pid": 32592,
     "connected_via": "launched",
     "robots_running": [
-      18488
+      32592
     ],
-    "this_process_pid": 33728,
+    "this_process_pid": 27460,
     "seat": {
       "present": true,
-      "owner_pid": 33728,
+      "owner_pid": 27460,
       "owner_kind": "app",
       "connected_via": "launched",
       "robot_pids": [
-        18488
+        32592
       ],
-      "acquired_at": 1787444226.1245441,
+      "acquired_at": 1787450034.9756782,
       "owner_alive": true,
       "robots_alive": true,
       "seat_available": false
     },
-    "summary": "Robot session pid 18488, connected via launched, seat owner 33728 (app); live robot.exe: [18488]"
+    "summary": "Robot session pid 32592, connected via launched, seat owner 27460 (app); live robot.exe: [32592]"
   },
   "session_after": {
     "connected": true,
-    "connected_pid": 18488,
+    "connected_pid": 32592,
     "connected_via": "launched",
     "robots_running": [
-      18488
+      32592
     ],
-    "this_process_pid": 33728,
+    "this_process_pid": 27460,
     "seat": {
       "present": true,
-      "owner_pid": 33728,
+      "owner_pid": 27460,
       "owner_kind": "app",
       "connected_via": "launched",
       "robot_pids": [
-        18488
+        32592
       ],
-      "acquired_at": 1787444226.1245441,
+      "acquired_at": 1787450034.9756782,
       "owner_alive": true,
       "robots_alive": true,
       "seat_available": false
     },
-    "summary": "Robot session pid 18488, connected via launched, seat owner 33728 (app); live robot.exe: [18488]"
+    "summary": "Robot session pid 32592, connected via launched, seat owner 27460 (app); live robot.exe: [32592]"
   },
   "angle_candidates": [
     "L 50x50x5",

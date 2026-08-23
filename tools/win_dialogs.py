@@ -188,9 +188,11 @@ def watch_and_dismiss(pids, patterns, timeout_s: float = 30.0,
                 if not low:
                     continue
                 matched = None
+                matched_key = None
                 for key, spec in patterns.items():
                     if key in low:
                         matched = spec
+                        matched_key = key
                         break
                 if matched is not None:
                     bt = str(matched.get("button_text", ""))
@@ -200,6 +202,11 @@ def watch_and_dismiss(pids, patterns, timeout_s: float = 30.0,
                                          else "dismissed")
                     result["title"] = title or text[:80]
                     result["button"] = bt
+                    result["matched"] = matched_key
+                    if matched_key == "instabilit":
+                        result["instability_seen"] = True
+                        result["instability_title"] = title or text[:80]
+                    result["matched"] = matched_key
                     logger.warning(
                         "watch_and_dismiss %s %r (button=%r, clicked=%s)",
                         "auto-dismissed benign" if benign else "auto-dismissed",

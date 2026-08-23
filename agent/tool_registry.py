@@ -1379,7 +1379,19 @@ class ToolExecutor:
     def _tool_solve(self, timeout_s: int = 120) -> dict:
         self._ensure_robot()
         self.robot.solve(timeout_s=timeout_s)
-        return {"status": "ok", "message": "Solver run completed successfully."}
+        out = {"status": "ok", "message": "Solver run completed successfully."}
+        warn = getattr(self.robot, "_last_instability_warning", None)
+        if warn:
+            # [INSTABILITY] NEVER silent: force the LLM/user to see that the
+            # solver reported a suspected mechanism and the solve continued.
+            out["status"] = "ok_with_warning"
+            out["warning"] = (
+                "Robot reported an INSTABILITY during the solve and the "
+                f"dialog was auto-answered 'Yes' (continue): {warn!r}. "
+                "Results may only be valid for the stable planes. Run "
+                "check_model_stability to confirm the model is not a "
+                "mechanism, and fix supports/geometry if it is.")
+        return out
 
     def _tool_get_utilization_ratios(
         self, case_id: int = 1, bar_ids: list = None, divisions: int = 5,

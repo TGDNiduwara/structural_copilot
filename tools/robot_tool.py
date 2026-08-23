@@ -255,6 +255,11 @@ class RobotBridge:
         # pid that claimed the seat on this process's behalf, and its kind.
         self._seat_owner_pid: Optional[int] = None
         self._seat_kind: str = "app"
+        # [INSTABILITY] Set by _guarded_calculate when the solver reported
+        # an instability and the dialog was auto-answered 'Yes' (continue).
+        # Surfaced in the solve tool result so the LLM/user is FORCED to see
+        # that the model has a suspected mechanism - never silently ignored.
+        self._last_instability_warning: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     # Observability helpers
@@ -724,17 +729,23 @@ class RobotBridge:
                 t.join(timeout=2.0)
 
         outcome = result.get("outcome")
-        if outcome == "dismissed":
-            # A non-benign KNOWN dialog was auto-answered. For this build the
-            # only non-benign known dialog in interactive mode is the
-            # instability modal, now answered "Yes" (continue) - so the solve
-            # stands, but flag it loudly so the caller can decide whether the
-            # result is trustworthy.
+        if result.get("instability_seen"):
+            # [INSTABILITY] The solver reported an instability and the dialog
+            # was auto-answered 'Yes' (continue). Flag it LOUDLY: it is stored
+            # on the bridge and surfaced in the solve tool result so the
+            # LLM/user is FORCED to see that the model has a suspected
+            # mechanism. (Uses the persistent instability_seen flag, not the
+            # final outcome/matched keys: the benign Calculation Messages
+            # dialog that follows OVERWRITES outcome/matched.)
+            self._last_instability_warning = str(
+                result.get("instability_title")
+                or result.get("title")
+                or "instability dialog")
             logger.warning(
                 "Robot instability dialog auto-answered 'Yes' (continue) "
                 "- solver reported instability %r; results may only be valid "
                 "for the stable planes. Run check_model_stability if unsure.",
-                result.get("title"))
+                self._last_instability_warning)
         elif outcome == "unknown_seen":
             raise RuntimeError(
                 "An unrecognized Robot dialog appeared during Calculate() "

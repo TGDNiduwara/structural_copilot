@@ -132,7 +132,8 @@ def main():
 
     # ---- Step 4: solve ---------------------------------------------------------- #
     sol = _call(ex, "solve", {"timeout_s": 120})
-    _step("solve", sol.get("status") == "ok", json.dumps(sol)[:250])
+    _step("solve", sol.get("status") in ("ok", "ok_with_warning"),
+          json.dumps(sol)[:300])
 
     # ---- Step 5: session consistency -------------------------------------------- #
     after = _call(ex, "robot_session_status", {})

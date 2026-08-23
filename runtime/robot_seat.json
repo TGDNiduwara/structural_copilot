@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "project": "structural_multi_app_agent",
+  "owner_pid": 30652,
+  "owner_kind": "app",
+  "connected_via": "launched",
+  "robot_pids": [
+    4192
+  ],
+  "acquired_at": 1787452503.8404417,
+  "last_seen": 1787452503.8404417
+}
