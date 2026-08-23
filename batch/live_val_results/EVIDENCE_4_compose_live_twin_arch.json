@@ -142,7 +142,7 @@
     {
       "name": "solve",
       "ok": true,
-      "detail": "ok Solver run completed successfully. (60.2s)"
+      "detail": "ok Solver run completed successfully. (60.3s)"
     },
     {
       "name": "Robot-registered nodal self-weight matches tool total",

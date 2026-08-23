@@ -695,6 +695,42 @@ def test_compose_bracing_lengths_sane():
           "for mismatched span/rise chains")
 
 
+def test_compose_coincident_node_detector():
+    """_coincident_node_pairs() must flag distinct nodes sharing a coordinate
+    (the arch-springing geometry that makes Robot silently lose bar-uniform
+    loads), and come back empty for safe topologies. Pure bookkeeping - no
+    COM needed."""
+    from tools.robot_tool import RobotBridge
+    b = RobotBridge()
+    # twin-arch springing: arch node 1 and deck node 21 both at (0,0,0);
+    # arch node 11 and deck node 31 both at (30,0,0); y=6 mirror pair at
+    # (0,6,0)/(30,6,0).
+    b._node_coords = {
+        1: (0.0, 0.0, 0.0), 11: (30.0, 0.0, 0.0),
+        21: (0.0, 0.0, 0.0), 31: (30.0, 0.0, 0.0),
+        92: (0.0, 6.0, 0.0), 102: (30.0, 6.0, 0.0),
+        103: (0.0, 6.0, 0.0), 113: (30.0, 6.0, 0.0),
+        5: (15.0, 0.0, 2.5), 26: (15.0, 0.0, 0.0),
+    }
+    pairs = b._coincident_node_pairs()
+    assert len(pairs) == 4, f"expected 4 coincident pairs, got {pairs}"
+    flat = {p for pair in pairs for p in pair}
+    assert {1, 21} <= flat and {31, 11} <= flat
+    # the non-coincident arch crown / deck midspan are NOT flagged
+    assert 5 not in flat and 26 not in flat
+    # a safe topology (no coincident nodes) -> empty
+    b._node_coords = {
+        n: ((n % 5) * 3.0, (n // 5) * 6.0, (n % 2) * 2.0)
+        for n in range(1, 12)
+    }
+    assert b._coincident_node_pairs() == []
+    # near-but-not-equal coords must NOT be collapsed (tolerance is exact)
+    b._node_coords = {1: (0.0, 0.0, 0.0), 2: (0.0, 0.0, 1e-6)}
+    assert b._coincident_node_pairs() == []
+    print("  OK: coincident-node detector flags twin-arch springing, "
+          "ignores safe/floating-point-distinct topologies")
+
+
 def test_compose_per_op_validation():
     """Every compose op must fail LOUDLY and IMMEDIATELY on bad input — not
     defer to the final finish() integrity check."""
@@ -806,6 +842,7 @@ def main():
     test_compose_web_and_bracing_primitives()
     test_compose_copy_no_id_collision()
     test_compose_bracing_lengths_sane()
+    test_compose_coincident_node_detector()
     test_compose_per_op_validation()
     test_compose_full_assembly_finish()
     print("ALL PART A + PART B + PART C TESTS PASSED")

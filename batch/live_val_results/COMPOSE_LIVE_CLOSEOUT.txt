@@ -74,3 +74,54 @@ ARTIFACTS
   * probes: COMPOSE_probe_selfweight_source.py (Phase A/B), _readback.py,
     _geometry_divergence.py, _load_lengths.py, _nodal_equilibrium.py,
     _uniform_vs_nodal.py, _uniform_vs_nodal_arch.py
+
+==============================================================================
+FOLLOW-UP 2026-08-23: BAR-UNIFORM SCOPE (the general-purpose load tool)
+==============================================================================
+Q1 (does the shortfall hit ordinary apply_bar_load, not just self-weight)?
+  YES - VERIFIED worse. A 10 kN/m deck UDL on the twin-arch applied through
+  the real apply_bar_load TOOL produced 480.0 kN of reactions vs 600.0 kN
+  applied (20.00% shortfall); the nodal-lumped equivalent in the SAME model
+  produced 600.000 kN exactly (0.00%). So the defect is in Robot's handling
+  of bar-uniform load RECORDS on affected models, not in how self-weight is
+  computed.
+
+Q2 (what geometry triggers it? which models are at risk?):
+  The trigger is COINCIDENT-BUT-DISTINCT NODES: two separate nodes placed
+  at the SAME coordinate. Multi-plane connectivity, bracing, node valence,
+  and model size are all EXONERATED. Complete live evidence matrix
+  (bar_uniform -> reactions error):
+    0.00%  single bars (horizontal / diagonal / y-spanning)
+    0.00%  flat planar Pratt truss (31 bars, the EVIDENCE_3 model)
+    0.00%  twin FLAT braced trusses (142 bars, 2 planes + cross bracing)
+    0.00%  twin-arch WITH the arch elevated 0.5 m (0 coincident nodes)
+    6.94%  single-plane arch_truss (2 coincident pairs - the create_arch_truss
+           template ITSELF is affected)
+   15.68%  twin-arch self-weight (4 coincident pairs)
+   20.00%  twin-arch deck UDL (4 coincident pairs)
+  => Models AT RISK: any model where a curved/non-planar chord springs onto
+     another node at the same coordinate - arch bridges, bowstring trusses,
+     the create_arch_truss and compose twin-arch templates as currently
+     produced. Models SAFE: flat planar trusses, frames, multi-plane braced
+     frames WITHOUT coincident nodes, arches elevated off the deck.
+
+Q3 (fix so apply_bar_load isn't silently wrong):
+  RobotBridge.apply_bar_load() now detects coincident node pairs
+  (_coincident_node_pairs, pure coordinate check) and on such models
+  transparently applies the STATICALLY EQUIVALENT NODAL LOADS (q*L split
+  50/50 to the bar's two end nodes) instead of the uniform record, returning
+  {method: nodal_lumped, equivalent_total_kn, lumped_to, warning} which the
+  apply_bar_load TOOL surfaces verbatim. Safe models keep the true uniform
+  record (method=bar_uniform_record). force_record=True forces the raw
+  record on affected models with an explicit risk warning (member-level UDL
+  distribution for beam design, accepting the equilibrium shortfall).
+  build_structure_from_spec's spec 'loads' list and all other callers funnel
+  through this same method, so every path is covered.
+
+VERIFIED LIVE AFTER THE FIX (COMPOSE_probe_fix_verify.py, 1 solve each):
+  BUILD1 twin-arch deck UDL : method=nodal_lumped     600.000/600.000 = 0.000%
+  BUILD2 twin flat          : method=bar_uniform_record 576.552/576.550 = 0.000%
+  BUILD3 elevated twin-arch : method=bar_uniform_record 673.968/673.969 = 0.000%
+  Offline: test_geometry_primitives.test_compose_coincident_node_detector
+  covers _coincident_node_pairs (flags twin-arch springing, ignores safe and
+  floating-point-distinct geometries).

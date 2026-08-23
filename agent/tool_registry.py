@@ -212,7 +212,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "apply_bar_load",
-        "description": "Applies a uniformly distributed load (kN/m) along a bar within a given load case.",
+        "description": "Applies a uniformly distributed load (kN/m) along a bar within a given load case. LIVE-VERIFIED SAFETY: if the current model contains COINCIDENT-but-distinct nodes (an arch springing node sharing a deck-end node's coordinate — what create_arch_truss / a compose twin-arch produce), Robot's solver silently under-transfers bar-uniform records to reactions (verified 6.9-20% shortfall live), so this tool transparently substitutes the statically equivalent NODAL loads (q*L/2 per end node — exact equilibrium, verified 0.00%) and reports method='nodal_lumped' with a warning. On models without coincident nodes it writes a true uniform record (verified exact). The returned 'method' tells you which was applied; 'warning' explains why when substitution occurred.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1398,8 +1398,16 @@ class ToolExecutor:
         self, bar_id: int, case_id: int, value_kn_m: float, direction: str = "Z"
     ) -> dict:
         self._ensure_robot()
-        self.robot.apply_bar_load(bar_id, case_id, value_kn_m, direction)
-        return {"status": "ok", "bar_id": bar_id, "case_id": case_id, "value_kn_m": value_kn_m}
+        r = self.robot.apply_bar_load(bar_id, case_id, value_kn_m, direction)
+        out = {"status": "ok", "bar_id": bar_id, "case_id": case_id,
+               "value_kn_m": value_kn_m}
+        # [LIVE-FIX 2026-08-23] the bridge may have substituted an exact
+        # nodal-lumped equivalent (coincident-node models) - surface the
+        # method + warning so the caller SEES it instead of assuming a
+        # uniform record was written.
+        if isinstance(r, dict):
+            out.update({k: v for k, v in r.items() if k != "status"})
+        return out
 
     def _tool_apply_nodal_load(
         self, node_id: int, case_id: int, fx_kn: float = 0.0, fz_kn: float = 0.0, my_knm: float = 0.0

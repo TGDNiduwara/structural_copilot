@@ -375,7 +375,21 @@ as one call (unit mass × length × g, lumped 50/50 to each bar's end nodes —
 the classic truss lumping; **verified live: sum(FZ) reactions equals the
 reported total exactly**, whereas the earlier per-bar uniform-load write
 under-applied ~15.7% on a 3D 138-bar assembly, so nodal lumping is the only
-self-weight source now); `set_support` gained `"spring"`
+self-weight source now); `apply_bar_load(bar_id, case_id, value_kn_m, direction)`
+has the SAME protection: if the current model contains **coincident-but-distinct
+nodes** (an arch springing node sharing a deck-end node's coordinate — what
+`create_arch_truss`/a compose twin-arch produce), Robot's solver silently
+under-transfers bar-uniform records to reactions (live-verified 6.9–20%
+shortfall across single-plane arch / twin-arch / twin-arch deck UDL), so the
+tool transparently substitutes the statically equivalent nodal loads (q·L/2
+per end node) and reports `method='nodal_lumped'` + a `warning`; models
+without coincident nodes keep the true uniform record (`method='bar_uniform_record'`,
+verified exact: flat trusses/frames/multi-plane braced frames/elevated arches
+all 0.00% error live). The trigger is **coincident-node geometry only** —
+multi-plane connectivity/bracing/valence are exonerated. `force_record=True`
+forces the raw uniform record on affected models with an explicit risk
+warning (for true member-level UDL beam design, accepting the equilibrium
+shortfall). `set_support` gained `"spring"`
 (elastic-linear via `IRobotNodeSupportData.ElasticLinear` + K*/H* stiffness,
 additive to the fixed/pinned/roller_* types); `preview_structure_geometry()`
 renders a wireframe PNG of the in-memory geometry (matplotlib, no COM).

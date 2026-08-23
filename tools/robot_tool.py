@@ -1561,6 +1561,32 @@ class RobotBridge:
 
         return case_id
 
+    def _coincident_node_pairs(self) -> List[Tuple[int, int]]:
+        """[LIVE-FIX 2026-08-23] Distinct nodes sharing the same coordinate.
+
+        Live evidence (A/B on identical models, sum(FZ) vs applied load):
+          * models WITHOUT coincident nodes: bar-uniform load records are
+            exact (0.00%) — single bars, flat planar trusses, twin flat
+            braced trusses, twin arch with the arch elevated 0.5 m.
+          * models WITH coincident nodes (arch springing node placed at the
+            same coordinate as the deck-end node — what create_arch_truss
+            and the compose twin-arch produce): Robot's solver silently
+            drops part of the uniform-load contribution (6.9% single-plane
+            arch, 15.7% twin-arch self-weight, 20.0% twin-arch deck UDL),
+            while nodal loads on the SAME model are exact (0.00%).
+        The dropped portion is the load on the bars incident to the
+        coincident end nodes. Pure helper over the bookkeeping coordinates.
+        """
+        seen: Dict[Tuple[float, float, float], int] = {}
+        pairs: List[Tuple[int, int]] = []
+        for nid, (x, y, z) in self._node_coords.items():
+            key = (round(float(x), 6), round(float(y), 6), round(float(z), 6))
+            if key in seen:
+                pairs.append((seen[key], int(nid)))
+            else:
+                seen[key] = int(nid)
+        return pairs
+
     @com_thread_safe
     def apply_bar_load(
         self,
@@ -1568,8 +1594,22 @@ class RobotBridge:
         case_id: int,
         value_kn_m: float,
         direction: str = "Z",
-    ) -> None:
-        """Applies a uniformly distributed load (kN/m) along a bar in a given case."""
+        force_record: bool = False,
+    ) -> Dict[str, Any]:
+        """Applies a uniformly distributed load (kN/m) along a bar.
+
+        [LIVE-FIX 2026-08-23] If the model contains COINCIDENT-but-distinct
+        nodes (e.g. an arch springing node sharing the deck-end node's
+        coordinate), Robot's solver silently under-transfers bar-uniform
+        load records to reactions (verified 6.9-20% live, see
+        _coincident_node_pairs). In that case this method applies the
+        STATICALLY EQUIVALENT nodal loads instead (q*L split 50/50 to the
+        bar's two end nodes — exact equilibrium, verified 0.00%) and returns
+        a warning. Pass force_record=True to insist on the raw uniform
+        record anyway (member-level UDL distribution for beam design),
+        accepting the equilibrium risk. Models without coincident nodes
+        always use the record path, which is live-verified exact there.
+        """
         self._ensure_connected()
         # [FIX M10] Validate direction
         valid_directions = {"X", "Y", "Z"}
@@ -1577,6 +1617,13 @@ class RobotBridge:
             raise ValueError(
                 f"Invalid direction '{direction}'. Must be one of {valid_directions}."
             )
+        direction = direction.upper()
+
+        coincident = self._coincident_node_pairs()
+        if coincident and not force_record:
+            return self._apply_uniform_as_nodal(
+                int(bar_id), int(case_id), float(value_kn_m), direction,
+                len(coincident))
 
         case = CastTo(self.structure.Cases.Get(case_id), "IRobotSimpleCase")
 
@@ -1588,7 +1635,7 @@ class RobotBridge:
         # Record type 4 (I_LRT_BAR_UNIFORM) already encodes "uniform", so no
         # distribution flag is needed.
         axis_map = {"X": 0, "Y": 1, "Z": 2}   # I_BURV_PX / PY / PZ
-        axis_index = axis_map[direction.upper()]
+        axis_index = axis_map[direction]
 
         # [FIX R4] Records.Create(type) returns the IRobotLoadRecord object;
         # the target bar is assigned via record.Objects.FromText(...).
@@ -1600,6 +1647,59 @@ class RobotBridge:
             "Applied %.2f kN/m (dir=%s) to bar %s in case %s.",
             value_kn_m, direction, bar_id, case_id,
         )
+        result: Dict[str, Any] = {"method": "bar_uniform_record"}
+        if coincident and force_record:
+            result["warning"] = (
+                "force_record=True on a coincident-node model: Robot "
+                "SILENTLY UNDER-TRANSFERS bar-uniform records here "
+                "(live-verified). Reactions will NOT balance the applied "
+                "load; verify any results carefully."
+            )
+        return result
+
+    def _apply_uniform_as_nodal(self, bar_id: int, case_id: int,
+                                value_kn_m: float, direction: str,
+                                n_coincident: int) -> Dict[str, Any]:
+        """Nodal-lumped equivalent of a bar UDL: q*L split 50/50 onto the
+        bar's two end nodes. Exact equilibrium on every topology (the
+        verified-safe path for coincident-node models)."""
+        length = self._bar_length(bar_id)
+        total = value_kn_m * length
+        ends = self._bar_endpoints.get(bar_id, (None, None))
+        if length > 0.0 and ends[0] is not None:
+            n1, n2 = int(ends[0]), int(ends[1])
+            half = total / 2.0
+            if direction == "X":
+                self.apply_nodal_load(n1, case_id, fx_kn=half)
+                self.apply_nodal_load(n2, case_id, fx_kn=half)
+            elif direction == "Y":
+                self.apply_nodal_load(n1, case_id, fy_kn=half)
+                self.apply_nodal_load(n2, case_id, fy_kn=half)
+            else:
+                self.apply_nodal_load(n1, case_id, fz_kn=half)
+                self.apply_nodal_load(n2, case_id, fz_kn=half)
+            lumped_to = [n1, n2]
+        else:
+            lumped_to = []
+        logger.warning(
+            "apply_bar_load: coincident-node model (%d pair(s)) -> "
+            "nodal-lumped equivalent for bar %s (%.3f kN, dir %s).",
+            n_coincident, bar_id, abs(total), direction)
+        return {
+            "method": "nodal_lumped",
+            "equivalent_total_kn": round(abs(total), 4),
+            "lumped_to": lumped_to,
+            "warning": (
+                f"Model has {n_coincident} coincident node pair(s) (e.g. "
+                "arch springing on the deck-end coordinate). Robot's "
+                "solver SILENTLY UNDER-TRANSFERS bar-uniform records on "
+                "such models (live-verified 6.9-20% reaction shortfall); "
+                "the statically equivalent nodal loads (q*L/2 per end "
+                "node) were applied instead - exact equilibrium. Use "
+                "force_record=True only if the true member-level UDL "
+                "distribution is required and the risk accepted."
+            ),
+        }
 
     @com_thread_safe
     def apply_nodal_load(
@@ -1609,6 +1709,7 @@ class RobotBridge:
         fx_kn: float = 0.0,
         fz_kn: float = 0.0,
         my_knm: float = 0.0,
+        fy_kn: float = 0.0,
     ) -> None:
         """Applies a concentrated nodal force/moment in a given case."""
         self._ensure_connected()
@@ -1620,15 +1721,15 @@ class RobotBridge:
         # IRobotNodeForceRecordValues: FX=0, FY=1, FZ=2, CX=3, CY=4, CZ=5.
         record = case.Records.Create(RobotEnum.I_LRT_NODE_FORCE)
         record.SetValue(0, fx_kn)     # I_NFRV_FX
-        record.SetValue(1, 0.0)       # I_NFRV_FY (out-of-plane, 3D only)
+        record.SetValue(1, fy_kn)     # I_NFRV_FY (out-of-plane, 3D only)
         record.SetValue(2, fz_kn)     # I_NFRV_FZ
         record.SetValue(3, 0.0)       # I_NFRV_CX (moment about X)
         record.SetValue(4, my_knm)    # I_NFRV_CY (moment about Y == MY)
         record.SetValue(5, 0.0)       # I_NFRV_CZ
         record.Objects.FromText(str(node_id))
         logger.info(
-            "Applied nodal load FX=%.2f FZ=%.2f MY=%.2f to node %s (case %s).",
-            fx_kn, fz_kn, my_knm, node_id, case_id,
+            "Applied nodal load FX=%.2f FY=%.2f FZ=%.2f MY=%.2f to node %s (case %s).",
+            fx_kn, fy_kn, fz_kn, my_knm, node_id, case_id,
         )
 
     # ------------------------------------------------------------------ #
