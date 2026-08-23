@@ -32,7 +32,9 @@ from dataclasses import dataclass
 from typing import Optional, List, Tuple, Dict, Any
 
 from tools.geometry_primitives import (
-    nodes_along_curve, connect_chords, radial_ring, circular_arc_fn)
+    nodes_along_curve, connect_chords, radial_ring, circular_arc_fn,
+    generate_straight_chord, generate_arc_chord, connect_web_pattern,
+    connect_bracing, apply_support_pattern)
 from tools.section_sizing import suggest_section, check_section_proportions
 from tools.bracing_registry import BracingRegistry
 from tools.connection_check import (ConnectionRegistry,
@@ -4076,6 +4078,11 @@ class RobotBridge:
         """Spec for a planar Pratt truss in the X-Z plane (y = 0), top and
         bottom chords joined by verticals and diagonals, pinned at both ends.
 
+        A PRE-COMPOSED RECIPE over the composable primitives
+        (generate_straight_chord + connect_web_pattern + apply_support_pattern)
+        — kept byte-identical to the historical output by
+        test_legacy_byte_identity so existing tests / run history are stable.
+
         Sections default to scale-appropriate auto-sizes via
         ``suggest_section`` (chords span/18, light angle web) whenever a
         section is not given explicitly; explicit sections always win and
@@ -4105,14 +4112,13 @@ class RobotBridge:
 
         top = nodes_along_curve(top_fn, n + 1, start_id=1)
         bot = nodes_along_curve(bot_fn, n + 1, start_id=n + 2)
-        bars = connect_chords(
-            [nd["id"] for nd in top], [nd["id"] for nd in bot],
-            web_section, pattern="pratt",
+        bars = connect_web_pattern(
+            top, bot, "pratt", web_section=web_section,
             chord_a_section=top_section, chord_b_section=bottom_section,
             start_id=1)
         spec = {"project": "3D", "nodes": top + bot, "bars": bars,
-                "supports": [{"node": bot[0]["id"], "type": "pinned"},
-                             {"node": bot[-1]["id"], "type": "pinned"}],
+                "supports": apply_support_pattern(
+                    [bot[0]["id"], bot[-1]["id"]], "pinned"),
                 "__tpl": "truss"}
         if notes:
             spec["__section_notes"] = notes
@@ -4261,8 +4267,11 @@ class RobotBridge:
           "bottom" -> bottom chord arched, top chord straight at z=rise
                        (arch bridge with a straight deck above the arch)
 
-        The two chains are produced by ``nodes_along_curve`` and joined by
-        ``connect_chords`` exactly like the flat Pratt truss. Sections
+        The two chains are produced by the composable primitives
+        (``generate_arc_chord`` for the arched chord,
+        ``generate_straight_chord`` for the straight one, then
+        ``connect_web_pattern``) — a PRE-COMPOSED RECIPE kept byte-identical
+        to the historical output by ``test_legacy_byte_identity``. Sections
         default to scale-appropriate auto-sizes via ``suggest_section``
         (chords span/18, light angle web) whenever not given explicitly.
         """
@@ -4276,30 +4285,30 @@ class RobotBridge:
         web_section = web_section or suggest_section(
             "web", span, "L", notes=notes)
 
-        arc = circular_arc_fn(float(span), rise)
         if str(arch_chord).lower() == "bottom":
             # Arched bottom chord + straight top chord (deck above the arch).
-            bot_fn = arc
-
-            def top_fn(t: float, _span=float(span), _rise=rise):
-                return (round(t * _span, 6), 0.0, _rise)
+            bot = generate_arc_chord(float(span), rise, n, elevation=0.0,
+                                     arch="up", section=bottom_section,
+                                     start_id=n + 2)
+            top = generate_straight_chord(float(span), n, elevation=rise,
+                                          section=top_section, start_id=1)
         else:
             # Straight bottom chord + arched top chord (bowstring).
-            top_fn = arc
+            top = generate_arc_chord(float(span), rise, n, elevation=0.0,
+                                     arch="up", section=top_section,
+                                     start_id=1)
+            bot = generate_straight_chord(float(span), n, elevation=0.0,
+                                          section=bottom_section,
+                                          start_id=n + 2)
 
-            def bot_fn(t: float, _span=float(span)):
-                return (round(t * _span, 6), 0.0, 0.0)
-
-        top = nodes_along_curve(top_fn, n + 1, start_id=1)
-        bot = nodes_along_curve(bot_fn, n + 1, start_id=n + 2)
-        bars = connect_chords(
-            [nd["id"] for nd in top], [nd["id"] for nd in bot],
-            web_section, pattern="pratt",
+        bars = connect_web_pattern(
+            top, bot, "pratt", web_section=web_section,
             chord_a_section=top_section, chord_b_section=bottom_section,
             start_id=1)
-        spec = {"project": "3D", "nodes": top + bot, "bars": bars,
-                "supports": [{"node": bot[0]["id"], "type": "pinned"},
-                             {"node": bot[-1]["id"], "type": "pinned"}],
+        spec = {"project": "3D", "nodes": top["nodes"] + bot["nodes"],
+                "bars": bars,
+                "supports": apply_support_pattern(
+                    [bot["first"], bot["last"]], "pinned"),
                 "__tpl": "arch_truss"}
         if notes:
             spec["__section_notes"] = notes

@@ -242,4 +242,222 @@ def circular_arc_fn(span: float, rise: float) -> CurveFn:
     return fn
 
 
+# --------------------------------------------------------------------------
+# [COMPOSE] Standalone chord / web / bracing / support primitives
+# --------------------------------------------------------------------------
+# A "chain" is the composable unit returned by the chord generators and
+# consumed by web/bracing/support ops:
+#
+#   chain = {
+#       "nodes":  [{id, x, y, z}, ...],          # n_panels+1 nodes
+#       "bars":   [{id, n1, n2, section}, ...],  # n_panels chord bars
+#       "section": str,                          # chord section
+#       "first": int, "last": int,               # endpoint node ids
+#       "ids":    [int, ...],                    # node ids in order
+#   }
+#
+# These are PURE (no COM) and independently offline-testable; the named
+# templates (truss_spec / arch_truss_spec) are re-implemented on top of
+# them, and compose_structure chains them for arbitrary shapes.
+# --------------------------------------------------------------------------
+
+
+def _chain_ids(chain) -> List[int]:
+    """Node ids in order from a chain dict, a list of node dicts, or a bare
+    id list."""
+    if isinstance(chain, dict):
+        return [int(n["id"]) for n in chain["nodes"]]
+    if chain and isinstance(chain[0], dict):
+        return [int(n["id"]) for n in chain]
+    return [int(i) for i in chain]
+
+
+def generate_straight_chord(
+    span: float,
+    n_panels: int,
+    elevation: float = 0.0,
+    plane: float = 0.0,
+    section: str = "IPE 200",
+    start_id: int = 1,
+) -> Dict[str, Any]:
+    """Straight horizontal chain along X at ``(y=plane, z=elevation)``:
+    ``n_panels+1`` nodes from x=0 to x=span plus the ``n_panels`` chord
+    bars joining them. Returns a chain dict (see module docstring).
+
+    ``plane`` is the constant Y offset — use it to place the chain into a
+    second plane (e.g. the far arch of a twin-arch bridge) before bracing
+    two chains together with ``connect_bracing``.
+    """
+    n = max(2, int(n_panels))
+    span = float(span)
+    elev = float(elevation)
+    y_plane = float(plane)
+    sec = str(section or "IPE 200")
+
+    def fn(t: float):
+        return (round(t * span, 6), y_plane, elev)
+
+    nodes = nodes_along_curve(fn, n + 1, start_id=start_id)
+    ids = [int(nd["id"]) for nd in nodes]
+    bars = [
+        {"id": start_id + n + i, "n1": ids[i], "n2": ids[i + 1],
+         "section": sec}
+        for i in range(n)
+    ]
+    return {
+        "nodes": nodes, "bars": bars, "section": sec,
+        "first": ids[0], "last": ids[-1], "ids": ids,
+    }
+
+
+def generate_arc_chord(
+    span: float,
+    rise: float,
+    n_panels: int,
+    elevation: float = 0.0,
+    plane: float = 0.0,
+    arch: str = "up",
+    section: str = "IPE 200",
+    start_id: int = 1,
+) -> Dict[str, Any]:
+    """Circular-arc chain from x=0 to x=span at ``(y=plane)``. ``arch``:
+      "up"   -> z rises from ``elevation`` to ``elevation + rise`` at mid-span
+      "down" -> z sags from ``elevation + rise`` at the ends to ``elevation``
+                at mid-span (inverted arch / hogging cable).
+    Returns the same chain dict shape as ``generate_straight_chord``.
+    """
+    n = max(2, int(n_panels))
+    span = float(span)
+    rise = max(float(rise), 0.0)
+    elev = float(elevation)
+    y_plane = float(plane)
+    arch = str(arch or "up").lower()
+    if arch not in ("up", "down"):
+        raise ValueError(f"arch must be 'up' or 'down', got {arch!r}")
+    sec = str(section or "IPE 200")
+    base = circular_arc_fn(span, rise)   # z in [0, rise] at y=0
+
+    def fn(t: float):
+        x, _, z = base(t)
+        zz = z if arch == "up" else (rise - z)
+        return (x, y_plane, round(elev + zz, 6))
+
+    nodes = nodes_along_curve(fn, n + 1, start_id=start_id)
+    ids = [int(nd["id"]) for nd in nodes]
+    bars = [
+        {"id": start_id + n + i, "n1": ids[i], "n2": ids[i + 1],
+         "section": sec}
+        for i in range(n)
+    ]
+    return {
+        "nodes": nodes, "bars": bars, "section": sec,
+        "first": ids[0], "last": ids[-1], "ids": ids,
+    }
+
+
+def connect_web_pattern(
+    top_chain,
+    bottom_chain,
+    pattern: str = "pratt",
+    web_section: str = None,
+    chord_a_section: str = None,
+    chord_b_section: str = None,
+    start_id: int = 1,
+) -> List[Dict[str, Any]]:
+    """Web bars (verticals/diagonals) between TWO chains plus the chord bars
+    along each chain. This is the compose-layer name for ``connect_chords``:
+    it accepts chain dicts (using each chain's own ``section`` for its chord
+    bars) or bare id lists (both chord sections default to ``web_section``).
+    Explicit ``chord_a_section`` / ``chord_b_section`` override the chain
+    dict's own section (needed when the caller passes bare node id lists).
+    ``pattern``: "pratt" (verticals + both diagonals) or "warren"
+    (alternating diagonals only).
+    """
+    a = _chain_ids(top_chain)
+    b = _chain_ids(bottom_chain)
+    if chord_a_section is not None:
+        sec_a = str(chord_a_section)
+    elif isinstance(top_chain, dict) and top_chain.get("section"):
+        sec_a = str(top_chain.get("section"))
+    else:
+        sec_a = web_section or "IPE 200"
+    if chord_b_section is not None:
+        sec_b = str(chord_b_section)
+    elif isinstance(bottom_chain, dict) and bottom_chain.get("section"):
+        sec_b = str(bottom_chain.get("section"))
+    else:
+        sec_b = web_section or "IPE 200"
+    return connect_chords(
+        a, b, str(web_section or "IPE 200"), pattern=pattern,
+        chord_a_section=sec_a, chord_b_section=sec_b, start_id=start_id)
+
+
+def connect_bracing(
+    plane_a_chain,
+    plane_b_chain,
+    pattern: str = "cross",
+    section: str = "IPE 200",
+    start_id: int = 1,
+) -> List[Dict[str, Any]]:
+    """Bracing bars BETWEEN two parallel chains (different planes) — the
+    twin-arch / twin-truss / double-deck case that ``connect_chords`` cannot
+    express (that one braces two chains of the SAME truss).
+
+    ``pattern``:
+      "cross"      -> X-bracing: a[i]-b[i+1] then a[i+1]-b[i] per panel
+      "transverse" -> diaphragm ties a[i]-b[i]
+    Both chains must have the same number of nodes (n_panels+1). Bar lengths
+    are NOT constrained here — geometry is the caller's; this only wires
+    topology and validates that every endpoint exists in one of the chains.
+    """
+    a = _chain_ids(plane_a_chain)
+    b = _chain_ids(plane_b_chain)
+    if len(a) != len(b):
+        raise ValueError(
+            f"connect_bracing requires equal node counts, got {len(a)} "
+            f"vs {len(b)} (different panel counts between the two planes?)")
+    n = len(a) - 1
+    if n < 1:
+        raise ValueError("connect_bracing requires chains of at least 2 nodes")
+    pattern = str(pattern or "cross").lower()
+    if pattern not in ("cross", "transverse"):
+        raise ValueError(
+            f"Unsupported bracing pattern '{pattern}' "
+            f"(supported: cross, transverse)")
+    sec = str(section or "IPE 200")
+    valid = set(a) | set(b)
+
+    bars: List[Dict[str, Any]] = []
+    bid = start_id
+
+    def B(n1: int, n2: int) -> None:
+        nonlocal bid
+        if n1 not in valid or n2 not in valid:
+            raise ValueError(
+                f"connect_bracing bar {bid} references unknown node "
+                f"{n1 if n1 not in valid else n2} (endpoints must come from "
+                "one of the two chains)")
+        bars.append({"id": bid, "n1": int(n1), "n2": int(n2), "section": sec})
+        bid += 1
+
+    if pattern == "cross":
+        for i in range(n):
+            B(a[i], b[i + 1])
+            B(a[i + 1], b[i])
+    else:  # transverse
+        for i in range(n + 1):
+            B(a[i], b[i])
+    return bars
+
+
+def apply_support_pattern(
+    node_ids: Sequence[int],
+    support_type: str = "pinned",
+) -> List[Dict[str, Any]]:
+    """Support assignments ``[{node, type}]`` for the given node ids — the
+    reusable form of what every template hardcodes inline."""
+    st = str(support_type or "pinned").lower()
+    return [{"node": int(nid), "type": st} for nid in node_ids]
+
+
 

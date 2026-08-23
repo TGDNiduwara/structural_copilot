@@ -132,6 +132,49 @@ def _legacy_tank_spec(radius, height, segments, ring_levels,
     return {"project": "3D", "nodes": nodes, "bars": bars,
             "supports": supports, "__tpl": "cylindrical_tank"}
 
+
+def _legacy_arch_truss_spec(span, rise, panels, top_section, bottom_section,
+                            web_section, arch_chord):
+    """Verbatim pre-refactor ``arch_truss_spec`` body."""
+    n = max(2, int(panels))
+    rise = max(float(rise), 0.0)
+    notes = []
+    top_section = top_section or suggest_section(
+        "truss_chord", span, "IPE", notes=notes)
+    bottom_section = bottom_section or suggest_section(
+        "truss_chord", span, "IPE", notes=notes)
+    web_section = web_section or suggest_section(
+        "web", span, "L", notes=notes)
+
+    arc = circular_arc_fn(float(span), rise)
+    if str(arch_chord).lower() == "bottom":
+        # Arched bottom chord + straight top chord (deck above the arch).
+        bot_fn = arc
+
+        def top_fn(t, _span=float(span), _rise=rise):
+            return (round(t * _span, 6), 0.0, _rise)
+    else:
+        # Straight bottom chord + arched top chord (bowstring).
+        top_fn = arc
+
+        def bot_fn(t, _span=float(span)):
+            return (round(t * _span, 6), 0.0, 0.0)
+
+    top = nodes_along_curve(top_fn, n + 1, start_id=1)
+    bot = nodes_along_curve(bot_fn, n + 1, start_id=n + 2)
+    bars = connect_chords(
+        [nd["id"] for nd in top], [nd["id"] for nd in bot],
+        web_section, pattern="pratt",
+        chord_a_section=top_section, chord_b_section=bottom_section,
+        start_id=1)
+    spec = {"project": "3D", "nodes": top + bot, "bars": bars,
+            "supports": [{"node": bot[0]["id"], "type": "pinned"},
+                         {"node": bot[-1]["id"], "type": "pinned"}],
+            "__tpl": "arch_truss"}
+    if notes:
+        spec["__section_notes"] = notes
+    return spec
+
 # --------------------------------------------------------------------------
 # A1 — geometry primitive sanity
 # --------------------------------------------------------------------------
@@ -284,8 +327,23 @@ def test_legacy_byte_identity():
             section_vertical=c[4], section_ring=c[5])
         old = _legacy_tank_spec(*c)
         assert json.dumps(new) == json.dumps(old), f"tank_spec mismatch for {c[:4]}"
-    print(f"  OK: truss + tank specs byte-identical to legacy "
-          f"({len(truss_cases)} truss + {len(tank_cases)} tank parameter sets)")
+    arch_cases = [
+        (30.0, 5.0, 10, "IPE 500", "IPE 500", "L 70x70x8", "top"),
+        (30.0, 5.0, 10, "IPE 500", "IPE 500", "L 70x70x8", "bottom"),
+        (9.0, 2.0, 8, "IPE 300", "IPE 240", "L 60x60x6", "top"),
+        (18.0, 6.0, 12, "IPE 400", "IPE 360", "L 80x80x8", "bottom"),
+        (1.0, 0.2, 4, "IPE 100", "IPE 100", "L 40x40x5", "top"),
+    ]
+    for c in arch_cases:
+        new = RobotBridge.arch_truss_spec(
+            span=c[0], rise=c[1], panels=c[2],
+            top_section=c[3], bottom_section=c[4], web_section=c[5],
+            arch_chord=c[6])
+        old = _legacy_arch_truss_spec(*c)
+        assert json.dumps(new) == json.dumps(old), f"arch_truss_spec mismatch for {c[:4]} arch={c[6]}"
+    print(f"  OK: truss + tank + arch_truss specs byte-identical to legacy "
+          f"({len(truss_cases)} truss + {len(tank_cases)} tank + "
+          f"{len(arch_cases)} arch parameter sets)")
 
 # --------------------------------------------------------------------------
 # B1 — span-aware section suggestion
@@ -473,9 +531,261 @@ def test_registry_schemas():
     print("  OK: registry schemas (no hardcoded defaults, new tools + handlers)")
 
 
+# --------------------------------------------------------------------------
+# C1 — COMPOSE primitives: chord generators / web wrapper / bracing / support
+# --------------------------------------------------------------------------
+
+def test_compose_chord_generators():
+    from tools.geometry_primitives import (
+        generate_straight_chord, generate_arc_chord)
+    c = generate_straight_chord(30.0, 10, elevation=0.0, plane=6.0,
+                                section="IPE 500", start_id=1)
+    assert len(c["nodes"]) == 11 and len(c["bars"]) == 10
+    assert c["first"] == 1 and c["last"] == 11
+    assert c["ids"] == list(range(1, 12))
+    assert c["nodes"][0]["y"] == 6.0 and c["nodes"][-1]["y"] == 6.0
+    assert c["nodes"][-1]["x"] == 30.0
+    assert c["bars"][0]["section"] == "IPE 500"
+    assert all(b["n1"] in c["ids"] and b["n2"] in c["ids"] for b in c["bars"])
+    # custom start id (composition continues after earlier chains)
+    c2 = generate_straight_chord(12.0, 4, start_id=100)
+    assert c2["first"] == 100 and c2["last"] == 104
+    assert c2["ids"] == [100, 101, 102, 103, 104]
+    a = generate_arc_chord(30.0, 5.0, 10, elevation=2.0, arch="up")
+    zs = [nd["z"] for nd in a["nodes"]]
+    assert a["nodes"][0]["z"] == 2.0 and a["nodes"][-1]["z"] == 2.0
+    assert max(zs) == 7.0, "apex = elevation + rise"
+    d = generate_arc_chord(30.0, 5.0, 10, elevation=2.0, arch="down")
+    dz = [nd["z"] for nd in d["nodes"]]
+    assert max(dz) == 7.0, "inverted arch ends high"
+    assert min(dz) == 2.0, "inverted arch dips to elevation at mid-span"
+    print("  OK: generate_straight_chord / generate_arc_chord geometry + ids")
+
+
+def test_compose_web_and_bracing_primitives():
+    from tools.geometry_primitives import (
+        generate_straight_chord, generate_arc_chord, connect_web_pattern,
+        connect_bracing, apply_support_pattern)
+    top = generate_arc_chord(30.0, 5.0, 10, elevation=0.0, section="IPE 500")
+    bot = generate_straight_chord(30.0, 10, elevation=0.0, section="IPE 400")
+    bars = connect_web_pattern(top, bot, "pratt", web_section="L 70x70x8")
+    assert len(bars) == 5 * 10 + 1
+    # chain-dict chord sections respected automatically
+    assert bars[0]["section"] == "IPE 500"
+    assert bars[1]["section"] == "IPE 400"
+    assert bars[20]["section"] == "L 70x70x8"
+    # bracing between two planes
+    b2 = generate_arc_chord(30.0, 5.0, 10, plane=6.0, section="IPE 500",
+                            start_id=100)
+    br = connect_bracing(top, b2, "cross", section="L 50x50x5",
+                         start_id=500)
+    assert len(br) == 2 * 10, "cross bracing: 2 per panel"
+    assert [x["id"] for x in br] == list(range(500, 520))
+    tr = connect_bracing(top, b2, "transverse", start_id=600)
+    assert len(tr) == 11, "transverse ties: n_panels+1"
+    # support pattern
+    sp = apply_support_pattern([1, 11], "pinned")
+    assert sp == [{"node": 1, "type": "pinned"}, {"node": 11, "type": "pinned"}]
+    # errors: mismatched panel counts / unknown pattern / mismatched bracing
+    for fn in (
+        lambda: connect_web_pattern(
+            generate_straight_chord(30.0, 10), generate_straight_chord(30.0, 8)),
+        lambda: connect_bracing(
+            generate_straight_chord(30.0, 10), generate_straight_chord(30.0, 8)),
+    ):
+        try:
+            fn()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("expected ValueError for mismatched panels")
+    try:
+        connect_bracing(top, b2, "lattice")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for bad bracing pattern")
+    print("  OK: connect_web_pattern / connect_bracing / apply_support_pattern")
+
+
+def test_compose_copy_no_id_collision():
+    """A copy op must NEVER produce node/bar ids that collide with any other
+    chain or with web/bracing bars already in the composition registry."""
+    from agent.tool_registry import ToolExecutor
+    t = ToolExecutor(robot_visible=False)
+    # chain A: nodes 1..11, bars 12..21
+    t._compose_apply_step({"op": "chord", "name": "deck_a", "kind": "straight",
+                           "span": 30, "n_panels": 10, "section": "IPE 500"})
+    # copy of A: must be nodes 22..32, bars 33..42 (no overlap with A)
+    t._compose_apply_step({"op": "copy", "source": "deck_a", "name": "deck_b",
+                           "y_shift": 6})
+    # a THIRD independent chain after the copy: must start at 43+
+    t._compose_apply_step({"op": "chord", "name": "arch_a", "kind": "arc",
+                           "span": 30, "rise": 5, "n_panels": 10,
+                           "elevation": 0, "section": "IPE 500"})
+    # copy of arch_a: nodes 64..74, bars 75..84
+    t._compose_apply_step({"op": "copy", "source": "arch_a", "name": "arch_b",
+                           "y_shift": 6})
+    # web between arch_a and deck_a (plane 0): bars 85..
+    t._compose_apply_step({"op": "web", "top": "arch_a", "bottom": "deck_a",
+                           "pattern": "pratt", "web_section": "L 70x70x8"})
+    # web between the copied pair: continues after
+    t._compose_apply_step({"op": "web", "top": "arch_b", "bottom": "deck_b",
+                           "pattern": "pratt", "web_section": "L 70x70x8"})
+    # bracing both planes
+    t._compose_apply_step({"op": "bracing", "plane_a": "arch_a",
+                           "plane_b": "arch_b", "pattern": "cross",
+                           "section": "L 50x50x5"})
+    t._compose_apply_step({"op": "bracing", "plane_a": "deck_a",
+                           "plane_b": "deck_b", "pattern": "cross",
+                           "section": "L 50x50x5"})
+
+    all_nodes = []
+    all_bars = list(t._compose_bars)
+    for ch in t._compose_chains.values():
+        all_nodes.extend(ch["nodes"])
+        all_bars.extend(ch["bars"])
+    node_ids = [n["id"] for n in all_nodes]
+    bar_ids = [b["id"] for b in all_bars]
+    assert len(node_ids) == len(set(node_ids)), "colliding node ids"
+    assert len(bar_ids) == len(set(bar_ids)), "colliding bar ids"
+    # every bar endpoint must exist as a node (no dangling refs after copies)
+    node_set = set(node_ids)
+    for b in all_bars:
+        assert b["n1"] in node_set and b["n2"] in node_set, \
+            f"bar {b['id']} references missing node"
+    # copies are geometrically offset by y_shift and otherwise identical
+    a = t._compose_chains["deck_a"]
+    b = t._compose_chains["deck_b"]
+    assert len(a["ids"]) == len(b["ids"])
+    for na, nb in zip(a["nodes"], b["nodes"]):
+        assert nb["y"] == na["y"] + 6.0
+        assert nb["x"] == na["x"] and nb["z"] == na["z"]
+    print("  OK: copy never collides node/bar ids across the whole registry")
+
+
+def test_compose_bracing_lengths_sane():
+    """Bracing bar lengths must match the real 3D distance between their
+    endpoints (Euclidean check against node coords) AND stay within physical
+    bounds — for two chains with MATCHED panel counts but DIFFERENT span/rise
+    (so the bracing bars genuinely span varying x/z gaps, not just y)."""
+    from tools.geometry_primitives import generate_arc_chord, connect_bracing
+    # plane A: 30 m span, 5 m rise; plane B: 24 m span, 3 m rise, y=6
+    # both 10 panels -> 11 nodes each; node x/z DIFFER between the planes.
+    a = generate_arc_chord(30.0, 5.0, 10, plane=0.0, section="IPE 500")
+    b = generate_arc_chord(24.0, 3.0, 10, plane=6.0, section="IPE 500",
+                           start_id=100)
+    coords = {nd["id"]: (nd["x"], nd["y"], nd["z"]) for nd in a["nodes"] + b["nodes"]}
+    bars = connect_bracing(a, b, "cross", section="L 50x50x5")
+    assert len(bars) == 20
+    y_gap = 6.0
+    lengths = []
+    for br in bars:
+        x1, y1, z1 = coords[br["n1"]]
+        x2, y2, z2 = coords[br["n2"]]
+        L = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2)
+        lengths.append(L)
+        assert L > 0, "degenerate zero-length bracing bar"
+        assert L >= y_gap - 1e-9, \
+            f"bracing bar {br['id']} shorter than the plane gap ({L:.4f} < {y_gap})"
+        assert L < 30.0, f"bracing bar {br['id']} implausibly long ({L:.4f})"
+    assert any(L > y_gap + 0.1 for L in lengths), \
+        "expected at least one cross brace to span a horizontal/vertical gap"
+    print("  OK: bracing lengths = true 3D endpoint distance, physically sane "
+          "for mismatched span/rise chains")
+
+
+def test_compose_per_op_validation():
+    """Every compose op must fail LOUDLY and IMMEDIATELY on bad input — not
+    defer to the final finish() integrity check."""
+    from agent.tool_registry import ToolExecutor, ToolExecutionError
+
+    def _expect_error(step, frag, executor=None):
+        t = executor or ToolExecutor(robot_visible=False)
+        try:
+            t._compose_apply_step(step)
+        except ToolExecutionError as exc:
+            assert frag.lower() in str(exc).lower(), \
+                f"expected {frag!r} in: {exc}"
+            return
+        raise AssertionError(f"expected ToolExecutionError for step {step}")
+
+    _expect_error({"op": "web", "top": "nope", "bottom": "deck_a",
+                   "pattern": "pratt"}, "unknown chain")
+    _expect_error({"op": "copy", "source": "ghost", "name": "g",
+                   "y_shift": 6}, "unknown chain")
+    _expect_error({"op": "copy", "source": "deck_a", "name": "deck_b",
+                   "y_shift": "six"}, "y_shift must be a number")
+    _expect_error({"op": "chord", "name": "bad_span", "kind": "straight",
+                   "span": -5, "n_panels": 4}, "span must be > 0")
+    _expect_error({"op": "chord", "name": "bad_panels", "kind": "straight",
+                   "span": 10, "n_panels": 1}, "n_panels must be >= 2")
+    _expect_error({"op": "support", "type": "hinge"}, "unknown support_type")
+    _expect_error({"op": "bogus"}, "unknown op")
+
+    # mismatched panel counts (web and bracing) after valid chains exist
+    t = ToolExecutor(robot_visible=False)
+    t._compose_apply_step({"op": "chord", "name": "deck_a", "kind": "straight",
+                           "span": 30, "n_panels": 10, "section": "IPE 500"})
+    t._compose_apply_step({"op": "chord", "name": "arch_a", "kind": "arc",
+                           "span": 30, "rise": 5, "n_panels": 8,
+                           "section": "IPE 500"})
+    _expect_error({"op": "web", "top": "arch_a", "bottom": "deck_a",
+                   "pattern": "pratt"}, "different panel counts", executor=t)
+    _expect_error({"op": "bracing", "plane_a": "arch_a", "plane_b": "deck_a",
+                   "pattern": "cross"}, "different panel counts", executor=t)
+    # duplicate name must fail once the chain exists
+    _expect_error({"op": "chord", "name": "deck_a", "kind": "straight",
+                   "span": 20, "n_panels": 4, "section": "IPE 200"},
+                  "already exists", executor=t)
+    print("  OK: per-op compose validation fails loudly on every bad input")
+
+
+def test_compose_full_assembly_finish():
+    """End-to-end: a 2-plane twin-arch via per-step calls -> finish() returns
+    ONE spec whose integrity pre-flight is clean and counts are exact."""
+    from agent.tool_registry import ToolExecutor
+    t = ToolExecutor(robot_visible=False)
+    steps = [
+        {"op": "chord", "name": "arch_a", "kind": "arc", "span": 30.0,
+         "rise": 5.0, "n_panels": 10, "elevation": 0.0, "plane": 0.0,
+         "section": "IPE 500"},
+        {"op": "chord", "name": "deck_a", "kind": "straight", "span": 30.0,
+         "n_panels": 10, "elevation": 0.0, "plane": 0.0, "section": "IPE 500"},
+        {"op": "web", "top": "arch_a", "bottom": "deck_a", "pattern": "pratt",
+         "web_section": "L 70x70x8"},
+        {"op": "copy", "source": "arch_a", "name": "arch_b", "y_shift": 6.0},
+        {"op": "copy", "source": "deck_a", "name": "deck_b", "y_shift": 6.0},
+        {"op": "web", "top": "arch_b", "bottom": "deck_b", "pattern": "pratt",
+         "web_section": "L 70x70x8"},
+        {"op": "bracing", "plane_a": "arch_a", "plane_b": "arch_b",
+         "pattern": "cross", "section": "L 50x50x5"},
+        {"op": "bracing", "plane_a": "deck_a", "plane_b": "deck_b",
+         "pattern": "cross", "section": "L 50x50x5"},
+        {"op": "support", "chain": "deck_a", "type": "pinned"},
+        {"op": "support", "chain": "deck_b", "type": "pinned"},
+    ]
+    for st in steps:
+        t._compose_apply_step(st)
+    res = t._compose_finish()
+    assert res["status"] == "ok"
+    geom = res["geometry"]
+    # 4 chains x 11 nodes = 44 nodes. Bars: 4x10 chain chord bars + 2x31 web
+    # (verticals+diagonals only; chains already carry their chord bars) +
+    # 2x20 bracing = 40 + 62 + 40 = 142. Supports: 2 ends x 2 decks.
+    assert res["counts"]["nodes"] == 44
+    assert res["counts"]["bars"] == 142
+    assert res["counts"]["supports"] == 4
+    assert geom["__composed"] is True
+    # registry is cleared by finish (fresh composition next time)
+    assert t._compose_chains == {} and t._compose_bars == []
+    print("  OK: full twin-arch compose -> finish() spec integrity clean "
+          f"({res['counts']})")
+
+
 def main():
     print("=" * 72)
-    print("Part A + Part B — geometry primitives / span-aware sizing tests")
+    print("Part A + Part B + Part C — geometry primitives / compose tests")
     print("=" * 72)
     test_nodes_along_curve()
     test_circular_arc()
@@ -490,7 +800,13 @@ def main():
     test_arch_truss()
     test_arch_truss_in_design_space()
     test_registry_schemas()
-    print("ALL PART A + PART B TESTS PASSED")
+    test_compose_chord_generators()
+    test_compose_web_and_bracing_primitives()
+    test_compose_copy_no_id_collision()
+    test_compose_bracing_lengths_sane()
+    test_compose_per_op_validation()
+    test_compose_full_assembly_finish()
+    print("ALL PART A + PART B + PART C TESTS PASSED")
 
 
 if __name__ == "__main__":

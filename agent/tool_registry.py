@@ -327,7 +327,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "create_structure_from_spec",
-        "description": "Builds a complete structure in one call from a JSON spec: project type, nodes, bars (sections), supports, load cases, and loads (uniform / concentrated / nodal). Prefer this tool for large or complex models. Example: {\"project\":\"3D\",\"nodes\":[{\"id\":1,\"x\":0,\"y\":0,\"z\":0}],\"bars\":[{\"id\":1,\"n1\":1,\"n2\":2,\"section\":\"IPE 300\"}],\"supports\":[{\"node\":1,\"type\":\"pinned\"}],\"cases\":[{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}],\"loads\":[{\"kind\":\"bar_uniform\",\"bar\":1,\"case\":1,\"direction\":\"Z\",\"value\":-10}]}. RELIABILITY: if the spec would exceed ~20 bars, DO NOT hand-type one giant JSON block - build INCREMENTS with smaller sub-specs (create_structure_from_spec for each sub-model's nodes/bars, or create_node/create_bar in loops). Long hand-typed single-shot JSON is the #1 reliability ceiling: one missing ':' delimiter fails the whole call. Before using any non-IPE/HEA/HEB section name, call list_available_sections to get an exact catalog name.",
+        "description": "Builds a complete structure in one call from a JSON spec: project type, nodes, bars (sections), supports, load cases, and loads (uniform / concentrated / nodal). Prefer this tool for large or complex models. Example: {\"project\":\"3D\",\"nodes\":[{\"id\":1,\"x\":0,\"y\":0,\"z\":0}],\"bars\":[{\"id\":1,\"n1\":1,\"n2\":2,\"section\":\"IPE 300\"}],\"supports\":[{\"node\":1,\"type\":\"pinned\"}],\"cases\":[{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}],\"loads\":[{\"kind\":\"bar_uniform\",\"bar\":1,\"case\":1,\"direction\":\"Z\",\"value\":-10}]}. RELIABILITY: if the spec would exceed ~20 bars, DO NOT hand-type one giant JSON block - build INCREMENTS with smaller sub-specs (create_structure_from_spec for each sub-model's nodes/bars, or create_node/create_bar in loops). Long hand-typed single-shot JSON is the #1 reliability ceiling: one missing ':' delimiter fails the whole call. Before using any non-IPE/HEA/HEB section name, call list_available_sections to get an exact catalog name. For ANY shape that is not one of the named templates (create_truss / create_arch_truss / create_braced_frame / create_rectangular_grid_frame / create_cylindrical_tank), use compose_structure instead of hand-writing node/bar JSON: it builds twin arches, twin trusses, cable-stayed decks and other assemblies from verified primitives, and it auto-numbers nodes/bars so you never compute ids.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -337,6 +337,30 @@ TOOL_SCHEMAS = [
                 }
             },
             "required": ["spec"],
+        },
+    },
+    {
+        "name": "compose_structure",
+        "description": "Builds an ARBITRARY structure by composing verified geometry primitives (no hand-written node/bar JSON, no per-shape bespoke tool). State persists ACROSS calls in this session: call it once per step, then action='finish' to get the assembled geometry (then pass it to create_structure_from_spec). Ops: chord (straight|arc), web (pratt|warren between two chains), bracing (cross|transverse BETWEEN two parallel planes - the twin-arch/twin-truss case), copy (mirror a chain into a second plane via y_shift), support (pinned/fixed/roller on a chain's ends or explicit nodes). Each op validates immediately (unknown chain names, mismatched panel counts, bad y_shift, duplicate names all fail with an actionable error, NOT deferred to the end). RELIABILITY: for assemblies with more than ~5-6 steps, call this tool ONCE PER STEP (action='step', step={...}) - do NOT pack a giant steps array into one call (hand-typed JSON has a reliability ceiling: one missing ':' fails the whole call). For small assemblies (<=5-6 steps) action='batch' with steps=[...] is fine. Example twin-arch: step1 chord name=arch_a kind=arc span=30 rise=5 panels=10 section='IPE 500'; step2 chord name=deck_a kind=straight span=30 panels=10 elevation=0 section='IPE 500'; step3 web top=arch_a bottom=deck_a pattern=pratt web_section='L 60x60x6'; step4 copy source=arch_a name=arch_b y_shift=6; step5 copy source=deck_a name=deck_b y_shift=6; step6 web top=arch_b bottom=deck_b pattern=pratt web_section='L 60x60x6'; step7 bracing plane_a=arch_a plane_b=arch_b pattern=cross section='L 50x50x5'; step8 bracing plane_a=deck_a plane_b=deck_b pattern=cross section='L 50x50x5'; step9 support chain=deck_a type=pinned; step10 support chain=deck_b type=pinned; action='finish'. Before using any non-IPE/HEA/HEB section name, call list_available_sections first.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["step", "batch", "finish", "reset"],
+                    "description": "'step' = apply ONE step (one per call for >5-6 step assemblies); 'batch' = apply a small steps list in one call; 'finish' = assemble the full geometry + run integrity checks and return it (clears the session registry); 'reset' = discard the in-progress composition.",
+                },
+                "step": {
+                    "type": "object",
+                    "description": "Required when action='step': {op: 'chord'|'web'|'bracing'|'copy'|'support', ...} — see the tool description for per-op fields.",
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Required when action='batch': a SMALL list (<=5-6) of step dicts.",
+                },
+            },
+            "required": ["action"],
         },
     },
     {
@@ -1192,6 +1216,14 @@ class ToolExecutor:
         # app.py drains this into the sidebar Activity Log panel each turn so
         # connect/close/clear_structure events are visible in the running app.
         self.activity_log: List[str] = []
+
+        # [COMPOSE] Session-scoped geometry-composition state (verified
+        # primitives only; see _tool_compose_structure). Persists across
+        # chat turns via the ToolExecutor held in st.session_state.
+        self._compose_chains: Dict[str, dict] = {}
+        self._compose_bars: List[dict] = []
+        self._compose_supports: List[dict] = []
+        self._compose_next_id: int = 1
 
         self._robot_connected = False
         self._robot_visible = robot_visible
@@ -2166,6 +2198,309 @@ class ToolExecutor:
         summary = self.robot.build_structure_from_spec(spec)
         logger.info("Built structure from spec: %s", summary)
         return {"status": "ok", **summary}
+
+    # ------------------------------------------------------------------ #
+    # [COMPOSE] Arbitrary shapes from verified geometry primitives
+    # ------------------------------------------------------------------ #
+
+    def _compose_reset(self) -> dict:
+        self._compose_chains = {}
+        self._compose_bars = []
+        self._compose_supports = []
+        self._compose_next_id = 1
+        return {"status": "ok", "message": "composition reset"}
+
+    def _compose_apply_step(self, step: dict) -> dict:
+        """Applies ONE compose step with IMMEDIATE per-op validation (never
+        deferred to finish). Raises ToolExecutionError on any bad input."""
+        from tools.geometry_primitives import (
+            generate_straight_chord, generate_arc_chord, connect_web_pattern,
+            connect_bracing, apply_support_pattern)
+        op = str(step.get("op") or "").lower()
+        if not op:
+            raise ToolExecutionError(
+                "compose_structure step is missing 'op' "
+                "(chord | web | bracing | copy | support).")
+
+        def _require(fields):
+            for f in fields:
+                if f not in step or step[f] in (None, ""):
+                    raise ToolExecutionError(
+                        f"compose_structure op '{op}' requires '{f}'.")
+
+        def _chain(name):
+            if name not in self._compose_chains:
+                raise ToolExecutionError(
+                    f"compose_structure: unknown chain '{name}' - define it "
+                    f"first with op='chord' (known: {sorted(self._compose_chains)}).")
+            return self._compose_chains[name]
+
+        if op == "chord":
+            _require(["name"])
+            name = str(step["name"])
+            if name in self._compose_chains:
+                raise ToolExecutionError(
+                    f"compose_structure: chain name '{name}' already exists "
+                    "- pick a unique name.")
+            kind = str(step.get("kind") or "straight").lower()
+            if kind not in ("straight", "arc"):
+                raise ToolExecutionError(
+                    f"compose_structure op 'chord': kind must be "
+                    f"'straight' or 'arc', got {kind!r}.")
+            _require(["span", "n_panels"])
+            try:
+                span = float(step["span"])
+                n_panels = int(step["n_panels"])
+            except (TypeError, ValueError) as exc:
+                raise ToolExecutionError(
+                    f"compose_structure op 'chord': span/n_panels must be "
+                    f"numbers, got {step.get('span')!r}/{step.get('n_panels')!r}.") from exc
+            if span <= 0.0:
+                raise ToolExecutionError("compose_structure op 'chord': span must be > 0.")
+            if n_panels < 2:
+                raise ToolExecutionError("compose_structure op 'chord': n_panels must be >= 2.")
+            try:
+                y_shift = float(step.get("plane") or 0.0)
+            except (TypeError, ValueError):
+                raise ToolExecutionError(
+                    f"compose_structure op 'chord': plane must be a number, "
+                    f"got {step.get('plane')!r}.")
+            section = str(step.get("section") or "IPE 200")
+            if kind == "arc":
+                try:
+                    rise = float(step.get("rise") or 0.0)
+                except (TypeError, ValueError):
+                    raise ToolExecutionError(
+                        f"compose_structure op 'chord' (arc): rise must be a "
+                        f"number, got {step.get('rise')!r}.")
+                chain = generate_arc_chord(
+                    span, rise, n_panels, elevation=float(step.get("elevation") or 0.0),
+                    plane=y_shift, arch=str(step.get("arch") or "up"),
+                    section=section, start_id=self._compose_next_id)
+            else:
+                chain = generate_straight_chord(
+                    span, n_panels, elevation=float(step.get("elevation") or 0.0),
+                    plane=y_shift, section=section,
+                    start_id=self._compose_next_id)
+            self._compose_chains[name] = chain
+            self._compose_next_id = max(
+                self._compose_next_id, chain["last"] + 1,
+                (chain["bars"][-1]["id"] + 1) if chain["bars"] else 1)
+            return {"status": "ok", "message": f"chain '{name}' added",
+                    "nodes": len(chain["nodes"]), "bars": len(chain["bars"])}
+
+        if op == "web":
+            _require(["top", "bottom"])
+            top = _chain(str(step["top"]))
+            bottom = _chain(str(step["bottom"]))
+            if len(top["ids"]) != len(bottom["ids"]):
+                raise ToolExecutionError(
+                    f"compose_structure op 'web': chains "
+                    f"'{step['top']}' ({len(top['ids'])} nodes) and "
+                    f"'{step['bottom']}' ({len(bottom['ids'])} nodes) have "
+                    "different panel counts - regenerate with matching n_panels.")
+            pattern = str(step.get("pattern") or "pratt").lower()
+            if pattern not in ("pratt", "warren"):
+                raise ToolExecutionError(
+                    f"compose_structure op 'web': pattern must be 'pratt' or "
+                    f"'warren', got {pattern!r}.")
+            all_bars = connect_web_pattern(
+                top, bottom, pattern,
+                web_section=str(step.get("web_section") or "IPE 200"),
+                start_id=self._compose_next_id)
+            # connect_web_pattern also emits the two chord runs; the chains
+            # ALREADY carry their own chord bars, so keep only the web bars.
+            n = len(top["ids"]) - 1
+            bars = all_bars[2 * n:]
+            self._compose_bars.extend(bars)
+            self._compose_next_id = max(
+                self._compose_next_id,
+                (all_bars[-1]["id"] + 1) if all_bars else self._compose_next_id)
+            return {"status": "ok",
+                    "message": f"web {pattern} added between "
+                               f"'{step['top']}' and '{step['bottom']}'",
+                    "bars": len(bars)}
+
+        if op == "bracing":
+            _require(["plane_a", "plane_b"])
+            pa = _chain(str(step["plane_a"]))
+            pb = _chain(str(step["plane_b"]))
+            if len(pa["ids"]) != len(pb["ids"]):
+                raise ToolExecutionError(
+                    f"compose_structure op 'bracing': planes "
+                    f"'{step['plane_a']}' ({len(pa['ids'])} nodes) and "
+                    f"'{step['plane_b']}' ({len(pb['ids'])} nodes) have "
+                    "different panel counts - bracing needs matching n_panels.")
+            pattern = str(step.get("pattern") or "cross").lower()
+            if pattern not in ("cross", "transverse"):
+                raise ToolExecutionError(
+                    f"compose_structure op 'bracing': pattern must be "
+                    f"'cross' or 'transverse', got {pattern!r}.")
+            bars = connect_bracing(
+                pa, pb, pattern,
+                section=str(step.get("section") or "IPE 200"),
+                start_id=self._compose_next_id)
+            self._compose_bars.extend(bars)
+            self._compose_next_id = max(
+                self._compose_next_id,
+                (bars[-1]["id"] + 1) if bars else self._compose_next_id)
+            return {"status": "ok",
+                    "message": f"bracing {pattern} added between "
+                               f"'{step['plane_a']}' and '{step['plane_b']}'",
+                    "bars": len(bars)}
+
+        if op == "copy":
+            _require(["source", "name", "y_shift"])
+            try:
+                y_shift = float(step["y_shift"])
+            except (TypeError, ValueError):
+                raise ToolExecutionError(
+                    f"compose_structure op 'copy': y_shift must be a number, "
+                    f"got {step.get('y_shift')!r}.")
+            import math as _math
+            if not _math.isfinite(y_shift):
+                raise ToolExecutionError(
+                    "compose_structure op 'copy': y_shift must be finite.")
+            src = _chain(str(step["source"]))
+            name = str(step["name"])
+            if name in self._compose_chains:
+                raise ToolExecutionError(
+                    f"compose_structure op 'copy': chain name '{name}' already "
+                    "exists - pick a unique name.")
+            shift = int(self._compose_next_id) - src["first"]
+            id_map = {}
+            new_nodes = []
+            for nd in src["nodes"]:
+                new_id = int(nd["id"]) + shift
+                id_map[int(nd["id"])] = new_id
+                new_nodes.append({
+                    "id": new_id,
+                    "x": nd["x"],
+                    "y": round(float(nd["y"]) + y_shift, 6),
+                    "z": nd["z"],
+                })
+            new_bars = [
+                {"id": int(b["id"]) + shift,
+                 "n1": id_map[int(b["n1"])], "n2": id_map[int(b["n2"])],
+                 "section": b["section"]}
+                for b in src["bars"]
+            ]
+            self._compose_chains[name] = {
+                "nodes": new_nodes, "bars": new_bars,
+                "section": src["section"],
+                "first": new_nodes[0]["id"], "last": new_nodes[-1]["id"],
+                "ids": [n["id"] for n in new_nodes],
+            }
+            self._compose_next_id = max(
+                self._compose_next_id, self._compose_chains[name]["last"] + 1)
+            return {"status": "ok",
+                    "message": f"chain '{name}' copied from '{step['source']}' "
+                               f"with y_shift={y_shift}",
+                    "nodes": len(new_nodes), "bars": len(new_bars)}
+
+        if op == "support":
+            _require(["type"])
+            stype = str(step["type"]).lower()
+            if stype not in ("pinned", "fixed", "roller_x", "roller_z", "spring"):
+                raise ToolExecutionError(
+                    f"compose_structure op 'support': unknown support_type "
+                    f"{stype!r} (pinned | fixed | roller_x | roller_z | spring).")
+            chain_ref = step.get("chain")
+            explicit = step.get("nodes")
+            if chain_ref:
+                chain = _chain(str(chain_ref))
+                if str(step.get("ends_only", "true")).lower() in ("true", "1", "yes"):
+                    node_ids = [chain["first"], chain["last"]]
+                else:
+                    node_ids = chain["ids"]
+            elif explicit:
+                node_ids = []
+                for n in explicit:
+                    try:
+                        node_ids.append(int(n))
+                    except (TypeError, ValueError):
+                        raise ToolExecutionError(
+                            f"compose_structure op 'support': nodes must be "
+                            f"ints, got {n!r}.")
+            else:
+                raise ToolExecutionError(
+                    "compose_structure op 'support': provide 'chain' (ends "
+                    "supported) or 'nodes' (explicit ids).")
+            self._compose_supports.extend(
+                apply_support_pattern(node_ids, stype))
+            return {"status": "ok",
+                    "message": f"support '{stype}' applied to {len(node_ids)} node(s)"}
+
+        raise ToolExecutionError(
+            f"compose_structure: unknown op '{op}' "
+            f"(chord | web | bracing | copy | support).")
+
+    def _tool_compose_structure(
+        self, action: str = "step", step: dict = None, steps: list = None,
+    ) -> dict:
+        """Arbitrary-shape composition from verified geometry primitives
+        (see the compose_structure schema for the full contract)."""
+        action = str(action or "step").lower()
+        if action == "reset":
+            return self._compose_reset()
+        if action == "finish":
+            return self._compose_finish()
+        if action == "batch":
+            if not steps:
+                raise ToolExecutionError(
+                    "compose_structure action='batch' requires a 'steps' list "
+                    "(keep it SMALL: <=5-6 steps; larger assemblies should use "
+                    "one action='step' call per step).")
+            last = None
+            for st in steps:
+                last = self._compose_apply_step(st or {})
+            return {"status": "ok", "message": f"applied {len(steps)} step(s)",
+                    "last": last, "chain_count": len(self._compose_chains),
+                    "bars_so_far": len(self._compose_bars),
+                    "supports_so_far": len(self._compose_supports)}
+        if action == "step":
+            if not step:
+                raise ToolExecutionError(
+                    "compose_structure action='step' requires a 'step' dict.")
+            res = self._compose_apply_step(step)
+            res["chain_count"] = len(self._compose_chains)
+            res["bars_so_far"] = len(self._compose_bars)
+            res["supports_so_far"] = len(self._compose_supports)
+            return res
+        raise ToolExecutionError(
+            f"compose_structure: unknown action '{action}' "
+            f"(step | batch | finish | reset).")
+
+    def _compose_finish(self) -> dict:
+        """Merges every registered chain + accumulated bars + supports into
+        ONE spec, runs the integrity pre-flight, and clears the registry."""
+        nodes: List[dict] = []
+        bars: List[dict] = list(self._compose_bars)
+        for name in sorted(self._compose_chains):
+            chain = self._compose_chains[name]
+            nodes.extend(chain["nodes"])
+            bars.extend(chain["bars"])
+        spec = {
+            "project": "3D",
+            "nodes": nodes,
+            "bars": bars,
+            "supports": list(self._compose_supports),
+            "__composed": True,
+        }
+        issues = self.robot.spec_integrity_issues(spec)
+        counts = {"nodes": len(nodes), "bars": len(bars),
+                  "supports": len(self._compose_supports)}
+        message = (
+            f"assembled {counts['nodes']} nodes / {counts['bars']} bars / "
+            f"{counts['supports']} supports")
+        if issues:
+            self._compose_reset()
+            raise ToolExecutionError(
+                f"compose_structure finish: spec integrity FAILED: "
+                f"{'; '.join(issues)}")
+        self._compose_reset()
+        return {"status": "ok", "message": message,
+                "geometry": spec, "counts": counts}
 
     def _tool_get_structure_summary(self) -> dict:
         self._ensure_robot()  # [WP1 fix]

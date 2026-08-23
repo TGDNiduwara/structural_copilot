@@ -386,6 +386,33 @@ existing optimizer and ranks them by lightest passing design
 (`batch/topology_compare.py`, one run per variant).
 Offline tests: `batch/test_chat_build_tools.py` + `batch/test_topology_compare.py`.
 
+**Compose arbitrary shapes (compose_structure, in `agent/tool_registry.py`):**
+`compose_structure` builds ANY shape (twin arches, twin trusses, cable-stayed
+decks, double-deck frames…) from verified geometry primitives
+(`tools/geometry_primitives.py`) instead of hand-written node/bar JSON. State
+persists ACROSS tool calls in the session: call it once per step
+(`action="step"`, `step={...}`), then `action="finish"` returns the assembled
+geometry which you pass to `create_structure_from_spec`. Ops: `chord`
+(straight|arc), `web` (pratt|warren between two chains), `bracing`
+(cross|transverse BETWEEN two parallel planes — the twin-arch case), `copy`
+(mirror a chain into a second plane via `y_shift`), `support` (pinned/fixed/
+roller_x/roller_z/spring on a chain's ends or explicit nodes). **Reliability
+rule:** for assemblies with more than ~5-6 steps call `action="step"` ONCE PER
+STEP — do not pack a giant `steps` array into one call (hand-typed JSON has a
+reliability ceiling). Every op validates IMMEDIATELY at the step boundary
+(unknown chain names, mismatched panel counts, invalid `y_shift`, duplicate
+names all raise actionable errors, never deferred to `finish`); `finish` then
+runs the same `spec_integrity_issues` pre-flight as `build_structure_from_spec`
+and refuses to return a broken spec. Auto-numbering means node/bar ids are
+never computed by hand and copies can never collide with existing chains.
+The named templates (`truss_spec` / `arch_truss_spec` / `cylindrical_tank_spec`)
+are themselves re-implemented as recipes over these primitives, guarded
+byte-identical by `tools/test_geometry_primitives.py::test_legacy_byte_identity`.
+Offline tests: same file — `test_compose_chord_generators`,
+`test_compose_web_and_bracing_primitives`, `test_compose_copy_no_id_collision`,
+`test_compose_bracing_lengths_sane`, `test_compose_per_op_validation`,
+`test_compose_full_assembly_finish`.
+
 **Session-safety & diagnostics (post-split-session hardening):** `tools/robot_seat.py`
 is a cross-process Robot "seat" registry (`runtime/robot_seat.json`) that records
 who owns the lone Robot seat — owner pid/kind, robot pid(s), connect path. Any
