@@ -21,7 +21,7 @@ from agent.tool_registry import ToolExecutor  # noqa: E402
 
 EVIDENCE = os.path.join(ROOT, "batch", "live_val_results",
                         "EVIDENCE_4_compose_live_twin_arch.json")
-TOLERANCE = 0.02  # 2% reaction-vs-applied balance (same as all other live checks)
+TOLERANCE = 0.01  # 1% reaction-vs-applied balance (the same standard as every other live check tonight)
 
 ex = ToolExecutor(robot_visible=True)
 ex._ensure_robot()
@@ -197,46 +197,36 @@ if sol.get("warning"):
     print("  warning:", str(sol["warning"])[:200])
 
 # -- 5b. what load records does Robot ACTUALLY hold? ---------------------------
+# apply_self_weight now writes ONE nodal (node-force, type 0) record per node:
+# read them back and confirm the registered total equals the tool's total.
 from win32com.client import CastTo
+from tools.robot_tool import RobotEnum
 case = CastTo(b.structure.Cases.Get(1), "IRobotSimpleCase")
 rec_count = int(case.Records.Count)
-bars_with_load: set = set()
+nodes_with_load: set = set()
 applied_kn = 0.0
-bad = 0
+samples = []
 for i in range(1, rec_count + 1):
     rec = case.Records.Get(i)
     try:
         rtype = int(rec.Type)
     except Exception:
         rtype = -1
-    if rtype != 4:  # I_LRT_BAR_UNIFORM
+    if rtype != RobotEnum.I_LRT_NODE_FORCE:  # 0
         continue
-    rv = CastTo(rec, "IRobotBarUniformRecord")
-    pz = float(rv.Values.GetValue(2))  # I_BURV_PZ
-    rng = rv.Objects
-    obj_count = int(rng.Count)
-    for j in range(1, obj_count + 1):
-        try:
-            bid = int(rng.Get(j))
-        except Exception:
-            bad += 1
-            continue
-        bars_with_load.add(bid)
-        L = b._bar_length(bid)
-        if L <= 0.0:
-            bad += 1
-        applied_kn += pz * L
-print(f"  Robot load records: {rec_count}; bars WITH a registered load: "
-      f"{len(bars_with_load)} of 138; sum(PZ*L) from records = {applied_kn:.3f} kN "
-      f"(bad/zero-length refs: {bad})")
-missing = sorted(set(range(1, 139)) - bars_with_load)
-print(f"  bar ids with NO registered load: {missing[:20]}{'...' if len(missing) > 20 else ''} "
-      f"({len(missing)} total)")
-step("all 138 bars carry a registered load",
-     f"{len(bars_with_load)}/138 bars loaded, records={rec_count}",
-     len(bars_with_load) == 138 and applied_kn > 0)
-step("Robot-registered load matches tool total",
-     f"robot sum(PZ*L)={applied_kn:.3f} kN vs tool total {sw_total:.3f} kN",
+    fz = float(rec.GetValue(2))  # I_NFRV_FZ
+    for nid in b._record_object_ids(rec):
+        nodes_with_load.add(nid)
+        applied_kn += abs(fz)
+    if len(samples) < 4:
+        samples.append((i, rtype, fz, b._record_object_ids(rec)))
+for s in samples:
+    print(f"    sample record #{s[0]}: type={s[1]} FZ={s[2]:+.4f} kN  nodes={s[3]}")
+print(f"  Robot load records: {rec_count}; nodes WITH a registered load: "
+      f"{len(nodes_with_load)}; sum(|FZ|) from records = {applied_kn:.3f} kN")
+step("Robot-registered nodal self-weight matches tool total",
+     f"robot sum(|FZ|)={applied_kn:.3f} kN vs tool total {sw_total:.3f} kN "
+     f"({len(nodes_with_load)} nodes loaded)",
      abs(applied_kn - sw_total) / sw_total <= TOLERANCE)
 
 # -- 6. reactions balance applied load -----------------------------------------

@@ -371,7 +371,11 @@ building from a spec — use it as `spec.geometry` when optimizing an
 already-built model); `list_available_sections(family=None)` returns the
 catalog section names (`tools/section_sizing.py`) with no Robot solve;
 `apply_self_weight(case_id, density=7850)` applies every bar's self-weight
-as one call (unit mass × length × g); `set_support` gained `"spring"`
+as one call (unit mass × length × g, lumped 50/50 to each bar's end nodes —
+the classic truss lumping; **verified live: sum(FZ) reactions equals the
+reported total exactly**, whereas the earlier per-bar uniform-load write
+under-applied ~15.7% on a 3D 138-bar assembly, so nodal lumping is the only
+self-weight source now); `set_support` gained `"spring"`
 (elastic-linear via `IRobotNodeSupportData.ElasticLinear` + K*/H* stiffness,
 additive to the fixed/pinned/roller_* types); `preview_structure_geometry()`
 renders a wireframe PNG of the in-memory geometry (matplotlib, no COM).

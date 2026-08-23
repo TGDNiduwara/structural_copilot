@@ -3638,15 +3638,29 @@ class RobotBridge:
 
     @com_thread_safe
     def apply_self_weight(self, case_id: int, density: float = 7850.0) -> Dict[str, Any]:
-        """Applies each bar's self-weight as a uniform load in the given
-        case (global -Z), computed from the section unit mass (static
-        table first, live Robot property lookup as fallback) and the
-        member length. Returns a per-bar summary dict."""
+        """Applies every bar's self-weight as EQUIVALENT NODAL loads in the
+        given case (global -Z): each bar's weight (unit mass x length x g) is
+        lumped 50/50 onto its two end nodes — the classic truss lumping.
+
+        [2026-08-23 LIVE-FIX] Previously this wrote one bar-uniform load
+        record per bar (I_LRT_BAR_UNIFORM, PZ). That path is verified exact
+        on a single bar and on the planar 31-bar truss, but on a full 3D
+        assembly (the 138-bar twin-arch) Robot's solver reported only
+        125.69 kN of reactions for a verified 149.07 kN of records — a
+        deterministic 15.7% shortfall that does NOT appear with nodal loads
+        (same geometry + same total -> 149.07 kN reactions, 0.00% error,
+        A/B verified live). Nodal lumping is the ONLY source of self-weight
+        now: equilibrium is exact (sum(FZ) reactions == total computed),
+        the tool's reported total is the number Robot actually applies, and
+        no second/automatic self-weight mechanism is active in the case.
+        Returns a per-bar summary dict plus the applied total.
+        """
         self._ensure_connected()
         case = self.structure.Cases.Get(int(case_id))   # raises if missing
 
         per_bar: List[Dict[str, Any]] = []
         total_kn = 0.0
+        node_loads: Dict[int, float] = {}
         for bar_id in sorted(self._bar_endpoints):
             length = self._bar_length(bar_id)
             if length <= 0.0:
@@ -3655,17 +3669,30 @@ class RobotBridge:
             unit_mass = self._lookup_unit_mass(sec, float(density)) \
                 if sec else 0.0
             kn_m = self._self_weight_kn_m(unit_mass)
-            self.apply_bar_load(bar_id, int(case_id), -kn_m, "Z")
-            total_kn += kn_m * length
+            weight = kn_m * length
+            total_kn += weight
+            n1, n2 = self._bar_endpoints[bar_id]
+            node_loads[n1] = node_loads.get(n1, 0.0) + weight / 2.0
+            node_loads[n2] = node_loads.get(n2, 0.0) + weight / 2.0
             per_bar.append({
                 "bar_id": bar_id, "section": sec, "length_m": round(length, 3),
                 "unit_mass_kg_m": round(unit_mass, 3),
                 "load_kn_m": round(kn_m, 5),
-                "weight_kn": round(kn_m * length, 4),
+                "weight_kn": round(weight, 4),
+                "lumped_to": {"n1": int(n1), "n2": int(n2)},
             })
+        # One nodal load per affected node (global -Z), exact by construction.
+        for node_id in sorted(node_loads):
+            w = node_loads[node_id]
+            if abs(w) > 1e-9:
+                self.apply_nodal_load(int(node_id), int(case_id),
+                                      fx_kn=0.0, fz_kn=-w, my_knm=0.0)
         return {
             "case_id": int(case_id),
             "bars": len(per_bar),
+            "applied_nodes": len([w for w in node_loads.values()
+                                  if abs(w) > 1e-9]),
+            "method": "nodal_lumped",
             "total_self_weight_kn": round(total_kn, 4),
             "density_kg_m3": float(density),
             "per_bar": per_bar,

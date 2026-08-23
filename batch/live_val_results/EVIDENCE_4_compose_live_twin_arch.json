@@ -1,18 +1,18 @@
 {
   "name": "EVIDENCE_4_compose_live_twin_arch",
-  "verdict": "FAIL",
-  "tolerance": 0.02,
+  "verdict": "PASS",
+  "tolerance": 0.01,
   "geometry": {
     "compose_steps": 10,
     "counts": {
       "nodes": 44,
-      "bars": 142,
+      "bars": 138,
       "supports": 4
     },
     "robot_summary": {
       "status": "ok",
       "nodes": 44,
-      "bars": 142,
+      "bars": 138,
       "cases": 0,
       "bbox": {
         "x": [
@@ -30,14 +30,14 @@
       },
       "sections": {
         "IPE 500": 40,
-        "L 80x80x8": 62,
+        "L 80x80x8": 58,
         "L 60x60x6": 40
       }
     }
   },
   "self_weight_kn": 149.0692,
-  "sum_reactions_fz_kn": 125.692,
-  "reaction_rel_err": 0.156821127369034,
+  "sum_reactions_fz_kn": 149.068,
+  "reaction_rel_err": 8.049952639331213e-06,
   "steps": [
     {
       "name": "robot_session_status before",
@@ -57,7 +57,7 @@
     {
       "name": "compose step 3 (web )",
       "ok": true,
-      "detail": "web pratt added between 'arch_a' and 'deck_a'"
+      "detail": "web pratt added between 'arch_a' and 'deck_a' (dropped 2 zero-length end bar(s): [61, 71])"
     },
     {
       "name": "compose step 4 (copy arch_b)",
@@ -72,7 +72,7 @@
     {
       "name": "compose step 6 (web )",
       "ok": true,
-      "detail": "web pratt added between 'arch_b' and 'deck_b'"
+      "detail": "web pratt added between 'arch_b' and 'deck_b' (dropped 2 zero-length end bar(s): [134, 144])"
     },
     {
       "name": "compose step 7 (bracing )",
@@ -97,22 +97,22 @@
     {
       "name": "compose finish",
       "ok": true,
-      "detail": "assembled 44 nodes / 142 bars / 4 supports"
+      "detail": "assembled 44 nodes / 138 bars / 4 supports"
     },
     {
       "name": "composed geometry counts",
       "ok": true,
-      "detail": "{'nodes': 44, 'bars': 142, 'supports': 4}"
+      "detail": "{'nodes': 44, 'bars': 138, 'supports': 4}"
     },
     {
       "name": "create_structure_from_spec",
       "ok": true,
-      "detail": "{'status': 'ok', 'nodes': 44, 'bars': 142, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 62"
+      "detail": "{'status': 'ok', 'nodes': 44, 'bars': 138, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 58"
     },
     {
       "name": "get_structure_summary",
       "ok": true,
-      "detail": "{'status': 'ok', 'nodes': 44, 'bars': 142, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 62, 'L 60x60x6': 40}}"
+      "detail": "{'status': 'ok', 'nodes': 44, 'bars': 138, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 58, 'L 60x60x6': 40}}"
     },
     {
       "name": "apply_self_weight",
@@ -121,8 +121,18 @@
     },
     {
       "name": "live bar endpoints match composed spec",
-      "ok": false,
-      "detail": "0 live bars, 0 endpoint mismatches vs spec"
+      "ok": true,
+      "detail": "138 live bars (spec has 138), 0 unknown ids, 0 endpoint mismatches"
+    },
+    {
+      "name": "intended deck-end supports present in live model",
+      "ok": true,
+      "detail": "supported coords=[(0.0, 0.0, 0.0), (0.0, 6.0, 0.0), (30.0, 0.0, 0.0), (30.0, 6.0, 0.0)]"
+    },
+    {
+      "name": "no degenerate zero-length bars in composed spec",
+      "ok": true,
+      "detail": "0 zero-length bar(s): []"
     },
     {
       "name": "check_model_stability",
@@ -135,9 +145,14 @@
       "detail": "ok Solver run completed successfully. (60.2s)"
     },
     {
+      "name": "Robot-registered nodal self-weight matches tool total",
+      "ok": true,
+      "detail": "robot sum(|FZ|)=149.069 kN vs tool total 149.069 kN (40 nodes loaded)"
+    },
+    {
       "name": "reactions balance applied load",
-      "ok": false,
-      "detail": "sum(FZ)=125.6920 kN vs applied 149.0692 kN, rel err 15.68%"
+      "ok": true,
+      "detail": "sum(FZ)=149.0680 kN vs applied 149.0692 kN, rel err 0.00%"
     }
   ]
 }

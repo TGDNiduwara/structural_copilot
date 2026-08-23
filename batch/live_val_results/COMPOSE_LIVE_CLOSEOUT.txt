@@ -1,0 +1,76 @@
+COMPOSE_LIVE root-cause closeout (2026-08-23)
+==============================================
+The compose_structure live gate is PASS after a full evidence chain. This
+note records what was actually found (evidence, not inference).
+
+WHAT THE GATE NOW PROVES (3 consecutive clean runs, COMPOSE_LIVE_RUN1/2/3.log):
+  * compose_structure builds the twin-arch via 10 one-step-per-call tool
+    invocations (44 nodes / 138 bars / 4 pinned supports, bbox 30 x 6 x 5).
+  * build_structure_from_spec builds EXACTLY the composed geometry into the
+    live Robot (138 live bars, 0 endpoint mismatches, 0 coordinate mismatches,
+    no degenerate bars).
+  * check_model_stability: no mechanism (rank 124/124).
+  * apply_self_weight reports 149.0692 kN; Robot's OWN load records sum to
+    149.069 kN (verified by COM readback, not just the tool's number).
+  * solve completes; sum(FZ) reactions = 149.0680 kN vs applied 149.0692 kN
+    -> 0.00% error, every run. Same tolerance as every other live check
+    tonight. FX ~ +/-52.9 kN is the expected arch thrust.
+
+ROOT-CAUSE CHAIN (the four questions asked):
+
+1) apply_self_weight 0.0000 on run 1 -> SCRIPT BUG, not a session split.
+   The probe read the non-existent key `self_weight_total_kn`; the tool
+   returns `total_self_weight_kn`. First run was never re-run with the same
+   code. (Evidence: run 1 vs run 2 diffs are only the script's read path.)
+
+2) "live bar endpoints match" found 0 live bars -> ANOTHER SCRIPT BUG.
+   export_structure_spec returns {"geometry": {...}}; the check read
+   live_spec["bars"] at the top level. Fixed to geometry.bars; with the
+   correct read it finds 138 live bars / 0 mismatches. The product read
+   path was always fine.
+
+3) Equilibrium error -> REAL, isolated to Robot's bar-uniform load write.
+   * Phase A (no explicit loads): reactions = 0.000 kN -> Robot's automatic
+     self-weight is OFF by default; the 125.69 kN was NOT Robot auto weight.
+   * Records verified correct: 138 x I_LRT_BAR_UNIFORM(5), PZ values right,
+     targets right, sum over records = 149.0692 kN (COM readback).
+   * Single-bar uniform-load tests: horizontal 0.00%, diagonal 0.02%,
+     y-spanning 0.00% -> Robot applies PZ in global Z per unit bar length
+     correctly in isolation.
+   * Full-structure A/B on the SAME geometry, SAME 149.0692 kN total:
+       case 1 bar-uniform: 125.692 kN reactions (15.68% shortfall)
+       case 2 nodal-lumped: 149.068 kN reactions (0.00%)
+     => Robot's solver under-applies bar-uniform records on a connected
+        3D assembly (deterministic: the same 125.692 every time), while
+        nodal loads are exact. Not a compose-geometry defect (nodal loads
+        on the same geometry balance perfectly; 100.000 kN nodal test also
+        balanced exactly).
+   * FIX: apply_self_weight now writes equivalent NODAL loads (each bar's
+     weight lumped 50/50 to its two end nodes - classic truss lumping).
+     One self-weight source, its reported number IS the applied number.
+     The 15.68% shortfall is gone and the tool description/README document
+     the change.
+
+4) claim_seat with empty robot_pids -> REAL, FIXED.
+   connect() could pass [] when connected_pid was None (tasklist lag),
+   writing a malformed seat record that a second process could not be
+   protected against. Now: connect() polls tasklist up to ~6 s for the pid
+   and RAISES if it stays None; claim_seat() itself REFUSES an empty
+   robot_pids list with a loud error instead of writing the record.
+   (test_step34_fixes.py covers both.)
+
+ALSO FIXED WHILE HERE:
+  * compose web op now drops zero-length web bars (arch springs from z=0
+    onto the deck ends -> the 4 end verticals were degenerate length-0
+    members; 142 -> 138 bars, no singular elements).
+  * The earlier "reactions on nodes 21/31/103/113" scare was a misreading:
+    those ARE the composed spec's deck-end node ids (arch_a 1-11, deck_a
+    21-31, arch_b 92-102, deck_b 103-113); the live model matches the spec
+    exactly (0 renumbering, verified by coordinate mapping).
+
+ARTIFACTS
+  * batch/live_val_results/EVIDENCE_4_compose_live_twin_arch.json (PASS)
+  * batch/live_val_results/COMPOSE_LIVE_RUN1..3.log
+  * probes: COMPOSE_probe_selfweight_source.py (Phase A/B), _readback.py,
+    _geometry_divergence.py, _load_lengths.py, _nodal_equilibrium.py,
+    _uniform_vs_nodal.py, _uniform_vs_nodal_arch.py
