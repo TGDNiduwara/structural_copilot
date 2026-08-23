@@ -65,3 +65,149 @@ INFO:   frontier improved at call 13: pts [580.2/0.653, 726.6/0.779, 798.0/0.792
 INFO: [call 14/40] candidate 99 of 100 (acquisition)
 DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
 watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=964.8 kg util=0.2067 PASS
+INFO:   frontier improved at call 14: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 710.4/0.662, 973.2/0.814, 964.8/0.793, 1043.4/0.826]
+INFO: [call 15/40] candidate 29 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=719.4 kg util=0.255 PASS
+INFO:   frontier improved at call 15: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 710.4/0.662, 973.2/0.814, 964.8/0.793, 1043.4/0.826]
+INFO: [call 16/40] candidate 40 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=847.2 kg util=0.1979 PASS
+INFO:   frontier improved at call 16: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 847.2/0.802, 710.4/0.662, 973.2/0.814, 1043.4/0.826]
+INFO: [call 17/40] candidate 80 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=912.0 kg util=0.1964 PASS
+INFO:   frontier improved at call 17: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 847.2/0.802, 710.4/0.662, 912.0/0.804, 973.2/0.814, 1043.4/0.826]
+INFO: [call 18/40] candidate 50 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=906.0 kg util=0.1869 PASS
+INFO:   frontier improved at call 18: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 847.2/0.802, 906.0/0.813, 710.4/0.662, 973.2/0.814, 1043.4/0.826]
+INFO: [call 19/40] candidate 70 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=851.4 kg util=0.2066 PASS
+INFO:   frontier improved at call 19: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 847.2/0.802, 906.0/0.813, 710.4/0.662, 973.2/0.814, 1043.4/0.826]
+INFO: [call 20/40] candidate 20 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss: UNKNOWN dialog 'Robot Structural Analysis' - NOT killing. Human must click it in the visible Robot window. Add a pattern for it (body text: "Robot Structural Analysis | &Yes | &No | Cancel | Do you want to save changes to Structure?\n\nIf you select 'No' you will lose results available in the project.").
+DialogWatcher: UNKNOWN dialog 'Robot Structural Analysis' - force-terminating owned pids [33636]
+WARNING:   -> UnknownDialogError: unknown dialog encountered: 'Robot Structural Analysis' - Robot process force-terminated; add a dialog pattern for it
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+Robot.Application.Quit raised: (-2147023174, 'The RPC server is unavailable.', None, None)
+INFO:   frontier improved at call 20: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 847.2/0.802, 906.0/0.813, 710.4/0.662, 973.2/0.814, 1043.4/0.826]
+INFO: [call 21/40] candidate 89 of 100 (acquisition)
+WARNING:   -> mechanism_detected: likely mechanism at node 9 UX, node 10 UX, node 11 UX, node 12 UX, node 13 UX, node 14 UX — refusing to call Calculate().
+INFO:   frontier improved at call 21: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 847.2/0.802, 906.0/0.813, 710.4/0.662, 973.2/0.814, 1043.4/0.826]
+INFO: [call 22/40] candidate 49 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=827.4 kg util=0.0 PASS
+INFO:   frontier improved at call 22: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 23/40] candidate 5 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=435.6 kg util=None FAIL
+INFO:   frontier improved at call 23: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 24/40] candidate 95 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+Buckling check failed for bar 2: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotDataObject instance at 0x2235702137184>' object has no attribute 'StartNode'
+Buckling check failed for bar 3: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotDataObject instance at 0x2235702146640>' object has no attribute 'StartNode'
+Buckling check failed for bar 4: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotDataObject instance at 0x2235702145392>' object has no attribute 'StartNode'
+Buckling check failed for bar 13: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotDataObject instance at 0x2235702148032>' object has no attribute 'StartNode'
+Buckling check failed for bar 14: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotDataObject instance at 0x2235702137088>' object has no attribute 'StartNode'
+Buckling check failed for bar 16: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotDataObject instance at 0x2235702134016>' object has no attribute 'StartNode'
+INFO:   -> w=752.4 kg util=3.5987 FAIL
+INFO:   frontier improved at call 24: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 25/40] candidate 51 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=390.0 kg util=1.2615 FAIL
+INFO:   frontier improved at call 25: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 26/40] candidate 6 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=477.0 kg util=None FAIL
+INFO:   frontier improved at call 26: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 27/40] candidate 15 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+Buckling check failed for bar 13: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotDataObject instance at 0x2235702144048>' object has no attribute 'StartNode'
+INFO:   -> w=466.2 kg util=1.1571 FAIL
+INFO:   frontier improved at call 27: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 28/40] candidate 39 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=768.6 kg util=0.2402 PASS
+INFO:   frontier improved at call 28: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 29/40] candidate 78 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=765.6 kg util=None FAIL
+INFO:   frontier improved at call 29: pts [580.2/0.653, 726.6/0.779, 719.4/0.745, 798.0/0.792, 827.4/1.000, 710.4/0.662]
+INFO: [call 30/40] candidate 68 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=705.0 kg util=0.0 PASS
+INFO:   frontier improved at call 30: pts [580.2/0.653, 705.0/1.000]
+INFO: [call 31/40] candidate 58 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=653.4 kg util=0.3311 PASS
+INFO:   frontier improved at call 31: pts [580.2/0.653, 653.4/0.669, 705.0/1.000]
+INFO: [call 32/40] candidate 88 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=826.8 kg util=0.2644 PASS
+INFO:   frontier improved at call 32: pts [580.2/0.653, 653.4/0.669, 705.0/1.000]
+INFO: [call 33/40] candidate 7 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=525.0 kg util=0.426 PASS
+INFO:   frontier improved at call 33: pts [525.0/0.574, 580.2/0.653, 653.4/0.669, 705.0/1.000]
+INFO: [call 34/40] candidate 69 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=772.8 kg util=0.2537 PASS
+INFO:   frontier improved at call 34: pts [525.0/0.574, 580.2/0.653, 653.4/0.669, 705.0/1.000]
+INFO: [call 35/40] candidate 4 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=399.0 kg util=0.7401 PASS
+INFO:   frontier improved at call 35: pts [399.0/0.260, 525.0/0.574, 580.2/0.653, 653.4/0.669, 705.0/1.000]
+INFO: [call 36/40] candidate 59 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=721.2 kg util=0.2676 PASS
+INFO:   frontier improved at call 36: pts [399.0/0.260, 525.0/0.574, 580.2/0.653, 653.4/0.669, 705.0/1.000]
+INFO: [call 37/40] candidate 38 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=700.8 kg util=0.2892 PASS
+INFO:   frontier improved at call 37: pts [399.0/0.260, 525.0/0.574, 580.2/0.653, 700.8/0.711, 653.4/0.669, 705.0/1.000]
+INFO: [call 38/40] candidate 28 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=651.6 kg util=0.3113 PASS
+INFO:   frontier improved at call 38: pts [399.0/0.260, 525.0/0.574, 580.2/0.653, 651.6/0.689, 700.8/0.711, 705.0/1.000]
+INFO: [call 39/40] candidate 67 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=649.8 kg util=0.369 PASS
+INFO:   frontier improved at call 39: pts [399.0/0.260, 525.0/0.574, 580.2/0.653, 651.6/0.689, 700.8/0.711, 705.0/1.000]
+INFO: [call 40/40] candidate 19 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=678.6 kg util=0.2673 PASS
+INFO:   frontier improved at call 40: pts [399.0/0.260, 525.0/0.574, 580.2/0.653, 678.6/0.733, 651.6/0.689, 705.0/1.000]
+INFO: Surrogate run 1: completed (budget_exhausted) - 38 evaluated, 2 failed, 40 Robot calls, frontier 6, HV 0.7949334473673865 -> 1.460499095591994 in 3732.5s.

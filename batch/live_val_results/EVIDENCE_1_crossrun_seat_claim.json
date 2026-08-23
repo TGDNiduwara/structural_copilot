@@ -1,0 +1,26 @@
+{
+  "test": "crossrun_stage_seat_claim",
+  "verified_at": "2026-08-22 20:24:39",
+  "chain_transition": "[20:24:28] stage reconnect DONE; [20:24:28] starting stage crossrun",
+  "seat_file_contents_at_claim": {
+    "schema": 1,
+    "project": "structural_multi_app_agent",
+    "owner_pid": 33052,
+    "owner_kind": "batch",
+    "connected_via": "launched",
+    "robot_pids": [33520],
+    "acquired_at": 1787410479.4224164
+  },
+  "owner_process_identity": {
+    "pid": 33052,
+    "parent_pid": 9196,
+    "creation": "8/22/2026 8:24:28 PM",
+    "cmdline": "\"python.exe\" -u batch\\validate_surrogate_live.py crossrun"
+  },
+  "robot_identity": {
+    "pid": 33520,
+    "name": "robot.EXE",
+    "creation": "8/22/2026 8:24:31 PM"
+  },
+  "verdict": "PASS - crossrun went through claim_seat() with a FRESH entry for its OWN stage pid at stage start; not merely 'stage completed'. Same-owner reconnect within a stage and fresh claims per stage are both confirmed live."
+}

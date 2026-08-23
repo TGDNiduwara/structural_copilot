@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "ranked": [
+    {
+      "name": "frame",
+      "run_id": 4,
+      "weight_kg": 608.11,
+      "max_utilization": 0.0224,
+      "sections": {
+        "column": "HEA 200",
+        "beam": "IPE 300",
+        "brace": "L 100x100x10"
+      },
+      "grid_candidates": 2
+    },
+    {
+      "name": "truss",
+      "run_id": 3,
+      "weight_kg": 986.28,
+      "max_utilization": 0.0371,
+      "sections": {
+        "column": "HEA 200",
+        "beam": "IPE 300",
+        "brace": "L 100x100x10"
+      },
+      "grid_candidates": 2
+    }
+  ],
+  "summary": "frame=608.11kg(run 4) | truss=986.28kg(run 3)"
+}

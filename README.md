@@ -386,6 +386,25 @@ existing optimizer and ranks them by lightest passing design
 (`batch/topology_compare.py`, one run per variant).
 Offline tests: `batch/test_chat_build_tools.py` + `batch/test_topology_compare.py`.
 
+**Session-safety & diagnostics (post-split-session hardening):** `tools/robot_seat.py`
+is a cross-process Robot "seat" registry (`runtime/robot_seat.json`) that records
+who owns the lone Robot seat — owner pid/kind, robot pid(s), connect path. Any
+`RobotBridge.connect()` refuses to attach/spawn over a LIVE foreign owner (the
+interactive app fails fast; a batch `new_instance=True` waits up to 60 s for a
+just-finished chain stage to release, covering the stage-handoff race). `close()`
+releases only if it owns the seat; stale seats (dead owner / dead robot) are
+reclaimed automatically. The new `robot_session_status()` tool surfaces "Robot
+session pid X, connected via Y, seat owner Z, live robot.exe list" in one call —
+call it FIRST when anything smells like a split session (stale bar ids, RPC
+drops, phantom dialogs). `build_structure_from_spec` now (a) rejects malformed
+specs up front via `spec_integrity_issues()` (duplicate node/bar ids, dangling
+bar→node refs) and (b) hard-errors if the live bar count does not exactly match
+the requested spec, instead of failing later with `Bar N not found`; the
+`'Calculation Messages'`/save-changes dialogs are dismissed deterministically by
+both paths (headless `DEFAULT_DIALOG_PATTERNS` now includes the save prompt with
+`No`); and section names are pre-validated (`L 120` missing its `x…x…` legs,
+`IPE  chord` placeholder doubles, punctuation) before any catalog poke.
+
 
 ## Eurocode member checks (EN 1993) — v1 scope and explicit caveats
 

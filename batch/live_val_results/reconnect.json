@@ -1,0 +1,30 @@
+{
+  "summary": {
+    "run_id": 1,
+    "strategy": "surrogate",
+    "status": "completed",
+    "stop_reason": "budget_exhausted",
+    "evaluated": 8,
+    "failed": 1,
+    "robot_calls": 9,
+    "total": 100,
+    "budget": 9,
+    "patience": 15,
+    "acquisition": "ucb",
+    "elapsed_s": 844.5,
+    "frontier": 4,
+    "initial_hv": 0.794933,
+    "final_hv": 0.959496,
+    "training_rows": 0,
+    "training_runs": {},
+    "failures": [
+      "SolverInstabilityError: live validation: simulated DialogWatcher force-kill"
+    ]
+  },
+  "wall_s": 844.5,
+  "robot_launches": 2,
+  "reconnect_logged": true,
+  "failed": 1,
+  "evaluated": 8,
+  "ok": true
+}

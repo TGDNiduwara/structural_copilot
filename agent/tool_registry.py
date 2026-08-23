@@ -327,7 +327,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "create_structure_from_spec",
-        "description": "Builds a complete structure in one call from a JSON spec: project type, nodes, bars (sections), supports, load cases, and loads (uniform / concentrated / nodal). Prefer this tool for large or complex models. Example: {\"project\":\"3D\",\"nodes\":[{\"id\":1,\"x\":0,\"y\":0,\"z\":0}],\"bars\":[{\"id\":1,\"n1\":1,\"n2\":2,\"section\":\"IPE 300\"}],\"supports\":[{\"node\":1,\"type\":\"pinned\"}],\"cases\":[{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}],\"loads\":[{\"kind\":\"bar_uniform\",\"bar\":1,\"case\":1,\"direction\":\"Z\",\"value\":-10}]}",
+        "description": "Builds a complete structure in one call from a JSON spec: project type, nodes, bars (sections), supports, load cases, and loads (uniform / concentrated / nodal). Prefer this tool for large or complex models. Example: {\"project\":\"3D\",\"nodes\":[{\"id\":1,\"x\":0,\"y\":0,\"z\":0}],\"bars\":[{\"id\":1,\"n1\":1,\"n2\":2,\"section\":\"IPE 300\"}],\"supports\":[{\"node\":1,\"type\":\"pinned\"}],\"cases\":[{\"id\":1,\"name\":\"DL\",\"nature\":\"permanent\"}],\"loads\":[{\"kind\":\"bar_uniform\",\"bar\":1,\"case\":1,\"direction\":\"Z\",\"value\":-10}]}. RELIABILITY: if the spec would exceed ~20 bars, DO NOT hand-type one giant JSON block - build INCREMENTS with smaller sub-specs (create_structure_from_spec for each sub-model's nodes/bars, or create_node/create_bar in loops). Long hand-typed single-shot JSON is the #1 reliability ceiling: one missing ':' delimiter fails the whole call. Before using any non-IPE/HEA/HEB section name, call list_available_sections to get an exact catalog name.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -385,7 +385,7 @@ TOOL_SCHEMAS = [
                 "panels": {"type": "integer", "default": 6},
                 "top_section": {"type": "string", "description": "Optional explicit top-chord section; if omitted it is auto-sized from the span."},
                 "bottom_section": {"type": "string", "description": "Optional explicit bottom-chord section; if omitted it is auto-sized from the span."},
-                "web_section": {"type": "string", "description": "Optional explicit web (vertical/diagonal) section; if omitted a light angle is auto-sized."},
+                "web_section": {"type": "string", "description": "Optional explicit web (vertical/diagonal) section; if omitted a light angle is auto-sized. For any NON-IPE/HEA/HEB section, FIRST call list_available_sections(family='L') to get the exact catalog spelling (e.g. 'L 50x50x5'), then pass that here - guessing an angle name like 'L 120x120x5' from memory is what caused catalog-miss failures."},
             },
             "required": [],
         },
@@ -400,7 +400,7 @@ TOOL_SCHEMAS = [
                 "width": {"type": "number", "default": 6.0},
                 "column_section": {"type": "string", "description": "Optional explicit column section; if omitted auto-sized from the height."},
                 "beam_section": {"type": "string", "description": "Optional explicit beam section; if omitted auto-sized from the width."},
-                "brace_section": {"type": "string", "description": "Optional explicit brace section; if omitted auto-sized from the diagonal length."},
+                "brace_section": {"type": "string", "description": "Optional explicit brace section; if omitted auto-sized from the diagonal length. For any NON-IPE/HEA/HEB section, FIRST call list_available_sections(family='L') to get the exact catalog spelling, then pass that here."},
             },
             "required": [],
         },
@@ -416,7 +416,7 @@ TOOL_SCHEMAS = [
                 "panels": {"type": "integer", "default": 10, "description": "Number of panels along each chord."},
                 "top_section": {"type": "string", "description": "Optional explicit top-chord section; if omitted auto-sized from the span."},
                 "bottom_section": {"type": "string", "description": "Optional explicit bottom-chord section; if omitted auto-sized from the span."},
-                "web_section": {"type": "string", "description": "Optional explicit web section; if omitted a light angle is auto-sized."},
+                "web_section": {"type": "string", "description": "Optional explicit web section; if omitted a light angle is auto-sized. For any NON-IPE/HEA/HEB section, FIRST call list_available_sections(family='L') to get the exact catalog spelling (e.g. 'L 50x50x5') - guessing angle names from memory caused catalog-miss failures."},
                 "arch_chord": {"type": "string", "enum": ["top", "bottom"], "default": "top", "description": "'top' = bowstring (arch on top, straight deck at z=0); 'bottom' = arch below with a straight deck above at z=rise."},
             },
             "required": [],
@@ -1013,7 +1013,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "list_available_sections",
-        "description": "Returns valid catalog section names (e.g. 'IPE 300', 'HEA 200') that the geometry templates and optimizer draw from, optionally filtered by family (IPE / HEA / HEB / HEM / IPN / UPN / UPE / L). Catalog-only and fast — no Robot solve needed. Use this to pick realistic candidate_sections for an optimization design space or a section for a bar.",
+        "description": "Returns valid catalog section names (e.g. 'IPE 300', 'HEA 200') that the geometry templates and optimizer draw from, optionally filtered by family (IPE / HEA / HEB / HEM / IPN / UPN / UPE / L). Catalog-only and fast — no Robot solve needed. Use this to pick realistic candidate_sections for an optimization design space or a section for a bar. IMPORTANT for family='L' (angles): the list returns LEG sizes (e.g. 'L 120'); Robot's catalog resolves the FULL equal-angle name 'L <leg>x<leg>x<thickness>', e.g. 'L 60x60x6' — a thin t=5 is not available on every leg (120x120x5 does NOT exist). Prefer the template auto web sizing (create_truss without web_section) or build the full name from a leg here with a standard thickness (5 for legs<=60, 6 for <=100, 8 for <=120, 10/12 above) and verify.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1048,6 +1048,15 @@ TOOL_SCHEMAS = [
     {
         "name": "check_model_stability",
         "description": "Runs the mechanism pre-solve check on the CURRENT model - the same 2D rank check batch/runner.py runs before every candidate solve. Call any time after nodes/bars/supports are built and BEFORE solve. Returns ok/mechanism-detected with the rank info and the nodes/DOFs involved in any nullspace. If mechanism=True, fix supports/geometry first - solving a mechanism triggers Robot's instability modal.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "robot_session_status",
+        "description": "[DIAG] Returns the authoritative Robot session picture: which robot.exe PID this bridge is connected to, HOW it connected (attach vs fresh launch), who owns the cross-process seat, and which robot.exe processes are live on the machine. Call this FIRST whenever Robot behaves oddly - stale bar ids ('Bar N not found' right after a build), RPC drops, phantom dialogs - because a SPLIT SESSION (two live COM handles on one robot.exe) shows up here immediately instead of taking a dozen failing tool calls to diagnose.",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -1899,6 +1908,26 @@ class ToolExecutor:
         self._ensure_robot()
         r = self.robot.validate_stability()
         return {"status": "ok", **r}
+
+    def _tool_robot_session_status(self) -> dict:
+        """[DIAG] Authoritative Robot session picture (pid, attach/launch,
+        seat owner, live robot.exe processes). Does NOT require an existing
+        connection - it reports from the seat registry and tasklist even
+        when this process is not connected, so it is safe to call at any
+        time (including before the first connect)."""
+        from tools.robot_seat import seat_status
+        summary = {
+            "connected": bool(self.robot._connected),
+            "connected_pid": self.robot.connected_pid,
+        }
+        try:
+            status = self.robot.robot_session_status()
+        except Exception as exc:  # noqa: BLE001
+            status = {"error": str(exc), "seat": seat_status()}
+            status["summary"] = f"robot_session_status failed: {exc}"
+        summary["detail"] = status
+        summary["status"] = "ok"
+        return summary
 
     def _tool_generate_code_combinations(
         self, combination_set: str = "ULS_SLS_basic",

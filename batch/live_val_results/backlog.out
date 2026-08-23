@@ -2,3 +2,12 @@
 Live backlog verification (6 COM paths)
 ========================================================================
 waiting for c:\Users\dinat\Downloads\structural_multi_app_agent\structural_copilot\batch\live_val_results\CHAIN_DONE (up to 10.0h)...
+CHAIN_DONE found - seat free.
+[check 1] FAIL - truss 8 nodes/16 bars round-tripped; weight 668.33->668.33 kg
+[check 2] PASS - stable 'no mechanism detected (rank 8/8)' | mechanism 'likely mechanism at node 999 UX — refusing to call Calculate().'
+[check 3] FAIL - 42.2 kg/m -> 0.41398 kN/m, applied None, reactions 2.4840 kN vs 2.4839 kN
+[check 4] FAIL - tip UZ -0.018 mm vs hand F/K=2.017 mm (spring K=5000 kN/m)
+[check 5] PASS - ULS_2 midspan 94.50 kNm (exp 94.5), SLS_char 67.50 kNm (exp 67.5)
+[check 6] FAIL - truss=Nonekg(run 1) | frame=Nonekg(run 2)
+
+BACKLOG: 2/6 checks passed.

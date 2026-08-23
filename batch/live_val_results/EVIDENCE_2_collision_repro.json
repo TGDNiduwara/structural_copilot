@@ -1,0 +1,23 @@
+{
+  "test": "original_collision_reproduction_app_path_vs_live_batch_seat",
+  "verified_at": "2026-08-22 ~20:29",
+  "scenario": "REPRODUCES the 2026-08-22 19:04 incident: a separate process uses the Streamlit app's exact connect path (RobotBridge().connect(new_instance=False), as ToolExecutor._ensure_robot does) while a LIVE batch process holds the seat.",
+  "foreign_owner_at_test_time": {
+    "owner_pid": 33052,
+    "owner_kind": "batch",
+    "connected_via": "launched",
+    "robot_pids": [33520],
+    "owner_alive": true,
+    "robots_alive": true,
+    "seat_available": false
+  },
+  "observed": {
+    "robots_running_before": [33520],
+    "connect_result": "SeatBusyError raised",
+    "message": "Robot seat is held by another live process (owner_pid=33052, kind=batch, robot pid(s)=33520). This process REFUSES to attach a second Robot session - doing so corrupts both. If a batch run owns the seat, wait for CHAIN_DONE; if the owner is dead, its seat is auto-stale and the next connect takes over.",
+    "robots_running_after": [33520],
+    "new_robot_spawned": false,
+    "attach_happened": false
+  },
+  "verdict": "PASS - the app path raises SeatBusyError BEFORE touching COM and spawns NO second robot.exe. Tonight's exact bug (silent second session spawn) is prevented, not merely mitigated."
+}

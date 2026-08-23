@@ -79,6 +79,16 @@ DEFAULT_DIALOG_PATTERNS: Dict[str, Dict[str, str]] = {
     # clicking Close dismisses it and the solve result stands.
     "calculation messages": {"action": "click", "button_text": "Close",
                              "benign": True},
+    # Robot's "Do you want to save changes to Structure?" modal that appears
+    # when Project.New()/close discards a project with results (Interactive=1),
+    # or when one client's actions collide with another's session. For a batch
+    # session the ONLY deterministic action is "No" (never save). This is the
+    # SAME pattern the interactive path uses (tools.win_dialogs.
+    # SAVE_PROMPT_PATTERNS); keeping it here makes dismiss behaviour
+    # deterministic in BOTH paths, instead of the headless watcher treating
+    # the identical dialog as UNKNOWN and force-killing its own robot (the
+    # 2026-08-22 ~19:08 split-session root cause).
+    "save changes to structure": {"action": "click", "button_text": "No"},
 }
 
 

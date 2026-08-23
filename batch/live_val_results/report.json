@@ -1,0 +1,489 @@
+{
+  "preflight": {
+    "baseline_robot_pids": [],
+    "orphan_pids_killed": [],
+    "grid_candidates": 100,
+    "budget": 40,
+    "probes": {
+      "light": {
+        "sections": {
+          "columns": "HEA 160",
+          "beam": "IPE 200"
+        },
+        "weight_kg": 316.8,
+        "max_utilization": 1.2376,
+        "elapsed_s": 95.4
+      },
+      "heavy": {
+        "sections": {
+          "columns": "HEB 240",
+          "beam": "IPE 500"
+        },
+        "weight_kg": 1043.4,
+        "max_utilization": 0.1742,
+        "elapsed_s": 94.7
+      }
+    },
+    "util_variety_expected": true
+  },
+  "grid": {
+    "summary": {
+      "run_id": 1,
+      "status": "completed",
+      "evaluated": 94,
+      "failed": 6,
+      "total": 100,
+      "elapsed_s": 9180.9,
+      "resumed_from": null,
+      "failures": [
+        "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+        "RuntimeError: Robot COM server connection lost (server may have been closed externally). Please reconnect by calling connect(). Original error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+        "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+        "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+        "RuntimeError: Robot COM server connection lost (server may have been closed externally). Please reconnect by calling connect(). Original error: (-2147023174, 'The RPC server is unavailable.', None, None)",
+        "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)"
+      ]
+    },
+    "wall_s": 9180.9,
+    "run_id": 1,
+    "calls": 100,
+    "evaluated": 94,
+    "failed": 6,
+    "frontier_pts": [
+      [
+        366.6,
+        0.1124
+      ],
+      [
+        399.0,
+        0.2599
+      ],
+      [
+        435.6,
+        0.3828
+      ],
+      [
+        477.0,
+        0.4862
+      ],
+      [
+        525.0,
+        0.574
+      ],
+      [
+        580.2,
+        0.6525
+      ],
+      [
+        648.0,
+        0.7225
+      ],
+      [
+        726.6,
+        0.7789
+      ],
+      [
+        397.2,
+        0.1993
+      ],
+      [
+        429.6,
+        0.3288
+      ],
+      [
+        466.2,
+        0.4344
+      ],
+      [
+        507.6,
+        0.5234
+      ],
+      [
+        555.6,
+        0.5998
+      ],
+      [
+        610.8,
+        0.6693
+      ],
+      [
+        678.6,
+        0.7327
+      ],
+      [
+        757.2,
+        0.7849
+      ],
+      [
+        719.4,
+        0.745
+      ],
+      [
+        798.0,
+        0.7925
+      ],
+      [
+        847.2,
+        0.8021
+      ],
+      [
+        912.0,
+        0.8036
+      ],
+      [
+        973.2,
+        0.8144
+      ],
+      [
+        1043.4,
+        0.8258
+      ]
+    ],
+    "frontier_n": 22
+  },
+  "surrogate": {
+    "summary": {
+      "run_id": 1,
+      "strategy": "surrogate",
+      "status": "completed",
+      "stop_reason": "budget_exhausted",
+      "evaluated": 38,
+      "failed": 2,
+      "robot_calls": 40,
+      "total": 100,
+      "budget": 40,
+      "patience": 15,
+      "acquisition": "ucb",
+      "elapsed_s": 3732.5,
+      "frontier": 6,
+      "initial_hv": 0.794933,
+      "final_hv": 1.460499,
+      "training_rows": 0,
+      "training_runs": {},
+      "failures": [
+        "UnknownDialogError: unknown dialog encountered: 'Robot Structural Analysis' - Robot process force-terminated; add a dialog pattern for it",
+        "mechanism_detected: likely mechanism at node 9 UX, node 10 UX, node 11 UX, node 12 UX, node 13 UX, node 14 UX \u2014 refusing to call Calculate()."
+      ]
+    },
+    "wall_s": 3732.5,
+    "log": "c:\\Users\\dinat\\Downloads\\structural_multi_app_agent\\structural_copilot\\batch\\live_val_results\\surrogate.log",
+    "calls": 40,
+    "frontier_pts": [
+      [
+        399.0,
+        0.2599
+      ],
+      [
+        525.0,
+        0.574
+      ],
+      [
+        580.2,
+        0.6525
+      ],
+      [
+        678.6,
+        0.7327
+      ],
+      [
+        651.6,
+        0.6887
+      ],
+      [
+        705.0,
+        1.0
+      ]
+    ],
+    "frontier_n": 6,
+    "hv": 1.5568313069908817,
+    "hv_grid": 1.6275000000000002,
+    "hv_ratio": 0.9565783760312636,
+    "call_fraction": 0.4
+  },
+  "resume": {
+    "run_id": 1,
+    "killed_after_evaluated": 6,
+    "orphan_robots_killed": [
+      6012
+    ],
+    "phase2_summary": {
+      "run_id": 1,
+      "strategy": "surrogate",
+      "status": "completed",
+      "stop_reason": "budget_exhausted",
+      "evaluated": 11,
+      "failed": 1,
+      "robot_calls": 12,
+      "total": 100,
+      "budget": 12,
+      "patience": 15,
+      "acquisition": "ucb",
+      "elapsed_s": 1111.8,
+      "frontier": 7,
+      "initial_hv": 1.059453,
+      "final_hv": 1.092366,
+      "training_rows": 6,
+      "training_runs": {
+        "1": 6
+      },
+      "failures": [
+        "com_error: (-2147023174, 'The RPC server is unavailable.', None, None)"
+      ]
+    },
+    "phase2_wall_s": 1111.8,
+    "candidates_sent_total": 19,
+    "candidates_sent_unique": 18,
+    "duplicate_candidates": [
+      77
+    ],
+    "note": "duplicates allowed ONLY for the one candidate in flight at kill time (never recorded -> re-sent on resume)",
+    "final_evaluated": 17,
+    "ok": false
+  },
+  "reconnect": {
+    "summary": {
+      "run_id": 1,
+      "strategy": "surrogate",
+      "status": "completed",
+      "stop_reason": "budget_exhausted",
+      "evaluated": 8,
+      "failed": 1,
+      "robot_calls": 9,
+      "total": 100,
+      "budget": 9,
+      "patience": 15,
+      "acquisition": "ucb",
+      "elapsed_s": 844.5,
+      "frontier": 4,
+      "initial_hv": 0.794933,
+      "final_hv": 0.959496,
+      "training_rows": 0,
+      "training_runs": {},
+      "failures": [
+        "SolverInstabilityError: live validation: simulated DialogWatcher force-kill"
+      ]
+    },
+    "wall_s": 844.5,
+    "robot_launches": 2,
+    "reconnect_logged": true,
+    "failed": 1,
+    "evaluated": 8,
+    "ok": true
+  },
+  "crossrun": {
+    "summary": {
+      "run_id": 2,
+      "strategy": "surrogate",
+      "status": "completed",
+      "stop_reason": "budget_exhausted",
+      "evaluated": 40,
+      "failed": 0,
+      "robot_calls": 40,
+      "total": 100,
+      "budget": 40,
+      "patience": 15,
+      "acquisition": "ucb",
+      "elapsed_s": 3777.6,
+      "frontier": 15,
+      "initial_hv": 0.715699,
+      "final_hv": 1.302031,
+      "training_rows": 35,
+      "training_runs": {
+        "1": 35
+      },
+      "failures": []
+    },
+    "wall_s": 3777.6,
+    "log": "c:\\Users\\dinat\\Downloads\\structural_multi_app_agent\\structural_copilot\\batch\\live_val_results\\crossrun.log",
+    "calls": 40,
+    "training_rows": 35,
+    "training_runs": {
+      "1": 35
+    },
+    "frontier_pts": [
+      [
+        477.0,
+        0.4862
+      ],
+      [
+        525.0,
+        0.574
+      ],
+      [
+        580.2,
+        0.6525
+      ],
+      [
+        648.0,
+        0.7225
+      ],
+      [
+        726.6,
+        0.7789
+      ],
+      [
+        555.6,
+        0.5998
+      ],
+      [
+        610.8,
+        0.6693
+      ],
+      [
+        678.6,
+        0.7327
+      ],
+      [
+        757.2,
+        0.7849
+      ],
+      [
+        719.4,
+        0.745
+      ],
+      [
+        798.0,
+        0.7925
+      ],
+      [
+        847.2,
+        0.8021
+      ],
+      [
+        906.0,
+        0.8131
+      ],
+      [
+        973.2,
+        0.8144
+      ],
+      [
+        1043.4,
+        0.8258
+      ]
+    ],
+    "frontier_n": 15,
+    "hv": 1.3867029719689294,
+    "hv_ratio": 0.8520448368472684,
+    "cold_run1": {
+      "calls": 40,
+      "final_hv": 1.5568313069908817,
+      "calls_to_own_final_hv": 35
+    },
+    "warm_run2": {
+      "calls": 40,
+      "calls_to_run1_final_hv": -1
+    }
+  },
+  "ehvi": {
+    "summary": {
+      "run_id": 1,
+      "strategy": "surrogate",
+      "status": "completed",
+      "stop_reason": "budget_exhausted",
+      "evaluated": 40,
+      "failed": 0,
+      "robot_calls": 40,
+      "total": 100,
+      "budget": 40,
+      "patience": 15,
+      "acquisition": "ehvi",
+      "elapsed_s": 3770.5,
+      "frontier": 20,
+      "initial_hv": 0.794933,
+      "final_hv": 1.526324,
+      "training_rows": 0,
+      "training_runs": {},
+      "failures": []
+    },
+    "wall_s": 3770.5,
+    "log": "c:\\Users\\dinat\\Downloads\\structural_multi_app_agent\\structural_copilot\\batch\\live_val_results\\ehvi.log",
+    "calls": 40,
+    "frontier_pts": [
+      [
+        366.6,
+        0.1124
+      ],
+      [
+        399.0,
+        0.2599
+      ],
+      [
+        435.6,
+        0.3828
+      ],
+      [
+        477.0,
+        0.4862
+      ],
+      [
+        525.0,
+        0.574
+      ],
+      [
+        580.2,
+        0.6525
+      ],
+      [
+        648.0,
+        0.7225
+      ],
+      [
+        726.6,
+        0.7789
+      ],
+      [
+        397.2,
+        0.1993
+      ],
+      [
+        429.6,
+        0.3288
+      ],
+      [
+        466.2,
+        0.4344
+      ],
+      [
+        507.6,
+        0.5234
+      ],
+      [
+        555.6,
+        0.5998
+      ],
+      [
+        610.8,
+        0.6693
+      ],
+      [
+        678.6,
+        0.7327
+      ],
+      [
+        757.2,
+        0.7849
+      ],
+      [
+        719.4,
+        0.745
+      ],
+      [
+        798.0,
+        0.7925
+      ],
+      [
+        906.0,
+        0.8131
+      ],
+      [
+        1043.4,
+        0.8258
+      ]
+    ],
+    "frontier_n": 20,
+    "hv": 1.6275000000000002,
+    "hv_ratio": 1.0,
+    "call_fraction": 0.4
+  }
+}

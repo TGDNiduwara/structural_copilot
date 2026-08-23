@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "nodes_match": true,
+  "bars_match": true,
+  "supports_match": true,
+  "case_roundtrip": true,
+  "load_roundtrip": true,
+  "weight_before_kg": 668.33,
+  "weight_after_rebuild_kg": 668.33,
+  "weight_rel_err": 0.0,
+  "util_before": 0.0393,
+  "util_after": 0.0393,
+  "util_abs_err": 0.0,
+  "summary": "truss 8 nodes/16 bars round-tripped; weight 668.33->668.33 kg"
+}

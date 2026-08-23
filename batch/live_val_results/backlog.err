@@ -1,0 +1,29 @@
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+_read_case_loads: case 1 has no readable Records: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotCase instance at 0x2336468976704>' object has no attribute 'Records'
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+_read_case_loads: case 1 has no readable Records: '<win32com.gen_py.Robot Object Model ver. 27.0.IRobotCase instance at 0x2336478487152>' object has no attribute 'Records'
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO: Run 1 created with 2 candidates.
+INFO: Pending candidates: 2.
+INFO: [1/2] evaluating candidate 1
+WARNING:   -> RuntimeError: Section 'L 100' was not found in any Robot section catalog (tried names: ['L 100']; catalogs: ['EURO', 'AISC', 'DIN', 'ARCLR', 'UKST', 'CISC', 'CHINA', 'JAPAN']). Use catalog-style names such as 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26', or 'UB 305x165x40'.
+INFO:   checkpoint 1 after 34.4s | [1/2] run elapsed 44s, ETA ~44s
+INFO: [2/2] evaluating candidate 2
+WARNING:   -> RuntimeError: Section 'L 100' was not found in any Robot section catalog (tried names: ['L 100']; catalogs: ['EURO', 'AISC', 'DIN', 'ARCLR', 'UKST', 'CISC', 'CHINA', 'JAPAN']). Use catalog-style names such as 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26', or 'UB 305x165x40'.
+INFO:   checkpoint 2 after 33.3s | [2/2] run elapsed 78s, ETA ~0s
+INFO: Run 1 completed: 0 evaluated, 2 failed in 81.9s.
+INFO: Run 2 created with 2 candidates.
+INFO: Pending candidates: 2.
+INFO: [1/2] evaluating candidate 1
+WARNING:   -> RuntimeError: Section 'L 100' was not found in any Robot section catalog (tried names: ['L 100']; catalogs: ['EURO', 'AISC', 'DIN', 'ARCLR', 'UKST', 'CISC', 'CHINA', 'JAPAN']). Use catalog-style names such as 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26', or 'UB 305x165x40'.
+INFO:   checkpoint 1 after 33.4s | [1/2] run elapsed 43s, ETA ~43s
+INFO: [2/2] evaluating candidate 2
+WARNING:   -> RuntimeError: Section 'L 100' was not found in any Robot section catalog (tried names: ['L 100']; catalogs: ['EURO', 'AISC', 'DIN', 'ARCLR', 'UKST', 'CISC', 'CHINA', 'JAPAN']). Use catalog-style names such as 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26', or 'UB 305x165x40'.
+INFO:   checkpoint 2 after 33.2s | [2/2] run elapsed 76s, ETA ~0s
+INFO: Run 2 completed: 0 evaluated, 2 failed in 80.3s.

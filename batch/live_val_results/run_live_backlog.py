@@ -260,7 +260,7 @@ def check_compare_topologies():
                    "direction": "Z", "value": -10.0}],
     }
     sizing = {"column": ["HEA 200"], "beam": ["IPE 300", "IPE 330"],
-              "brace": ["L 100"]}
+              "brace": ["L 100x100x10"]}
     result = compare_topologies(variants, load_spec, sizing=sizing,
                                 db_path=db, log_path=log)
     ranked = result["variants"]

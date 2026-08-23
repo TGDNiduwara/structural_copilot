@@ -1,0 +1,111 @@
+{
+  "summary": {
+    "run_id": 1,
+    "strategy": "surrogate",
+    "status": "completed",
+    "stop_reason": "budget_exhausted",
+    "evaluated": 40,
+    "failed": 0,
+    "robot_calls": 40,
+    "total": 100,
+    "budget": 40,
+    "patience": 15,
+    "acquisition": "ehvi",
+    "elapsed_s": 3770.5,
+    "frontier": 20,
+    "initial_hv": 0.794933,
+    "final_hv": 1.526324,
+    "training_rows": 0,
+    "training_runs": {},
+    "failures": []
+  },
+  "wall_s": 3770.5,
+  "log": "c:\\Users\\dinat\\Downloads\\structural_multi_app_agent\\structural_copilot\\batch\\live_val_results\\ehvi.log",
+  "calls": 40,
+  "frontier_pts": [
+    [
+      366.6,
+      0.1124
+    ],
+    [
+      399.0,
+      0.2599
+    ],
+    [
+      435.6,
+      0.3828
+    ],
+    [
+      477.0,
+      0.4862
+    ],
+    [
+      525.0,
+      0.574
+    ],
+    [
+      580.2,
+      0.6525
+    ],
+    [
+      648.0,
+      0.7225
+    ],
+    [
+      726.6,
+      0.7789
+    ],
+    [
+      397.2,
+      0.1993
+    ],
+    [
+      429.6,
+      0.3288
+    ],
+    [
+      466.2,
+      0.4344
+    ],
+    [
+      507.6,
+      0.5234
+    ],
+    [
+      555.6,
+      0.5998
+    ],
+    [
+      610.8,
+      0.6693
+    ],
+    [
+      678.6,
+      0.7327
+    ],
+    [
+      757.2,
+      0.7849
+    ],
+    [
+      719.4,
+      0.745
+    ],
+    [
+      798.0,
+      0.7925
+    ],
+    [
+      906.0,
+      0.8131
+    ],
+    [
+      1043.4,
+      0.8258
+    ]
+  ],
+  "frontier_n": 20,
+  "hv": 1.6275000000000002,
+  "hv_ratio": 1.0,
+  "call_fraction": 0.4
+}

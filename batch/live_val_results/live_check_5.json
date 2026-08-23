@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "created_ids": {
+    "ULS_2": 3,
+    "SLS_char": 4
+  },
+  "measured": {
+    "ULS_2": 94.5,
+    "SLS_char": 67.5
+  },
+  "expected": {
+    "ULS_2": 94.5,
+    "SLS_char": 67.5
+  },
+  "checks": {
+    "ULS_2": true,
+    "SLS_char": true
+  },
+  "summary": "ULS_2 midspan 94.50 kNm (exp 94.5), SLS_char 67.50 kNm (exp 67.5)"
+}

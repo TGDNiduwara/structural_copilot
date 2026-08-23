@@ -251,6 +251,10 @@ class RobotBridge:
         # [OBS] PID of the robot.exe process this bridge is connected to
         # (None when not connected). Captured at connect() for observability.
         self.connected_pid: Optional[int] = None
+        # [SEAT] Cross-process seat ownership (see tools/robot_seat.py). The
+        # pid that claimed the seat on this process's behalf, and its kind.
+        self._seat_owner_pid: Optional[int] = None
+        self._seat_kind: str = "app"
 
     # ------------------------------------------------------------------ #
     # Observability helpers
@@ -342,6 +346,59 @@ class RobotBridge:
         if self._connected:
             return
 
+        # [SEAT] NEVER attach to / spawn a second Robot session over a live
+        # seat owned by ANOTHER process (split-session corruption: RPC
+        # drops, phantom save dialogs, force-kills). The seat registry
+        # (tools/robot_seat.py) is the single cross-process authority.
+        kind = "batch" if new_instance else "app"
+        try:
+            from tools.robot_seat import claim_seat, seat_status, SeatBusyError
+            st = seat_status()
+            if st["present"] and not st["seat_available"] \
+                    and st["owner_pid"] != os.getpid():
+                if new_instance:
+                    # [SEAT] BATCH path: the previous chain stage's OWN
+                    # process may still be exiting while its seat looks live
+                    # (a genuine stage handoff race). Poll briefly for the
+                    # seat to free/stale before refusing - an interactive app
+                    # (new_instance=False) never waits and fails fast.
+                    deadline = time.time() + 60.0
+                    waited = 0.0
+                    while time.time() < deadline:
+                        time.sleep(5.0)
+                        waited += 5.0
+                        st = seat_status()
+                        if not st["present"] or st["seat_available"] \
+                                or st["owner_pid"] == os.getpid():
+                            break
+                        logger.info(
+                            "robot seat held by batch pid %s - waiting "
+                            "(%.0fs so far, robot=%s)",
+                            st["owner_pid"], waited, st.get("robot_pids"))
+                    else:
+                        raise SeatBusyError(
+                            "Robot seat stayed busy for 60s in batch "
+                            "connect: another live process "
+                            f"(owner_pid={st['owner_pid']}, "
+                            f"kind={st['owner_kind']}, "
+                            f"robot pid(s)={sorted(st['robot_pids'] or [])}) "
+                            "did not release. Check for a stuck/duplicate "
+                            "batch run with tools.robot_seat.seat_status().")
+                else:
+                    raise SeatBusyError(
+                        "Robot seat is held by another live process "
+                        f"(owner_pid={st['owner_pid']}, "
+                        f"kind={st['owner_kind']}, "
+                        f"robot pid(s)={' '.join(map(str, st['robot_pids']))}). "
+                        "This process REFUSES to attach a second Robot session"
+                        " - doing so corrupts both. If a batch run owns the "
+                        "seat, wait for CHAIN_DONE; if the owner is dead, its "
+                        "seat is auto-stale and the next connect takes over.")
+        except SeatBusyError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - seat layer must never block
+            logger.warning("robot seat pre-check skipped: %s", exc)
+
         pids_before = _robot_pids()
         attached = False
         if not new_instance:
@@ -424,9 +481,18 @@ class RobotBridge:
             fresh = new_pids - pids_before
             self.connected_pid = next(iter(fresh), None)
         logger.info(
-            "Connected to Robot Structural Analysis COM server "
-            "(pid=%s, reason=%s).",
-            self.connected_pid, "attached" if attached else "launched")
+            "Robot session pid %s, connected via %s (seat owner pid %s).",
+            self.connected_pid, "attach" if attached else "launch", os.getpid())
+        # [SEAT] Record ownership so no other live process can attach over us.
+        self._seat_owner_pid = os.getpid()
+        self._seat_kind = kind
+        try:
+            from tools.robot_seat import claim_seat
+            claim_seat(self._seat_owner_pid, kind,
+                       [self.connected_pid] if self.connected_pid else [],
+                       connected_via="attached" if attached else "launched")
+        except Exception as exc:  # noqa: BLE001 - never fail connect on seat io
+            logger.warning("robot seat claim failed (continuing): %s", exc)
 
     @com_thread_safe
     def close(self, save_path: Optional[str] = None) -> None:
@@ -447,6 +513,14 @@ class RobotBridge:
             self.structure = None
             self._connected = False
             self.connected_pid = None
+            # [SEAT] Release only if we are the seat owner.
+            if self._seat_owner_pid is not None:
+                try:
+                    from tools.robot_seat import release_seat
+                    release_seat(self._seat_owner_pid)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("robot seat release failed: %s", exc)
+                self._seat_owner_pid = None
             logger.info(
                 "Robot COM server released (was pid=%s).", pid_before)
 
@@ -484,6 +558,45 @@ class RobotBridge:
                 "closed externally). Please reconnect by calling connect(). "
                 f"Original error: {exc}"
             ) from exc
+
+    @com_thread_safe
+    def robot_session_status(self) -> Dict[str, Any]:
+        """[DIAG] Surfaces the authoritative session picture: which robot.exe
+        PID this bridge is connected to, HOW it connected (attach/launch),
+        who owns the cross-process seat, and which robot processes are live.
+        No COM probing beyond the already-known state — safe to call at any
+        time. This is the FIRST tool an agent should call when Robot behaves
+        oddly (stale bar ids 11+ after building N bars, RPC drops, phantom
+        dialogs) — a split session shows up here immediately."""
+        alive_now = _robot_pids()
+        seat = {}
+        try:
+            from tools.robot_seat import seat_status
+            seat = seat_status()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("robot_session_status: seat read failed: %s", exc)
+            seat = {"error": str(exc)}
+        connected_via = None
+        if self._connected and self._seat_owner_pid is not None and seat \
+                and seat.get("owner_pid") == self._seat_owner_pid:
+            connected_via = seat.get("connected_via")
+        return {
+            "connected": bool(self._connected),
+            "connected_pid": self.connected_pid,
+            "connected_via": connected_via,
+            "robots_running": sorted(alive_now),
+            "this_process_pid": os.getpid(),
+            "seat": {
+                k: seat.get(k) for k in (
+                    "present", "owner_pid", "owner_kind", "connected_via",
+                    "robot_pids", "acquired_at", "owner_alive", "robots_alive",
+                    "seat_available")},
+            "summary": (
+                f"Robot session pid {self.connected_pid or 'n/a'}, "
+                f"connected via {connected_via or 'n/a'}, "
+                f"seat owner {seat.get('owner_pid')} ({seat.get('owner_kind')}); "
+                f"live robot.exe: {sorted(alive_now) or 'none'}"),
+        }
 
     # ------------------------------------------------------------------ #
     # Project / model creation
@@ -564,9 +677,26 @@ class RobotBridge:
         (instability + benign calculation messages), but NEVER force-kills on
         an unknown dialog - it raises a clear actionable error instead, since
         the visible Robot instance may be the user's own work.
+
+        [FIX 2026-08-23] The interactive instability dialog is answered with
+        "Yes" (continue), NOT "No" (abort). Live-verified: with Interactive=1
+        Robot pops "Instability type 3 - continue?" for planar structures in
+        3D (the batch path with Interactive=0 suppresses the dialog and the
+        solver proceeds); answering "No" aborts the analysis and Calculate
+        returns with ALL results silently zero. Answering "Yes" produces the
+        correct statics (identical to the headless path). check_model_stability
+        remains the pre-solve mechanism gate; the interactive continue matches
+        what the batch solver actually does.
         """
         from batch.headless_driver import DEFAULT_DIALOG_PATTERNS
         from tools.win_dialogs import watch_and_dismiss
+
+        # Interactive-specific override: instability = continue (Yes), so the
+        # app path matches the headless solver (which suppresses this dialog
+        # and proceeds). The batch runner keeps its own "No" pattern for
+        # genuinely unstable CANDIDATES.
+        patterns = dict(DEFAULT_DIALOG_PATTERNS)
+        patterns["instabilit"] = {"action": "click", "button_text": "Yes"}
 
         pids = ({self.connected_pid} if self.connected_pid else _robot_pids())
         result: Dict[str, Any] = {}
@@ -575,7 +705,7 @@ class RobotBridge:
         def _run_watcher() -> None:
             try:
                 result.update(watch_and_dismiss(
-                    pids, DEFAULT_DIALOG_PATTERNS, timeout_s=timeout_s,
+                    pids, patterns, timeout_s=timeout_s,
                     poll_s=0.25, on_unknown="wait"))
             except Exception as exc:  # noqa: BLE001
                 result["outcome"] = "error"
@@ -594,11 +724,17 @@ class RobotBridge:
                 t.join(timeout=2.0)
 
         outcome = result.get("outcome")
-        if outcome == "clicked":
-            raise RuntimeError(
-                "The solver reported instability and the dialog was "
-                f"auto-dismissed ({result.get('title')!r}). The solve did NOT "
-                "complete - check the model for mechanisms/restraints.")
+        if outcome == "dismissed":
+            # A non-benign KNOWN dialog was auto-answered. For this build the
+            # only non-benign known dialog in interactive mode is the
+            # instability modal, now answered "Yes" (continue) - so the solve
+            # stands, but flag it loudly so the caller can decide whether the
+            # result is trustworthy.
+            logger.warning(
+                "Robot instability dialog auto-answered 'Yes' (continue) "
+                "- solver reported instability %r; results may only be valid "
+                "for the stable planes. Run check_model_stability if unsure.",
+                result.get("title"))
         elif outcome == "unknown_seen":
             raise RuntimeError(
                 "An unrecognized Robot dialog appeared during Calculate() "
@@ -682,7 +818,13 @@ class RobotBridge:
         create_bar and modify_bar_section: loads (or reuses) the catalog
         section label and assigns it to the given live bar object. Returns
         the canonical section name that was actually assigned.
+
+        [LEAK-GUARD] section_name is validated BEFORE touching Robot, so a
+        placeholder/label string (e.g. the notorious "IPE  chord" with a
+        double space) is rejected here at the source with an actionable
+        error instead of being poked into the live catalog.
         """
+        section_name = self._validate_section_input(section_name)
         section_label = self._get_or_create_section_label(section_name)
         bar.SetLabel(RobotEnum.I_LT_BAR_SECTION, section_label.Name)
         return section_label.Name
@@ -708,17 +850,92 @@ class RobotBridge:
         return f"Bar {bar_id} section set to '{assigned}'."
 
     @staticmethod
+    def _validate_section_input(section_name: str) -> str:
+        """[LEAK-GUARD] Pure pre-flight check that rejects non-catalog
+        strings at the SOURCE (before any Robot catalog poke) so a leaked
+        placeholder/label like 'IPE  chord' never reaches the COM catalog
+        lookup. Accepts real catalog styles:
+          'IPE 300', 'HEA 200', 'IPE300', 'L 80x80x8', 'L 80X80X8',
+          'W 12X26', 'UB 305x165x40'.
+        Raises ValueError with list_available_sections guidance."""
+        name = str(section_name or "").strip()
+        if not name:
+            raise ValueError(
+                "Empty section name - pick a catalog name first via "
+                "list_available_sections (e.g. 'IPE 300', 'HEA 200', "
+                "'L 80x80x8').")
+        collapsed = " ".join(name.split())
+        if collapsed != name:
+            raise ValueError(
+                f"Section name {name!r} has stray/double whitespace - this "
+                "looks like a leaked placeholder label instead of a real "
+                "catalog name. Call list_available_sections and use an "
+                "exact catalog name (e.g. 'IPE 300', 'L 80x80x8').")
+        if any(ch in name for ch in "<>{}[]()\""):
+            raise ValueError(
+                f"Section name {name!r} contains placeholder punctuation. "
+                "Use a real catalog name from list_available_sections.")
+        tokens = collapsed.split()
+        # First token: family code (letters). Remaining tokens: the SIZE,
+        # which must contain at least one digit ('300', '80x80x8', '12X26').
+        if len(tokens) == 1:
+            if not re.search(r"\d", collapsed):
+                raise ValueError(
+                    f"Section name {name!r} is not a catalog section - "
+                    "call list_available_sections for valid names.")
+        else:
+            for tok in tokens[1:]:
+                if not re.search(r"\d", tok):
+                    raise ValueError(
+                        f"Section segment {tok!r} in {name!r} is not a size. "
+                        "This looks like a label/placeholder leaked into a "
+                        "section field - use an exact catalog name from "
+                        "list_available_sections (e.g. 'IPE 300').")
+        _BAD_LABEL_TOKENS = ("chord", "top", "bottom", "web", "beam",
+                             "column", "member", "section", "default",
+                             "auto", "use", "e.g", "plate", "group")
+        low = f" {collapsed.lower()} "
+        for bad in _BAD_LABEL_TOKENS:
+            if f" {bad} " in low:
+                raise ValueError(
+                    f"Section name {name!r} contains label token {bad!r}- "
+                    "this is a description placeholder, not a catalog name. "
+                    "Call list_available_sections first.")
+        return collapsed
+
+    @staticmethod
     def _section_label_candidates(section_name: str) -> List[str]:
         """[FIX R5/R6] Name variants to try against the section catalogs:
         the name as given, a spaced variant ("IPE300" -> "IPE 300"), and
         upper-cased forms. Robot catalog names are "family + space + size"
-        (e.g. "IPE 300"), but users/LLMs often write "IPE300"."""
-        name = section_name.strip()
+        (e.g. "IPE 300"), but users/LLMs often write "IPE300".
+
+        [ANGLE] For L-family sections the catalog also accepts several
+        'x'-separator spellings ("L 80x80x8" vs "L 80X80X8" vs
+        "L 80 x 80 x 8"), so all of those are generated too — the live
+        catalog decides which one is real.
+        """
+        name = " ".join(str(section_name or "").split())
         spaced = re.sub(r"^([A-Za-z]+)(\d)", r"\1 \2", name)
         candidates = [name]
         for extra in (spaced, spaced.upper(), name.upper()):
             if extra not in candidates:
                 candidates.append(extra)
+        # Angle-family extra spellings ("L 80x80x8" / "L 80X80X8" /
+        # "L 80 x 80 x 8" / "L80X80X8"): the live catalog may accept any.
+        m = re.match(r"^L\s*(\d+)\s*[xX]\s*(\d+)\s*[xX]\s*(\d+)\s*$", name)
+        if m:
+            a_n, b_n, t_n = m.groups()
+            for form in (
+                    f"L {a_n}x{b_n}x{t_n}",
+                    f"L {a_n}X{b_n}X{t_n}",
+                    f"L {a_n} x {b_n} x {t_n}",
+                    f"L{a_n}x{b_n}x{t_n}",
+                    f"L{a_n}X{b_n}X{t_n}",
+                    f"L {a_n}X{b_n}x{t_n}",
+                    f"L {a_n}x{b_n}X{t_n}"):
+                if form not in candidates:
+                    candidates.append(form)
         return candidates
 
     def _ensure_section_catalog_active(self, db_code: str) -> None:
@@ -936,15 +1153,26 @@ class RobotBridge:
             except Exception:
                 support_data = support_label.Data
             try:
-                # Elastic-linear support: every springed DOF is blocked
-                # (fixity flag 1) with its stiffness attached.
+                # Elastic-linear support: springed DOFs are LEFT FREE
+                # (fixity flag 0) and restrained ONLY by their stiffness
+                # K*/H*. [FIX 2026-08-23] The previous code set fixity=1 on
+                # every springed DOF, which Robot interprets as RIGID BLOCK
+                # (stiffness ignored) - live result: a UZ:5000 spring
+                # deflected 0.018mm (pure bar axial shortening) instead of
+                # the hand-calc 2.017mm F/K. Non-springed DOFs stay free.
                 support_data.ElasticLinear = 1
                 for dof in ("UX", "UY", "UZ", "RX", "RY", "RZ"):
-                    setattr(support_data, dof,
-                            1 if dof in stiffness else 0)
+                    setattr(support_data, dof, 0)
                 for dof, value in stiffness.items():
                     member = self._SPRING_VALUE_MEMBERS[dof]
-                    setattr(support_data, member, float(value))
+                    # [FIX 2026-08-23] RobotOM stores KX/KY/KZ in N/m and
+                    # HX/HY/HZ in Nm/rad. The PUBLIC contract of
+                    # set_support(spring_stiffness=...) is kN/m and kNm/rad
+                    # (tool schema + README). The previous code wrote the
+                    # value verbatim, so a UZ:5000 "kN/m" spring became
+                    # 5000 N/m = 5 kN/m -> 1000x too soft (live-verified:
+                    # hand 2.017mm vs measured 2000.018mm). Scale x1000.
+                    setattr(support_data, member, float(value) * 1000.0)
             except Exception as exc:  # noqa: BLE001
                 raise RuntimeError(
                     "RobotOM on this build does not expose the elastic "
@@ -3108,6 +3336,40 @@ class RobotBridge:
     # Milestone A: model-spec builder + structure summary
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def spec_integrity_issues(spec: Dict[str, Any]) -> List[str]:
+        """[INTEGRITY] Pure, no-COM pre-flight check for a structure spec.
+        Returns a list of human-readable problems (empty == spec is
+        well-formed). Catches the 'silently built fewer bars' class of bug
+        BEFORE any Robot call: duplicate node/bar ids (Robot's Create()
+        overwrites silently), bars whose endpoints reference nodes that
+        are not defined in the spec, and duplicate support/node entries."""
+        issues: List[str] = []
+        spec = spec or {}
+        node_ids = [int(n["id"]) for n in spec.get("nodes", []) or []]
+        if len(node_ids) != len(set(node_ids)):
+            dup = sorted({nid for nid in node_ids if node_ids.count(nid) > 1})
+            issues.append(
+                f"duplicate node id(s) {dup} (Robot silently overwrites on "
+                "re-Create - rename them so each is unique)")
+        node_set = set(node_ids)
+        bar_ids = [int(b["id"]) for b in spec.get("bars", []) or []]
+        if len(bar_ids) != len(set(bar_ids)):
+            dup = sorted({bid for bid in bar_ids if bar_ids.count(bid) > 1})
+            issues.append(
+                f"duplicate bar id(s) {dup} (would silently reduce the real "
+                "bar count below what the spec asked for)")
+        for b in spec.get("bars", []) or []:
+            n1, n2 = int(b["n1"]), int(b["n2"])
+            for n in (n1, n2):
+                if n not in node_set:
+                    issues.append(
+                        f"bar {int(b['id'])} references node {n} which is not "
+                        "defined in 'nodes'")
+        if issues:
+            return issues
+        return []
+
     @com_thread_safe
     def build_structure_from_spec(self, spec: Dict[str, Any]) -> Dict[str, Any]:
         """Builds an entire model from a structured spec dict in a single
@@ -3132,6 +3394,22 @@ class RobotBridge:
         """
         self._ensure_connected()
         spec = spec or {}
+
+        # [INTEGRITY] Fail LOUDLY before touching Robot when the spec has
+        # duplicate ids or dangling node references - silently building
+        # "fewer bars than requested" (then failing later on bar 11+ with
+        # 'Bar N not found') is exactly the class of bug this catches at
+        # the source instead of several tool calls downstream.
+        issues = self.spec_integrity_issues(spec)
+        if issues:
+            raise ValueError(
+                "build_structure_from_spec REFUSED - invalid spec: "
+                + "; ".join(issues)
+                + (". Fix the spec (call get_model_geometry or "
+                   "preview_structure_geometry to confirm real ids), or "
+                   "build incrementally with create_node/create_bar in "
+                   "smaller sub-specs."))
+
         if str(spec.get("project") or "3D").lower() == "2d":
             self.new_2d_frame()
         else:
@@ -3149,6 +3427,19 @@ class RobotBridge:
                 int(b["id"]), int(b["n1"]), int(b["n2"]),
                 str(b.get("section") or "IPE 200"),
             )
+
+        # [INTEGRITY] The build MUST create exactly the bars the spec asked
+        # for. Any mismatch is a hard error, surfaced HERE, not as a
+        # confusing 'Bar N not found' several tool calls later.
+        requested_bars = len(spec.get("bars", []) or [])
+        actual_bars = len(self._bar_endpoints)
+        if actual_bars != requested_bars:
+            raise RuntimeError(
+                f"build_structure_from_spec created {actual_bars} bars but "
+                f"the spec requested {requested_bars}. This usually means a "
+                "duplicate bar id or a Robot-side create failure. Call "
+                "robot_session_status to check for a session split, and "
+                "get_model_geometry to see what actually exists.")
 
         for s in spec.get("supports", []) or []:
             self.set_support(
@@ -3491,7 +3782,9 @@ class RobotBridge:
                 except Exception:  # noqa: BLE001
                     continue
                 if abs(v) > 1e-12:
-                    out[dof] = round(v, 4)
+                    # [FIX 2026-08-23] RobotOM returns K*/H* in N/m / Nm/rad;
+                    # the spec contract is kN/m / kNm/rad, so scale back.
+                    out[dof] = round(v / 1000.0, 4)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not read spring stiffness '%s': %s",
                            label_name, exc)
@@ -3500,10 +3793,16 @@ class RobotBridge:
     def _read_case_loads(self, case, case_id: int) -> List[Dict[str, Any]]:
         """Reads a simple case's load records into spec-style load dicts.
         Supports the three kinds the spec schema defines (bar_uniform /
-        bar_concentrated / nodal); anything else is skipped with a note."""
+        bar_concentrated / nodal); anything else is skipped with a note.
+
+        [FIX 2026-08-23] Must CastTo IRobotSimpleCase to reach .Records -
+        IRobotCase (what Cases.Get returns) has no Records attribute, so the
+        old code logged "object has no attribute 'Records'" and silently
+        returned zero loads (export_structure_spec always lost its loads)."""
         out: List[Dict[str, Any]] = []
         try:
-            records = case.Records
+            simple = CastTo(case, "IRobotSimpleCase")
+            records = simple.Records
             n = int(records.Count)
         except Exception as exc:  # noqa: BLE001
             logger.warning("_read_case_loads: case %s has no readable "
@@ -3565,7 +3864,13 @@ class RobotBridge:
 
     def _record_object_ids(self, record) -> List[int]:
         """Bar/node ids a load record applies to, from its Objects range.
-        Tries the Text property (inverse of FromText), then Count/Get."""
+        Tries the Text property (inverse of FromText), then Count/Get.
+
+        [FIX 2026-08-23] Live-verified: record.Objects.Get(k) returns the
+        RAW int id directly (not an object with .Number), and Objects.Text
+        does not exist on this build. The old code did rng.Get(k).Number,
+        which raised AttributeError, was swallowed, and returned [] - so
+        _read_case_loads silently produced ZERO loads every time."""
         try:
             text = str(record.Objects.Text or "")
             ids = [int(t) for t in re.findall(r"\d+", text)]
@@ -3576,7 +3881,20 @@ class RobotBridge:
         try:
             rng = record.Objects
             n = int(rng.Count)
-            return [int(rng.Get(k).Number) for k in range(1, n + 1)]
+            ids = []
+            for k in range(1, n + 1):
+                item = rng.Get(k)
+                if isinstance(item, int):
+                    ids.append(item)
+                    continue
+                try:
+                    ids.append(int(item.Number))
+                except Exception:  # noqa: BLE001
+                    try:
+                        ids.append(int(item))
+                    except Exception:  # noqa: BLE001
+                        continue
+            return ids
         except Exception:  # noqa: BLE001
             return []
 

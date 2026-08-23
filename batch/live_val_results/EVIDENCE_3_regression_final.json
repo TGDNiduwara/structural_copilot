@@ -1,0 +1,31 @@
+{
+  "test": "end_to_end_regression_chat_truss_FINAL",
+  "verified_at": "2026-08-23",
+  "scenario": "20m/3m/6-panel Pratt truss, EXPLICIT angle web (L 50x50x5), apply self-weight, stability check, solve, equilibrium, export - driven through the REAL chat interface (ToolExecutor.dispatch, same as app.py).",
+  "gate_before_run": {
+    "CHAIN_DONE": true,
+    "LIVE_BACKLOG_DONE": true,
+    "batch_chain_backlog_python_procs": "NONE",
+    "robot.exe_running": "NONE",
+    "seat_file": "free (no file)"
+  },
+  "fresh_app_connect": {
+    "seat_claimed_without_SeatBusyError": true,
+    "seat_file_after_connect": {
+      "owner_pid": 33728, "owner_kind": "app", "connected_via": "launched",
+      "robot_pids": [18488]
+    },
+    "robot_session_status": "Robot session pid 18488, connected via launched, seat owner 33728 (app)"
+  },
+  "steps": [
+    {"name": "create_truss explicit angle web", "ok": true, "detail": "web_section='L 50x50x5' (RESOLVED in live catalog); nodes=14 bars=31"},
+    {"name": "apply_self_weight", "ok": true, "detail": "self_weight_total_kn=50.8138, 31 bars"},
+    {"name": "check_model_stability", "ok": true, "detail": "no mechanism detected (rank 38/38)"},
+    {"name": "solve", "ok": true, "detail": "Solver run completed successfully (instability dialog answered Yes-continue)"},
+    {"name": "robot_session_status consistent ONE session", "ok": true, "detail": "pid 18488 before and after"},
+    {"name": "equilibrium reactions balance applied loads", "ok": true, "detail": "sum(FZ)=50.814 kN vs applied 50.8138 kN, rel err 0.00%"},
+    {"name": "export_member_forces", "ok": true, "detail": "155 rows"},
+    {"name": "no leaked placeholder sections in exported spec", "ok": true, "detail": "31 bars checked, bad=none, loads round-tripped=31"}
+  ],
+  "verdict": "9/9 steps PASS"
+}

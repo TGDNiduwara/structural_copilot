@@ -1,0 +1,59 @@
+{
+  "summary": {
+    "run_id": 1,
+    "strategy": "surrogate",
+    "status": "completed",
+    "stop_reason": "budget_exhausted",
+    "evaluated": 38,
+    "failed": 2,
+    "robot_calls": 40,
+    "total": 100,
+    "budget": 40,
+    "patience": 15,
+    "acquisition": "ucb",
+    "elapsed_s": 3732.5,
+    "frontier": 6,
+    "initial_hv": 0.794933,
+    "final_hv": 1.460499,
+    "training_rows": 0,
+    "training_runs": {},
+    "failures": [
+      "UnknownDialogError: unknown dialog encountered: 'Robot Structural Analysis' - Robot process force-terminated; add a dialog pattern for it",
+      "mechanism_detected: likely mechanism at node 9 UX, node 10 UX, node 11 UX, node 12 UX, node 13 UX, node 14 UX \u2014 refusing to call Calculate()."
+    ]
+  },
+  "wall_s": 3732.5,
+  "log": "c:\\Users\\dinat\\Downloads\\structural_multi_app_agent\\structural_copilot\\batch\\live_val_results\\surrogate.log",
+  "calls": 40,
+  "frontier_pts": [
+    [
+      399.0,
+      0.2599
+    ],
+    [
+      525.0,
+      0.574
+    ],
+    [
+      580.2,
+      0.6525
+    ],
+    [
+      678.6,
+      0.7327
+    ],
+    [
+      651.6,
+      0.6887
+    ],
+    [
+      705.0,
+      1.0
+    ]
+  ],
+  "frontier_n": 6,
+  "hv": 1.5568313069908817,
+  "hv_grid": 1.6275000000000002,
+  "hv_ratio": 0.9565783760312636,
+  "call_fraction": 0.4
+}

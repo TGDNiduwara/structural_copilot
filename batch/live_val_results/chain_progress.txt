@@ -1,3 +1,14 @@
 [16:46:25] chain started; waiting for the running grid stage to complete...
 [18:37:26] grid DONE (was launched separately)
 [18:37:26] starting stage surrogate
+[19:40:27] stage surrogate DONE
+[19:40:27] starting stage resume
+[20:09:28] stage resume DONE
+[20:09:28] starting stage reconnect
+[20:24:28] stage reconnect DONE
+[20:24:28] starting stage crossrun
+[21:28:29] stage crossrun DONE
+[21:28:29] starting stage ehvi
+[22:31:30] stage ehvi DONE
+[22:31:30] all stages done; running report
+[22:31:31] CHAIN_DONE

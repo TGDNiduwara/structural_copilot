@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "unit_mass_kg_m": 42.2,
+  "hand_kn_m": 0.413982,
+  "applied_load_kn_m": -0.41398,
+  "total_hand_kn": 2.483892,
+  "total_reaction_kn": 2.484,
+  "summary": "42.2 kg/m -> 0.41398 kN/m, applied -0.41398, reactions 2.4840 kN vs 2.4839 kN"
+}

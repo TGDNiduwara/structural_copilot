@@ -70,6 +70,23 @@ def section_families() -> List[str]:
     return sorted(FAMILY_SIZES)
 
 
+#: Equal-leg angle names VERIFIED against Robot's live EURO catalog
+#: (probe 2026-08-23). Bare leg names like 'L 100' and thin-webs like
+#: 'L 100x100x5' do NOT resolve; these forms DO. available_sections('L')
+#: returns exactly this list so the LLM only ever sees resolvable names.
+L_SECTION_NAMES: List[str] = [
+    "L 40x40x5", "L 45x45x5", "L 50x50x5", "L 60x60x6", "L 65x65x6",
+    "L 80x80x8", "L 90x90x8", "L 100x100x10", "L 120x120x10",
+    "L 150x150x10", "L 150x150x15",
+]
+
+#: Leg-size -> verified resolvable thickness for suggest_section web/brace.
+_L_WEB_THICKNESS: Dict[int, int] = {
+    40: 5, 45: 5, 50: 5, 60: 6, 65: 6, 70: 8, 80: 8, 90: 8,
+    100: 10, 120: 10, 150: 10,
+}
+
+
 def available_sections(family: Optional[str] = None) -> List[str]:
     """Valid catalog-style section names ("IPE 300", "HEA 200", ...) from
     the same nominal series suggest_section() draws on, optionally filtered
@@ -77,6 +94,10 @@ def available_sections(family: Optional[str] = None) -> List[str]:
 
     The names are guaranteed to resolve against Robot's live catalogs at
     build time by the existing _get_or_create_section_label() safety net.
+
+    [FIX 2026-08-23] family='L' returns VERIFIED equal-leg angle names
+    ('L 50x50x5', 'L 120x120x10'), NOT bare leg sizes ('L 120') — the bare
+    forms were the root cause of tonight's angle catalog-miss failures.
     """
     if family:
         key = str(family).strip().upper()
@@ -84,9 +105,16 @@ def available_sections(family: Optional[str] = None) -> List[str]:
             raise ValueError(
                 f"Unknown section family '{family}'. Known families: "
                 f"{sorted(FAMILY_SIZES)}")
+        if key == "L":
+            return list(L_SECTION_NAMES)
         return [f"{key} {size}" for size in FAMILY_SIZES[key]]
-    return [f"{fam} {size}" for fam in sorted(FAMILY_SIZES)
-            for size in FAMILY_SIZES[fam]]
+    out: List[str] = []
+    for fam in sorted(FAMILY_SIZES):
+        if fam == "L":
+            out.extend(L_SECTION_NAMES)
+        else:
+            out.extend(f"{fam} {size}" for size in FAMILY_SIZES[fam])
+    return out
 #: Column sizing: depth = height / (k * lambda_target) with radius of
 #: gyration ~= 0.25 * depth for H-family and target slenderness 100.
 _COLUMN_RG_FACTOR = 0.25
@@ -182,7 +210,11 @@ def suggest_section(
             leg_mm = span_m * 1000.0 / _WEB_DENOMINATOR
             leg_mm = min(max(leg_mm, _WEB_LEG_MIN_MM), _WEB_LEG_MAX_MM)
             leg = min(sizes, key=lambda s: abs(s - leg_mm))
-            result = f"L {leg}x{leg}x5"
+            # [FIX 2026-08-23] Use a RESOLVABLE thickness per leg (probed
+            # live): the old fixed "x5" produced 'L 100x100x5' / 'L 120x120x5'
+            # which do NOT exist in Robot's EURO catalog.
+            t = _L_WEB_THICKNESS.get(leg, 5)
+            result = f"L {leg}x{leg}x{t}"
             if notes is not None:
                 notes.append(
                     f"auto-section: {element_type} spanning {span_m:.3g} m -> "
@@ -190,6 +222,18 @@ def suggest_section(
             return result
         depth_m = span_m / _BRACE_DENOMINATOR
     elif element_type == "brace":
+        if catalog == "L":
+            leg_mm = span_m * 1000.0 / _BRACE_DENOMINATOR
+            leg_mm = min(max(leg_mm, _WEB_LEG_MIN_MM), _WEB_LEG_MAX_MM)
+            leg = min(sizes, key=lambda s: abs(s - leg_mm))
+            # [FIX 2026-08-23] Same resolvable-thickness rule as web/L.
+            t = _L_WEB_THICKNESS.get(leg, 5)
+            result = f"L {leg}x{leg}x{t}"
+            if notes is not None:
+                notes.append(
+                    f"auto-section: {element_type} spanning {span_m:.3g} m -> "
+                    f"{result} (first-pass heuristic; verify against demand).")
+            return result
         depth_m = span_m / _BRACE_DENOMINATOR
     else:
         ratio = float(depth_to_span) if depth_to_span else \

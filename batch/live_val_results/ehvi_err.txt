@@ -1,0 +1,203 @@
+INFO: Run 1 created (grid 100 candidates).
+INFO: Training history: 0 compatible rows from 0 past run(s).
+INFO: Cold start: 4-point DOE queued (history had 0 rows).
+INFO: [call 1/40] candidate 1 of 100 (DOE)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=316.8 kg util=1.2376 FAIL
+INFO: [call 2/40] candidate 10 of 100 (DOE)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=726.6 kg util=0.2211 PASS
+INFO: [call 3/40] candidate 91 of 100 (DOE)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=633.6 kg util=1.5028 FAIL
+INFO: [call 4/40] candidate 100 of 100 (DOE)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=1043.4 kg util=0.1742 PASS
+INFO:   frontier baseline at call 4: pts [726.6/0.779, 1043.4/0.826]
+INFO: [call 5/40] candidate 55 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=508.8 kg util=0.5665 PASS
+INFO:   frontier improved at call 5: pts [726.6/0.779, 508.8/0.433, 1043.4/0.826]
+INFO: [call 6/40] candidate 14 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=429.6 kg util=0.6712 PASS
+INFO:   frontier improved at call 6: pts [726.6/0.779, 429.6/0.329, 508.8/0.433, 1043.4/0.826]
+INFO: [call 7/40] candidate 33 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=487.2 kg util=0.7716 PASS
+INFO:   frontier improved at call 7: pts [726.6/0.779, 429.6/0.329, 508.8/0.433, 1043.4/0.826]
+INFO: [call 8/40] candidate 50 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=906.0 kg util=0.1869 PASS
+INFO:   frontier improved at call 8: pts [726.6/0.779, 429.6/0.329, 906.0/0.813, 508.8/0.433, 1043.4/0.826]
+INFO: [call 9/40] candidate 85 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=682.2 kg util=0.4245 PASS
+INFO:   frontier improved at call 9: pts [726.6/0.779, 429.6/0.329, 906.0/0.813, 508.8/0.433, 682.2/0.576, 1043.4/0.826]
+INFO: [call 10/40] candidate 3 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=366.6 kg util=0.8876 PASS
+INFO:   frontier improved at call 10: pts [366.6/0.112, 726.6/0.779, 429.6/0.329, 906.0/0.813, 508.8/0.433, 682.2/0.576, 1043.4/0.826]
+INFO: [call 11/40] candidate 7 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=525.0 kg util=0.426 PASS
+INFO:   frontier improved at call 11: pts [366.6/0.112, 525.0/0.574, 726.6/0.779, 429.6/0.329, 906.0/0.813, 508.8/0.433, 682.2/0.576, 1043.4/0.826]
+INFO: [call 12/40] candidate 41 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=496.2 kg util=1.4669 FAIL
+INFO:   frontier improved at call 12: pts [366.6/0.112, 525.0/0.574, 726.6/0.779, 429.6/0.329, 906.0/0.813, 508.8/0.433, 682.2/0.576, 1043.4/0.826]
+INFO: [call 13/40] candidate 12 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=370.2 kg util=0.9448 PASS
+INFO:   frontier improved at call 13: pts [366.6/0.112, 525.0/0.574, 726.6/0.779, 429.6/0.329, 906.0/0.813, 508.8/0.433, 682.2/0.576, 1043.4/0.826]
+INFO: [call 14/40] candidate 37 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=645.6 kg util=0.3417 PASS
+INFO:   frontier improved at call 14: pts [366.6/0.112, 525.0/0.574, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 508.8/0.433, 1043.4/0.826]
+INFO: [call 15/40] candidate 4 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=399.0 kg util=0.7401 PASS
+INFO:   frontier improved at call 15: pts [366.6/0.112, 399.0/0.260, 525.0/0.574, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 508.8/0.433, 1043.4/0.826]
+INFO: [call 16/40] candidate 2 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=339.6 kg util=1.0461 FAIL
+INFO:   frontier improved at call 16: pts [366.6/0.112, 399.0/0.260, 525.0/0.574, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 508.8/0.433, 1043.4/0.826]
+INFO: [call 17/40] candidate 5 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=435.6 kg util=0.6172 PASS
+INFO:   frontier improved at call 17: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 525.0/0.574, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 508.8/0.433, 1043.4/0.826]
+INFO: [call 18/40] candidate 6 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=477.0 kg util=0.5138 PASS
+INFO:   frontier improved at call 18: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 19/40] candidate 8 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=580.2 kg util=0.3475 PASS
+INFO:   frontier improved at call 19: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 20/40] candidate 9 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=648.0 kg util=0.2775 PASS
+INFO:   frontier improved at call 20: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 21/40] candidate 11 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=347.4 kg util=1.2634 FAIL
+INFO:   frontier improved at call 21: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 429.6/0.329, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 22/40] candidate 13 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=397.2 kg util=0.8007 PASS
+INFO:   frontier improved at call 22: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 23/40] candidate 15 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=466.2 kg util=0.5656 PASS
+INFO:   frontier improved at call 23: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 24/40] candidate 16 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=507.6 kg util=0.4766 PASS
+INFO:   frontier improved at call 24: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 25/40] candidate 17 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=555.6 kg util=0.4002 PASS
+INFO:   frontier improved at call 25: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 645.6/0.658, 906.0/0.813, 1043.4/0.826]
+INFO: [call 26/40] candidate 18 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=610.8 kg util=0.3307 PASS
+INFO:   frontier improved at call 26: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 906.0/0.813, 1043.4/0.826]
+INFO: [call 27/40] candidate 19 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=678.6 kg util=0.2673 PASS
+INFO:   frontier improved at call 27: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 906.0/0.813, 1043.4/0.826]
+INFO: [call 28/40] candidate 20 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=757.2 kg util=0.2151 PASS
+INFO:   frontier improved at call 28: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 29/40] candidate 21 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=388.2 kg util=1.3521 FAIL
+INFO:   frontier improved at call 29: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 30/40] candidate 22 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=411.0 kg util=0.9825 PASS
+INFO:   frontier improved at call 30: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 31/40] candidate 23 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=438.0 kg util=0.7277 PASS
+INFO:   frontier improved at call 31: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 32/40] candidate 24 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=470.4 kg util=0.6089 PASS
+INFO:   frontier improved at call 32: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 33/40] candidate 25 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=507.0 kg util=0.5154 PASS
+INFO:   frontier improved at call 33: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 34/40] candidate 26 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=548.4 kg util=0.4381 PASS
+INFO:   frontier improved at call 34: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 35/40] candidate 27 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=596.4 kg util=0.3719 PASS
+INFO:   frontier improved at call 35: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 36/40] candidate 28 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=651.6 kg util=0.3113 PASS
+INFO:   frontier improved at call 36: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 906.0/0.813, 1043.4/0.826]
+INFO: [call 37/40] candidate 29 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=719.4 kg util=0.255 PASS
+INFO:   frontier improved at call 37: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 719.4/0.745, 906.0/0.813, 1043.4/0.826]
+INFO: [call 38/40] candidate 30 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=798.0 kg util=0.2075 PASS
+INFO:   frontier improved at call 38: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 719.4/0.745, 798.0/0.792, 906.0/0.813, 1043.4/0.826]
+INFO: [call 39/40] candidate 31 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=437.4 kg util=1.4193 FAIL
+INFO:   frontier improved at call 39: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 719.4/0.745, 798.0/0.792, 906.0/0.813, 1043.4/0.826]
+INFO: [call 40/40] candidate 32 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=460.2 kg util=1.0491 FAIL
+INFO:   frontier improved at call 40: pts [366.6/0.112, 399.0/0.260, 435.6/0.383, 477.0/0.486, 525.0/0.574, 580.2/0.653, 648.0/0.722, 726.6/0.779, 397.2/0.199, 429.6/0.329, 466.2/0.434, 507.6/0.523, 555.6/0.600, 610.8/0.669, 678.6/0.733, 757.2/0.785, 719.4/0.745, 798.0/0.792, 906.0/0.813, 1043.4/0.826]
+INFO: Surrogate run 1: completed (budget_exhausted) - 40 evaluated, 0 failed, 40 Robot calls, frontier 20, HV 0.7949334473673865 -> 1.52632426959223 in 3770.5s.

@@ -1,0 +1,64 @@
+INFO: Resuming surrogate run 1.
+INFO: Training history: 6 compatible rows from 1 past run(s).
+INFO: [call 1/12] candidate 77 of 100 (acquisition)
+WARNING:   -> com_error: (-2147023174, 'The RPC server is unavailable.', None, None)
+WARNING:     session dead - reconnecting...
+HeadlessSession.reconnect() — closing dead session and launching a fresh Robot instance.
+Robot.Application.Quit raised: (-2147023174, 'The RPC server is unavailable.', None, None)
+INFO:   frontier baseline at call 1: pts [726.6/0.779, 596.4/0.628, 799.8/0.785, 1043.4/0.826]
+INFO: [call 2/12] candidate 87 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=771.6 kg util=0.3099 PASS
+INFO:   frontier not improved (1/15)
+INFO: [call 3/12] candidate 30 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=798.0 kg util=0.2075 PASS
+INFO:   frontier not improved (2/15)
+INFO: [call 4/12] candidate 57 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=598.2 kg util=0.4007 PASS
+INFO:   frontier not improved (3/15)
+INFO: [call 5/12] candidate 79 of 100 (acquisition)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=833.4 kg util=0.238 PASS
+INFO:   frontier not improved (4/15)
+INFO: [call 6/12] candidate 8 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=580.2 kg util=0.3475 PASS
+INFO:   frontier improved at call 6: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 1043.4/0.826]
+INFO: [call 7/12] candidate 98 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=897.0 kg util=0.2442 PASS
+INFO:   frontier improved at call 7: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 1043.4/0.826]
+INFO: [call 8/12] candidate 90 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=973.2 kg util=0.1856 PASS
+INFO:   frontier improved at call 8: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 973.2/0.814, 1043.4/0.826]
+INFO: [call 9/12] candidate 39 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=768.6 kg util=0.2402 PASS
+INFO:   frontier improved at call 9: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 973.2/0.814, 1043.4/0.826]
+INFO: [call 10/12] candidate 80 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=912.0 kg util=0.1964 PASS
+INFO:   frontier improved at call 10: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 912.0/0.804, 973.2/0.814, 1043.4/0.826]
+INFO: [call 11/12] candidate 99 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=964.8 kg util=0.2067 PASS
+INFO:   frontier improved at call 11: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 912.0/0.804, 973.2/0.814, 1043.4/0.826]
+INFO: [call 12/12] candidate 40 of 100 (acquisition)
+DialogWatcher auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+watch_and_dismiss auto-dismissed benign 'Calculation Messages' (button='Close', clicked=1)
+INFO:   -> w=847.2 kg util=0.1979 PASS
+INFO:   frontier improved at call 12: pts [580.2/0.653, 726.6/0.779, 798.0/0.792, 847.2/0.802, 912.0/0.804, 973.2/0.814, 1043.4/0.826]
+INFO: Surrogate run 1: completed (budget_exhausted) - 11 evaluated, 1 failed, 12 Robot calls, frontier 7, HV 1.0594531280720383 -> 1.092365715072156 in 1111.8s.

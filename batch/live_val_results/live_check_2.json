@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "stable": {
+    "ok": true,
+    "mechanism": false,
+    "nodes": [],
+    "dofs": [],
+    "message": "no mechanism detected (rank 8/8)"
+  },
+  "mechanism": {
+    "ok": false,
+    "mechanism": true,
+    "nodes": [
+      999
+    ],
+    "dofs": [
+      "node 999 UX"
+    ],
+    "message": "likely mechanism at node 999 UX \u2014 refusing to call Calculate()."
+  },
+  "summary": "stable 'no mechanism detected (rank 8/8)' | mechanism 'likely mechanism at node 999 UX \u2014 refusing to call Calculate().'"
+}

@@ -303,7 +303,7 @@ def test_suggest_section():
     assert suggest_section("column", 3.5) == "IPE 140"
     assert (section_depth_mm(suggest_section("column", 6.0)) >
             section_depth_mm(suggest_section("column", 3.5)))
-    assert suggest_section("web", 12.0, "L") == "L 100x100x5"
+    assert suggest_section("web", 12.0, "L") == "L 100x100x10"
     assert section_depth_mm("IPE 200") == 200.0
     assert section_depth_mm("W 12X26") == 12.0 * 25.4
     assert section_depth_mm("garbage-name") is None
@@ -392,7 +392,7 @@ def test_arch_truss():
     # auto-sized sections (span 9 -> 500 mm chord; web leg 9000/120=75 -> L 70)
     assert arch["bars"][0]["section"] == "IPE 500"
     assert arch["bars"][1]["section"] == "IPE 500"
-    assert arch["bars"][2 * 8]["section"] == "L 70x70x5"
+    assert arch["bars"][2 * 8]["section"] == "L 70x70x8"
     # inverted: arched bottom chord + straight deck above at z=rise
     inv = RobotBridge.arch_truss_spec(span=9.0, rise=2.0, panels=8,
                                       arch_chord="bottom")
@@ -423,7 +423,7 @@ def test_arch_truss_in_design_space():
     assert applied["__tpl"] == "arch_truss", "geometry keys survive the design map"
     assert applied["bars"][0]["section"] in ("IPE 500", "IPE 550")
     # bars outside the variable map keep their auto-sized section
-    assert applied["bars"][16]["section"] == "L 70x70x5"
+    assert applied["bars"][16]["section"] == "L 70x70x8"
     print("  OK: arch_truss_spec usable as DesignSpace geometry")
 
 

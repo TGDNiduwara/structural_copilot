@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "uz_m": -0.002018,
+  "target_m": 0.0020167,
+  "rel_err": 0.0006,
+  "tolerance_band": 0.1,
+  "summary": "tip UZ -2.018 mm vs hand F/K=2.017 mm (spring K=5000 kN/m, 10% band)"
+}

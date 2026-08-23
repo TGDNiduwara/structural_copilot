@@ -1,0 +1,127 @@
+{
+  "steps": [
+    {
+      "name": "fresh app connect claims seat (no SeatBusyError)",
+      "ok": true,
+      "detail": "connected=True pid=18488 via=launched seat_owner=33728 seat_file={\n  \"schema\": 1,\n  \"project\": \"structural_multi_app_agent\",\n  \"owner_pid\": 33728,\n  \"owner_kind\": \"app\",\n  \"connected_vi"
+    },
+    {
+      "name": "create_truss explicit angle web",
+      "ok": true,
+      "detail": "web_section='L 50x50x5'; nodes=14 bars=31 status=ok"
+    },
+    {
+      "name": "apply_self_weight",
+      "ok": true,
+      "detail": "case_created=ok self_weight_total_kn=50.8138 bars_in_summary=31"
+    },
+    {
+      "name": "check_model_stability",
+      "ok": true,
+      "detail": "{\"status\": \"ok\", \"ok\": true, \"mechanism\": false, \"nodes\": [], \"dofs\": [], \"message\": \"no mechanism detected (rank 38/38)\"}"
+    },
+    {
+      "name": "solve",
+      "ok": true,
+      "detail": "{\"status\": \"ok\", \"message\": \"Solver run completed successfully.\"}"
+    },
+    {
+      "name": "robot_session_status consistent (ONE session)",
+      "ok": true,
+      "detail": "pid before=18488 after=18488 via=launched"
+    },
+    {
+      "name": "equilibrium: reactions balance applied loads",
+      "ok": true,
+      "detail": "sum(FZ)=50.814 kN vs applied self-weight 50.8138 kN -> rel err 0.00% (threshold 2%)"
+    },
+    {
+      "name": "export_member_forces",
+      "ok": true,
+      "detail": "rows=155 status=ok"
+    },
+    {
+      "name": "no leaked placeholder section strings in exported spec",
+      "ok": true,
+      "detail": "checked 31 bars; bad=none loads=31"
+    }
+  ],
+  "session_before": {
+    "connected": true,
+    "connected_pid": 18488,
+    "connected_via": "launched",
+    "robots_running": [
+      18488
+    ],
+    "this_process_pid": 33728,
+    "seat": {
+      "present": true,
+      "owner_pid": 33728,
+      "owner_kind": "app",
+      "connected_via": "launched",
+      "robot_pids": [
+        18488
+      ],
+      "acquired_at": 1787444226.1245441,
+      "owner_alive": true,
+      "robots_alive": true,
+      "seat_available": false
+    },
+    "summary": "Robot session pid 18488, connected via launched, seat owner 33728 (app); live robot.exe: [18488]"
+  },
+  "session_after": {
+    "connected": true,
+    "connected_pid": 18488,
+    "connected_via": "launched",
+    "robots_running": [
+      18488
+    ],
+    "this_process_pid": 33728,
+    "seat": {
+      "present": true,
+      "owner_pid": 33728,
+      "owner_kind": "app",
+      "connected_via": "launched",
+      "robot_pids": [
+        18488
+      ],
+      "acquired_at": 1787444226.1245441,
+      "owner_alive": true,
+      "robots_alive": true,
+      "seat_available": false
+    },
+    "summary": "Robot session pid 18488, connected via launched, seat owner 33728 (app); live robot.exe: [18488]"
+  },
+  "angle_candidates": [
+    "L 50x50x5",
+    "L 60x60x6",
+    "L 80x80x8"
+  ],
+  "used_angle": "L 50x50x5",
+  "self_weight_total_kn": 50.8138,
+  "stability": {
+    "status": "ok",
+    "ok": true,
+    "mechanism": false,
+    "nodes": [],
+    "dofs": [],
+    "message": "no mechanism detected (rank 38/38)"
+  },
+  "reactions_preview": [
+    {
+      "Node_ID": 8,
+      "Support_Type": "Pinned",
+      "FX_kN": 24.678,
+      "FZ_kN": 25.407,
+      "MY_kNm": 0.0
+    },
+    {
+      "Node_ID": 14,
+      "Support_Type": "Pinned",
+      "FX_kN": -24.678,
+      "FZ_kN": 25.407,
+      "MY_kNm": -0.0
+    }
+  ],
+  "sum_fz": 50.814
+}

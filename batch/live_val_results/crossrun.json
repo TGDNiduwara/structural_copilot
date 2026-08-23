@@ -1,0 +1,105 @@
+{
+  "summary": {
+    "run_id": 2,
+    "strategy": "surrogate",
+    "status": "completed",
+    "stop_reason": "budget_exhausted",
+    "evaluated": 40,
+    "failed": 0,
+    "robot_calls": 40,
+    "total": 100,
+    "budget": 40,
+    "patience": 15,
+    "acquisition": "ucb",
+    "elapsed_s": 3777.6,
+    "frontier": 15,
+    "initial_hv": 0.715699,
+    "final_hv": 1.302031,
+    "training_rows": 35,
+    "training_runs": {
+      "1": 35
+    },
+    "failures": []
+  },
+  "wall_s": 3777.6,
+  "log": "c:\\Users\\dinat\\Downloads\\structural_multi_app_agent\\structural_copilot\\batch\\live_val_results\\crossrun.log",
+  "calls": 40,
+  "training_rows": 35,
+  "training_runs": {
+    "1": 35
+  },
+  "frontier_pts": [
+    [
+      477.0,
+      0.4862
+    ],
+    [
+      525.0,
+      0.574
+    ],
+    [
+      580.2,
+      0.6525
+    ],
+    [
+      648.0,
+      0.7225
+    ],
+    [
+      726.6,
+      0.7789
+    ],
+    [
+      555.6,
+      0.5998
+    ],
+    [
+      610.8,
+      0.6693
+    ],
+    [
+      678.6,
+      0.7327
+    ],
+    [
+      757.2,
+      0.7849
+    ],
+    [
+      719.4,
+      0.745
+    ],
+    [
+      798.0,
+      0.7925
+    ],
+    [
+      847.2,
+      0.8021
+    ],
+    [
+      906.0,
+      0.8131
+    ],
+    [
+      973.2,
+      0.8144
+    ],
+    [
+      1043.4,
+      0.8258
+    ]
+  ],
+  "frontier_n": 15,
+  "hv": 1.3867029719689294,
+  "hv_ratio": 0.8520448368472684,
+  "cold_run1": {
+    "calls": 40,
+    "final_hv": 1.5568313069908817,
+    "calls_to_own_final_hv": 35
+  },
+  "warm_run2": {
+    "calls": 40,
+    "calls_to_run1_final_hv": -1
+  }
+}
