@@ -2311,15 +2311,28 @@ class ToolExecutor:
             # connect_web_pattern also emits the two chord runs; the chains
             # ALREADY carry their own chord bars, so keep only the web bars.
             n = len(top["ids"]) - 1
-            bars = all_bars[2 * n:]
+            web = all_bars[2 * n:]
+            # [COMPOSE] A web member whose two endpoints are COINCIDENT is a
+            # degenerate zero-length bar (e.g. the arch springs from z=0 at
+            # the deck ends -> the end vertical arch_a[0]-deck_a[0] has length
+            # 0). Robot keeps such bars but every downstream consumer
+            # (apply_self_weight skips length<=0, the solver sees a singular
+            # element) treats them as garbage. The two chains ARE connected at
+            # those points through the adjacent diagonals, so dropping the
+            # zero-length web bar is the correct, non-degenerate geometry.
+            coords = {nd["id"]: (nd["x"], nd["y"], nd["z"])
+                      for nd in top["nodes"] + bottom["nodes"]}
+            dropped = [br["id"] for br in web
+                       if coords[br["n1"]] == coords[br["n2"]]]
+            bars = [br for br in web if br["id"] not in set(dropped)]
             self._compose_bars.extend(bars)
             self._compose_next_id = max(
                 self._compose_next_id,
                 (all_bars[-1]["id"] + 1) if all_bars else self._compose_next_id)
-            return {"status": "ok",
-                    "message": f"web {pattern} added between "
-                               f"'{step['top']}' and '{step['bottom']}'",
-                    "bars": len(bars)}
+            msg = f"web {pattern} added between '{step['top']}' and '{step['bottom']}'"
+            if dropped:
+                msg += f" (dropped {len(dropped)} zero-length end bar(s): {dropped})"
+            return {"status": "ok", "message": msg, "bars": len(bars)}
 
         if op == "bracing":
             _require(["plane_a", "plane_b"])

@@ -130,6 +130,17 @@ try:
         check("busy seat raises for other live owner", False)
     except rs.SeatBusyError as exc:
         check("busy seat raises for other live owner", "owned by ANOTHER" in str(exc))
+    # [SEAT HARDENING] a claim with NO robot pid must fail loudly, never
+    # write a malformed record that silently disarms the cross-process guard
+    try:
+        rs.claim_seat(1111, rs.OWNER_KIND_APP, [], "attached")
+        check("empty robot_pids claim REFUSED", False)
+    except RuntimeError as exc:
+        check("empty robot_pids claim REFUSED",
+              "at least one real robot.exe pid" in str(exc))
+    check("malformed seat never written",
+          rs.seat_status().get("owner_pid") != 1111 or
+          rs.seat_status().get("robot_pids"))
     # same-owner re-claim is a heartbeat, not a conflict
     c2 = rs.claim_seat(1111, rs.OWNER_KIND_BATCH, [5001], "launched")
     check("same-owner re-claim allowed", c2["owner_pid"] == 1111)

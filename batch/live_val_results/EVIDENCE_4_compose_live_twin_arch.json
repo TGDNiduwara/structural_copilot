@@ -120,6 +120,11 @@
       "detail": "self_weight_total_kn=149.0692"
     },
     {
+      "name": "live bar endpoints match composed spec",
+      "ok": false,
+      "detail": "0 live bars, 0 endpoint mismatches vs spec"
+    },
+    {
       "name": "check_model_stability",
       "ok": true,
       "detail": "ok=True no mechanism detected (rank 124/124)"

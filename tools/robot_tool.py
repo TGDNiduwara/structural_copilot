@@ -487,6 +487,29 @@ class RobotBridge:
             # Launched a fresh instance: the PID that appeared since we started.
             fresh = new_pids - pids_before
             self.connected_pid = next(iter(fresh), None)
+        # [SEAT HARDENING] tasklist can lag a freshly launched robot.exe, and
+        # claim_seat() now REFUSES an empty robot_pids list. Poll briefly so a
+        # genuine connection is never denied a seat record; if the pid truly
+        # cannot be found, fail loudly instead of silently leaving no seat.
+        if self.connected_pid is None:
+            for _ in range(24):  # up to ~6 s
+                time.sleep(0.25)
+                new_pids = _robot_pids()
+                if attached:
+                    self.connected_pid = next(iter(new_pids), None)
+                else:
+                    self.connected_pid = next(
+                        iter(new_pids - pids_before), None)
+                if self.connected_pid is not None:
+                    break
+        if self.connected_pid is None:
+            raise RuntimeError(
+                "Connected to Robot.Application but could not identify the "
+                "robot.exe PID (tasklist shows no robot.exe for this session). "
+                "Refusing to claim the Robot seat without a real robot PID - "
+                "an empty seat record would let another process attach over "
+                "this session and corrupt both. Check for a split/stale Robot "
+                "session with tools.robot_seat.seat_status() and retry.")
         logger.info(
             "Robot session pid %s, connected via %s (seat owner pid %s).",
             self.connected_pid, "attach" if attached else "launch", os.getpid())

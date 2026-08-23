@@ -90,8 +90,8 @@ summary = run_tool("get_structure_summary", {})
 step("get_structure_summary", str(summary)[:200])
 bar_count = summary.get("bar_count", summary.get("bars", -1))
 node_count = summary.get("node_count", summary.get("nodes", -1))
-if int(bar_count) != 142:
-    print("  !! expected 142 bars in Robot, got", bar_count)
+if int(bar_count) != 138:
+    print("  !! expected 138 bars in Robot (142 - 4 degenerate end verticals), got", bar_count)
 
 # -- 3. load case + self-weight ------------------------------------------------
 run_tool("create_load_case", {"case_id": 1, "case_name": "SW",
@@ -114,15 +114,74 @@ print(f"    TOTAL                      bars={len(per_bar)} weight={sw_total:.3f}
 
 # cross-check: do the LIVE Robot bar endpoints match the composed spec?
 live_spec = run_tool("export_structure_spec", {})
-live_bars = live_spec.get("bars") or []
+live_geom = live_spec.get("geometry") or {}
+live_bars = live_geom.get("bars") or []
+live_nodes = live_geom.get("nodes") or []
 spec_by_id = {br["id"]: (br["n1"], br["n2"]) for br in geom["bars"]}
 mismatch = 0
+missing = 0
 for br in live_bars:
-    if spec_by_id.get(br["id"]) != (br["n1"], br["n2"]):
+    if br["id"] not in spec_by_id:
+        missing += 1
+    elif spec_by_id[br["id"]] != (br["n1"], br["n2"]):
         mismatch += 1
 step("live bar endpoints match composed spec",
-     f"{len(live_bars)} live bars, {mismatch} endpoint mismatches vs spec",
-     len(live_bars) == 142 and mismatch == 0)
+     f"{len(live_bars)} live bars (spec has {len(geom['bars'])}), "
+     f"{missing} unknown ids, {mismatch} endpoint mismatches",
+     len(live_bars) == 138 and mismatch == 0 and missing == 0)
+
+# live node/coordinate verification (the source of truth for the earlier
+# support-node anomaly: reactions reported nodes 21/31/103/113, NOT our deck
+# ends 1/11/22/32 - dump what Robot actually holds and compare to the spec).
+from tools.robot_tool import RobotEnum
+b = ex.robot
+nc = b.structure.Nodes.GetAll()
+live_nid_coords = {}
+for i in range(1, int(nc.Count) + 1):
+    nd = nc.Get(i)
+    live_nid_coords[int(nd.Number)] = (
+        round(float(nd.X), 6), round(float(nd.Y), 6), round(float(nd.Z), 6))
+print("  live node ids:", sorted(live_nid_coords))
+print("  live node count:", len(live_nid_coords))
+# nodes that CARRY a support label, with coordinates
+sup_nodes = []
+for nid, c in live_nid_coords.items():
+    try:
+        lbl = b.structure.Nodes.Get(nid).GetLabelName(RobotEnum.I_LT_SUPPORT)
+    except Exception:
+        lbl = None
+    if lbl:
+        sup_nodes.append((nid, c, lbl))
+print("  live nodes WITH support label (id, coords, label):")
+for row in sup_nodes:
+    print("   ", row)
+# compare spec node coords vs live coords by id
+spec_nid = {nd["id"]: (nd["x"], nd["y"], nd["z"]) for nd in geom["nodes"]}
+coord_mismatch = [
+    nid for nid, c in live_nid_coords.items()
+    if nid in spec_nid and spec_nid[nid] != c]
+print(f"  node coordinate mismatches vs spec: {len(coord_mismatch)} "
+      f"({coord_mismatch[:10]})")
+# the intended support coordinates must carry supports in the live model
+intended_support_coords = {(0.0, 0.0, 0.0), (30.0, 0.0, 0.0),
+                           (0.0, 6.0, 0.0), (30.0, 6.0, 0.0)}
+supported_coords = {c for _nid, c, _lbl in sup_nodes}
+step("intended deck-end supports present in live model",
+     f"supported coords={sorted(supported_coords)}",
+     intended_support_coords.issubset(supported_coords))
+
+# degenerate-geometry check: any composed bars whose endpoints are coincident
+# (the arch ends touch the deck ends at z=0 -> zero-length end verticals)?
+spec_coords = {nd["id"]: (nd["x"], nd["y"], nd["z"]) for nd in geom["nodes"]}
+zero_len = []
+for br in geom["bars"]:
+    if spec_coords[br["n1"]] == spec_coords[br["n2"]]:
+        zero_len.append(br["id"])
+print(f"  composed bars with COINCIDENT endpoints: {zero_len} "
+      f"({len(zero_len)} total)")
+step("no degenerate zero-length bars in composed spec",
+     f"{len(zero_len)} zero-length bar(s): {zero_len[:12]}",
+     not zero_len)
 
 # -- 4. mechanism pre-check ----------------------------------------------------
 st = run_tool("check_model_stability", {})
@@ -136,6 +195,49 @@ step("solve", f"{sol.get('status')} {sol.get('message', '')[:120]} "
      f"({time.time() - t0:.1f}s)", sol.get("status") in ("ok", "ok_with_warning"))
 if sol.get("warning"):
     print("  warning:", str(sol["warning"])[:200])
+
+# -- 5b. what load records does Robot ACTUALLY hold? ---------------------------
+from win32com.client import CastTo
+case = CastTo(b.structure.Cases.Get(1), "IRobotSimpleCase")
+rec_count = int(case.Records.Count)
+bars_with_load: set = set()
+applied_kn = 0.0
+bad = 0
+for i in range(1, rec_count + 1):
+    rec = case.Records.Get(i)
+    try:
+        rtype = int(rec.Type)
+    except Exception:
+        rtype = -1
+    if rtype != 4:  # I_LRT_BAR_UNIFORM
+        continue
+    rv = CastTo(rec, "IRobotBarUniformRecord")
+    pz = float(rv.Values.GetValue(2))  # I_BURV_PZ
+    rng = rv.Objects
+    obj_count = int(rng.Count)
+    for j in range(1, obj_count + 1):
+        try:
+            bid = int(rng.Get(j))
+        except Exception:
+            bad += 1
+            continue
+        bars_with_load.add(bid)
+        L = b._bar_length(bid)
+        if L <= 0.0:
+            bad += 1
+        applied_kn += pz * L
+print(f"  Robot load records: {rec_count}; bars WITH a registered load: "
+      f"{len(bars_with_load)} of 138; sum(PZ*L) from records = {applied_kn:.3f} kN "
+      f"(bad/zero-length refs: {bad})")
+missing = sorted(set(range(1, 139)) - bars_with_load)
+print(f"  bar ids with NO registered load: {missing[:20]}{'...' if len(missing) > 20 else ''} "
+      f"({len(missing)} total)")
+step("all 138 bars carry a registered load",
+     f"{len(bars_with_load)}/138 bars loaded, records={rec_count}",
+     len(bars_with_load) == 138 and applied_kn > 0)
+step("Robot-registered load matches tool total",
+     f"robot sum(PZ*L)={applied_kn:.3f} kN vs tool total {sw_total:.3f} kN",
+     abs(applied_kn - sw_total) / sw_total <= TOLERANCE)
 
 # -- 6. reactions balance applied load -----------------------------------------
 run_tool("export_reactions", {"case_id": 1})

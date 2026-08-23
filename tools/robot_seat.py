@@ -208,6 +208,21 @@ def claim_seat(owner_pid: Optional[int], owner_kind: str,
         "acquired_at": now,
         "last_seen": now,
     }
+    # [SEAT HARDENING] A seat record with NO robot pid is malformed: the
+    # registry is what stops a second process attaching over this session,
+    # and an empty robot_pids list makes the claim indistinguishable from a
+    # stale one (so _own_robot_alive() can never confirm ownership). Fail
+    # loudly HERE instead of writing a record that silently disarms the
+    # whole cross-process guard. Callers must pass at least one real
+    # robot.exe pid (the connected_pid the bridge resolved in connect()).
+    if not payload["robot_pids"]:
+        raise RuntimeError(
+            "claim_seat REFUSED: at least one real robot.exe pid is required "
+            "to claim the Robot seat (got none). Refusing to write a "
+            "malformed seat record — the caller connected to Robot but could "
+            "not identify the robot.exe pid, or passed an empty robot_pids "
+            "list. Resolve the pid (e.g. poll tasklist for robot.exe) before "
+            "claiming the seat.")
     _atomic_write(payload)
     logger.info(
         "Robot seat claimed by pid %s (kind=%s, connected_via=%s, robot_pids=%s).",

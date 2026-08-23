@@ -770,11 +770,13 @@ def test_compose_full_assembly_finish():
     res = t._compose_finish()
     assert res["status"] == "ok"
     geom = res["geometry"]
-    # 4 chains x 11 nodes = 44 nodes. Bars: 4x10 chain chord bars + 2x31 web
-    # (verticals+diagonals only; chains already carry their chord bars) +
-    # 2x20 bracing = 40 + 62 + 40 = 142. Supports: 2 ends x 2 decks.
+    # 4 chains x 11 nodes = 44 nodes. Bars: 4x10 chain chord bars + 2x29 web
+    # (verticals+diagonals only; chains already carry chord bars; the 4
+    # zero-length end verticals where the arch springs from z=0 onto the deck
+    # ends are dropped as degenerate) + 2x20 bracing = 40 + 58 + 40 = 138.
+    # Supports: 2 ends x 2 decks.
     assert res["counts"]["nodes"] == 44
-    assert res["counts"]["bars"] == 142
+    assert res["counts"]["bars"] == 138
     assert res["counts"]["supports"] == 4
     assert geom["__composed"] is True
     # registry is cleared by finish (fresh composition next time)
