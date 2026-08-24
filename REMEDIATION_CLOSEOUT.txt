@@ -112,3 +112,44 @@ BACKLOG (task Phases 4-5, explicitly future/ongoing)
 - Step 19: Redis cache for LLM calls.
 - Step 20: Kubernetes manifests.
 - Step 21+: ongoing observability & drift reports.
+======================================================================
+OPENSEESPY PHASE A (independent-solver diagnostic) - 2026-08-24
+======================================================================
+STATUS: DONE (developer-facing only - NOT wired into tool_registry / app / batch).
+
+FILES
+  tools/diagnostics/opensees_crosscheck.py   spec -> OpenSeesPy model + solve + report
+  tools/diagnostics/README.md                scope / conventions / usage
+  requirements-dev.txt                      + openseespy>=3.5.0 (dev-only)
+
+TRUST GATE (verify_closedform / --self-test) - ALL PASS at 0.000%
+  portal (pinned base, beam UDL):  col axial 30/30 kN (=wL/2), sum 60 kN,
+                                  M_end+M_mid = 45 kNm (=wL^2/8)
+  CHS beam (SS, UDL):             sum reactions 25 kN (=wL), midspan MY 15.625 kNm (=wL^2/8)
+  cantilever (tip load):          base shear 50 kN (=P), base moment 250 kNm (=P*L)
+
+CROSS-CHECK SMOKE (compose twin-arch, 40 nodes / 138 bars / 4 supports, deck UDL)
+  deck bars detected: 20 (IPE 500 @ z=0); total applied = 600 kN
+  OpenSeesPy solve: analyze_ok=True; sum(FZ reactions) = 600.000 vs 600.000 -> 0.0000%
+  reactions split ~150 kN per pinned deck-end support.
+
+CLI VALIDATION (portal spec):
+  reactions FZ 30/30 kN match Robot live; beam M_end+M_mid = 12.40+32.60 = 45.0 kNm
+  (Robot live 12.3+32.7; small per-value diff from idealized offline section props,
+   documented in README - equilibrium is exact).
+
+MODELING NOTES (documented in README)
+  - 3D elastic frame, elasticBeamColumn, Linear geomTransf, E=210 GPa.
+  - Section props resolved OFFLINE from nominal dims (I_DIMS table, CHS closed
+    form, approx L/RHS/SHS). approx flags noted; reactions insensitive, member
+    force distribution sensitive -> use live Robot props when it matters.
+  - Torsional anchor (MX fixed at first pinned/roller support) kills the
+    collinear-chain global-twist zero-energy mode; in-plane statics unaffected.
+  - Reactions global axes; member forces local bar actions (sign conventions
+    may flip vs Robot - compare component-wise).
+  - One load case per model; each bar subdivided into --divisions sub-elements
+    so stations align with Robot export_all_member_forces(divisions).
+
+VERIFICATION
+  ruff check .: All checks passed; ruff format . --check: 93 files formatted;
+  pytest: 36 passed; openseespy --self-test: ALL PASS.
