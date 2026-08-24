@@ -643,11 +643,20 @@
  },
  "post": {
   "11": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 1,
+   "n2": 2,
+   "p1": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "p2": [
+    3.0,
+    0.0,
+    1.931712
+   ],
+   "length": 3.5681
   },
   "12": {
    "section": "IPE 500",
@@ -778,18 +787,36 @@
    "length": 3.3073
   },
   "20": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 10,
+   "n2": 11,
+   "p1": [
+    27.0,
+    0.0,
+    1.931712
+   ],
+   "p2": [
+    30.000000000000004,
+    0.0,
+    0.0
+   ],
+   "length": 3.5681
   },
   "31": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 1,
+   "n2": 22,
+   "p1": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "p2": [
+    3.0,
+    0.0,
+    0.0
+   ],
+   "length": 3.0
   },
   "32": {
    "section": "IPE 500",
@@ -920,18 +947,36 @@
    "length": 3.0
   },
   "40": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 30,
+   "n2": 11,
+   "p1": [
+    27.0,
+    0.0,
+    0.0
+   ],
+   "p2": [
+    30.000000000000004,
+    0.0,
+    0.0
+   ],
+   "length": 3.0
   },
   "102": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 92,
+   "n2": 93,
+   "p1": [
+    0.0,
+    6.0,
+    0.0
+   ],
+   "p2": [
+    3.0,
+    6.0,
+    1.931712
+   ],
+   "length": 3.5681
   },
   "103": {
    "section": "IPE 500",
@@ -1062,18 +1107,36 @@
    "length": 3.3073
   },
   "111": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 101,
+   "n2": 102,
+   "p1": [
+    27.0,
+    6.0,
+    1.931712
+   ],
+   "p2": [
+    30.000000000000004,
+    6.0,
+    0.0
+   ],
+   "length": 3.5681
   },
   "122": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 92,
+   "n2": 113,
+   "p1": [
+    0.0,
+    6.0,
+    0.0
+   ],
+   "p2": [
+    3.0,
+    6.0,
+    0.0
+   ],
+   "length": 3.0
   },
   "123": {
    "section": "IPE 500",
@@ -1204,16 +1267,25 @@
    "length": 3.0
   },
   "131": {
-   "section": "GET_FAILED",
-   "n1": null,
-   "n2": null,
-   "length": null,
-   "err": "(-2147352567, 'Exception occurred.', (0, None, None, None, 0"
+   "section": "IPE 500",
+   "n1": 121,
+   "n2": 102,
+   "p1": [
+    27.0,
+    6.0,
+    0.0
+   ],
+   "p2": [
+    30.000000000000004,
+    6.0,
+    0.0
+   ],
+   "length": 3.0
   }
  },
  "pre_counts": [
   130,
   40
  ],
- "reaction_sum_fz": 480.0
+ "reaction_sum_fz": 600.0
 }

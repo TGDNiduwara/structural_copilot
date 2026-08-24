@@ -476,10 +476,64 @@ def apply_support_pattern(
     return [{"node": int(nid), "type": st} for nid in node_ids]
 
 
-def merge_coincident_nodes(geometry: dict[str, Any]) -> dict[str, Any]:
+def _is_angle_section(section) -> bool:
+    """True for 'L ...' angle sections - the codebase's web/brace/diagonal
+    vocabulary. Rolled/hollow primary members (IPE/HEA/HEB/HEM/IPN/UPN/UPE /
+    CHS/RHS/SHS and bare names) are the chord/beam class."""
+    return str(section or "").strip().upper().startswith("L ")
+
+
+def _dedupe_coincident_bars(bars: list) -> tuple:
+    """Drop duplicate (n1, n2) bars created by a node remap.
+
+    [FIX 2026-08-24] Live-confirmed: on the compose twin-arch, the node
+    merge makes the end-panel pratt web diagonals coincident with the end
+    chord bars (8 duplicate node-pair pairs). Robot's Calculate() silently
+    deletes one member of each pair - empirically it keeps the L-section web
+    diagonal and drops the IPE chord, taking the chord's load records with it
+    -> the 20% bar_uniform reaction shortfall. Deduplicate HERE so the spec
+    sent to Robot has no coincident bars.
+
+    Keep rule: prefer the CHORD (non-angle) member of a duplicate pair; if
+    both members are the same class, keep the FIRST-SEEN in the bar list
+    (chain construction order - chords are built before webs). Bar id is NOT
+    used as a tie-break (id order is not semantically meaningful).
+    Returns (kept_bars, dedup_report) where each report entry is
+    {"dropped": int, "kept": int, "reason": "chord_over_angle" | "first_seen"}.
+    """
+    seen = {}
+    kept: list = []
+    report: list = []
+    for b in bars:
+        key = frozenset((int(b["n1"]), int(b["n2"])))
+        if key not in seen:
+            seen[key] = len(kept)
+            kept.append(b)
+            continue
+        idx = seen[key]
+        incumbent = kept[idx]
+        inc_angle = _is_angle_section(incumbent.get("section"))
+        new_angle = _is_angle_section(b.get("section"))
+        if inc_angle and not new_angle:
+            kept[idx] = b
+            report.append(
+                {
+                    "dropped": int(incumbent["id"]),
+                    "kept": int(b["id"]),
+                    "reason": "chord_over_angle",
+                }
+            )
+        else:
+            reason = "chord_over_angle" if (not inc_angle and new_angle) else "first_seen"
+            report.append({"dropped": int(b["id"]), "kept": int(incumbent["id"]), "reason": reason})
+    return kept, report
+
+
+def merge_coincident_nodes(geometry: dict) -> dict:
     # Merge distinct nodes at IDENTICAL coordinates into one (lowest id wins),
     # rewriting every bar endpoint / support node / nodal-load reference and
-    # dropping the duplicate nodes.
+    # dropping the duplicate nodes. Also deduplicates BARS that the remap
+    # makes coincident (see _dedupe_coincident_bars).
     #
     # [AUDIT] Live-verified: Robot's SOLVER merges coincident-but-distinct
     # nodes during Calculate() (a 35-node composed model solved to a 25-node
@@ -489,14 +543,17 @@ def merge_coincident_nodes(geometry: dict[str, Any]) -> dict[str, Any]:
     # export_structure_spec round-trips lossy. Merging HERE - the single place
     # compose geometry is finalized - makes the spec identical to what Robot
     # will actually analyze, so the class cannot occur for compose models.
+    # [FIX 2026-08-24] the node remap can also make previously-distinct BARS
+    # coincide (8 pairs on the twin-arch); dedupe those too or Calculate()
+    # deletes the loaded chord member (20% reaction shortfall).
     # PURE (no COM): takes/returns a spec dict {nodes, bars, supports, loads}.
     nodes = geometry.get("nodes") or []
     bars = geometry.get("bars") or []
     supports = geometry.get("supports") or []
     loads = geometry.get("loads") or []
 
-    coord_to_id: dict[tuple[float, float, float], int] = {}
-    remap: dict[int, int] = {}
+    coord_to_id = {}
+    remap = {}
     for n in nodes:
         nid = int(n["id"])
         key = (
@@ -508,24 +565,44 @@ def merge_coincident_nodes(geometry: dict[str, Any]) -> dict[str, Any]:
             remap[nid] = coord_to_id[key]
         else:
             coord_to_id[key] = nid
-    if not remap:
-        out = dict(geometry)
-        out["__merged_coincident_nodes"] = 0
-        return out
-    keep = set(coord_to_id.values())
 
     def r(nid: int) -> int:
         return remap.get(int(nid), int(nid))
 
     out = dict(geometry)
-    out["nodes"] = [n for n in nodes if int(n["id"]) in keep]
-    out["bars"] = [dict(b, n1=r(b["n1"]), n2=r(b["n2"])) for b in bars]
+    if remap:
+        keep = set(coord_to_id.values())
+        out["nodes"] = [n for n in nodes if int(n["id"]) in keep]
+        out["__merged_coincident_nodes"] = len(remap)
+    else:
+        out["__merged_coincident_nodes"] = 0
+
+    # [FIX 2026-08-24] dedupe bars the node remap (or the source spec) made
+    # coincident - always, so the returned spec has no duplicate bar pairs.
+    remapped_bars = [dict(b, n1=r(b["n1"]), n2=r(b["n2"])) for b in bars]
+    out["bars"], dedup_report = _dedupe_coincident_bars(remapped_bars)
+    out["__deduped_bars"] = dedup_report
+    dropped_to_kept = {d["dropped"]: d["kept"] for d in dedup_report}
+
     if isinstance(supports, list):
         out["supports"] = [dict(s, node=r(s["node"])) for s in supports]
     if isinstance(loads, list):
-        out["loads"] = [
-            dict(ld, node=r(ld["node"])) if str(ld.get("kind")) == "nodal" else dict(ld)
-            for ld in loads
-        ]
-    out["__merged_coincident_nodes"] = len(remap)
+        new_loads = []
+        for ld in loads:
+            kind = str(ld.get("kind") or "")
+            if kind == "nodal":
+                new_loads.append(dict(ld, node=r(ld["node"])))
+            elif (
+                kind in ("bar_uniform", "bar_concentrated")
+                and int(ld.get("bar", -1)) in dropped_to_kept
+            ):
+                # the load referenced a deduped bar: remap onto the surviving
+                # bar (identical endpoints -> geometrically equivalent)
+                old_bar = int(ld["bar"])
+                new_ld = dict(ld, bar=dropped_to_kept[old_bar])
+                new_ld["_load_remapped_from_bar"] = old_bar
+                new_loads.append(new_ld)
+            else:
+                new_loads.append(dict(ld))
+        out["loads"] = new_loads
     return out

@@ -1,0 +1,40 @@
+COINC BAR-DEDUPE FIX - VERIFIED LIVE (2026-08-24)
+==================================================
+FIX: tools/geometry_primitives.py merge_coincident_nodes() now deduplicates
+bars that the node remap makes coincident (order-independent endpoint pairs),
+keeping the CHORD (non-angle) member and dropping the duplicate L-section
+web/diagonal; same-class pairs keep the first-seen bar (chain order, NOT bar
+id). New fields: __deduped_bars (list of {dropped, kept, reason}). Loads
+referencing a dropped bar are remapped onto the survivor.
+
+BEFORE -> AFTER (compose twin-arch, E1 deck-UDL scenario):
+  compose finish bar count     : 138 -> 130 (8 duplicate chord/web pairs
+                                          removed; 40 chords all survive)
+  live Calculate() bar count   : 138 -> 130 (Calculate deleted 8 chords)
+                                 NOW: 130 -> 130 (no drop; 40/40 chord ids
+                                 still present post-solve)
+  reaction sum(FZ)             : 480.000 kN (20.00% shortfall vs 600)
+                                 NOW: 600.000 kN (0.00%)
+  end bars 11/20/31/40/102/111/122/131 post-solve : were GET_FAILED (deleted)
+                                 NOW: IDENTICAL pre vs post (section, n1/n2,
+                                 length unchanged)
+
+OFFLINE CHECKS
+  - test_merge_coincident_nodes updated (bars 1&2 now deduped -> bar 1 kept,
+    __deduped_bars=[{dropped:2, kept:1, reason:first_seen}])
+  - NEW test_merge_coincident_nodes_dedups_twin_arch_bars: chord-over-angle
+    + first-seen tie-break + load remap onto survivor
+  - twin-arch compose finish test: bars 138 -> 130
+  - spec_integrity_issues on the deduped geometry: [] (PASS)
+
+UNCHANGED PROTECTIONS (verified unaffected)
+  - apply_bar_load coincident-node check + nodal_lumped substitution: no code
+    touched; models with real coincident NODES still get nodal_lumped.
+  - apply_self_weight nodal lumping: untouched.
+  - The fix only removes bars that are geometrically identical duplicates;
+    it never changes section labels or load values.
+
+REPO STATE: ruff check . = All checks passed; ruff format . --check = 93
+files formatted; pytest = 36 passed; tools/test_geometry_primitives.py,
+test_chs_sections.py, batch/test_chat_build_tools.py,
+batch/test_tool_registry_batch.py, batch/test_step34_fixes.py all PASS.

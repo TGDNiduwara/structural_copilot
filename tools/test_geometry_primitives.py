@@ -868,12 +868,17 @@ def test_merge_coincident_nodes():
     assert ids == [1, 7, 4], f"merged ids {ids}"
     by_id = {n["id"]: n for n in m["nodes"]}
     assert all(abs(by_id[i]["x"] - (0.0 if i == 1 else 6.0 if i == 7 else 3.0)) < 1e-9 for i in ids)
+    # [FIX 2026-08-24] the node remap made bars 1 and 2 coincident (both
+    # (1,7)); the bar dedupe keeps the first-seen member and drops the copy.
     bars = {b["id"]: b for b in m["bars"]}
+    assert set(bars) == {1}, f"expected bar 1 to survive, got {sorted(bars)}"
     assert bars[1]["n1"] == 1 and bars[1]["n2"] == 7, bars[1]
-    assert bars[2]["n1"] == 1 and bars[2]["n2"] == 7, bars[2]
     assert {s["node"] for s in m["supports"]} == {1, 7}
     assert m["loads"][0]["node"] == 1
     assert m["__merged_coincident_nodes"] == 2
+    assert m["__deduped_bars"] == [{"dropped": 2, "kept": 1, "reason": "first_seen"}], m[
+        "__deduped_bars"
+    ]
     # no coincident pairs -> unchanged copy
     m2 = merge_coincident_nodes(
         {
@@ -885,6 +890,63 @@ def test_merge_coincident_nodes():
     )
     assert m2["__merged_coincident_nodes"] == 0
     print("  OK: merge_coincident_nodes rewrites endpoints/supports/loads, keeps lowest id")
+
+
+def test_merge_coincident_nodes_dedups_twin_arch_bars():
+    """[FIX 2026-08-24] the node remap can make an end-panel pratt diagonal
+    coincident with the end chord bar. Dedupe keeps the CHORD (non-angle)
+    and drops the L-section diagonal - the 8-pair twin-arch pattern that
+    Robot's Calculate() was silently deleting (20% bar_uniform shortfall)."""
+    from tools.geometry_primitives import merge_coincident_nodes
+
+    g = {
+        "nodes": [
+            {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},  # deck end (kept)
+            {"id": 21, "x": 0.0, "y": 0.0, "z": 0.0},  # arch springing == node 1
+            {"id": 22, "x": 3.0, "y": 0.0, "z": 0.0},  # next deck node
+        ],
+        "bars": [
+            {"id": 31, "n1": 21, "n2": 22, "section": "IPE 500"},  # end deck chord
+            {"id": 72, "n1": 1, "n2": 22, "section": "L 80x80x8"},  # pratt diagonal
+        ],
+        "supports": [{"node": 1, "type": "pinned"}],
+        "loads": [],
+    }
+    m = merge_coincident_nodes(g)
+    assert m["__merged_coincident_nodes"] == 1
+    kept = {b["id"]: b for b in m["bars"]}
+    assert set(kept) == {31}, f"chord 31 must survive, got {sorted(kept)}"
+    assert kept[31]["n1"] == 1 and kept[31]["n2"] == 22
+    assert kept[31]["section"] == "IPE 500"
+    assert m["__deduped_bars"] == [{"dropped": 72, "kept": 31, "reason": "chord_over_angle"}], m[
+        "__deduped_bars"
+    ]
+    # a load referencing the dropped diagonal remaps onto the survivor
+    g2 = dict(
+        g,
+        loads=[{"kind": "bar_uniform", "bar": 72, "case": 1, "direction": "Z", "value": -10.0}],
+    )
+    m2 = merge_coincident_nodes(g2)
+    assert m2["loads"][0]["bar"] == 31
+    assert m2["loads"][0].get("_load_remapped_from_bar") == 72
+    # same-class duplicates -> first-seen tie-break (bar id is NOT the rule)
+    g3 = {
+        "nodes": [
+            {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
+            {"id": 21, "x": 0.0, "y": 0.0, "z": 0.0},
+            {"id": 22, "x": 3.0, "y": 0.0, "z": 0.0},
+        ],
+        "bars": [
+            {"id": 31, "n1": 21, "n2": 22, "section": "IPE 500"},
+            {"id": 32, "n1": 1, "n2": 22, "section": "IPE 500"},
+        ],
+        "supports": [{"node": 1, "type": "pinned"}],
+        "loads": [],
+    }
+    m3 = merge_coincident_nodes(g3)
+    assert set(b["id"] for b in m3["bars"]) == {31}
+    assert m3["__deduped_bars"] == [{"dropped": 32, "kept": 31, "reason": "first_seen"}]
+    print("  OK: bar dedupe keeps chord over L-diagonal; same-class keeps first-seen")
 
 
 def test_compose_coincident_node_detector():
@@ -1136,10 +1198,11 @@ def test_compose_full_assembly_finish():
     # coincident nodes; compose now does it up front) = 40 nodes. Bars: 4x10
     # chain chord bars + 2x29 web (verticals+diagonals only; chains already
     # carry chord bars; the 4 zero-length end verticals are dropped as
-    # degenerate) + 2x20 bracing = 40 + 58 + 40 = 138. Supports: 2 ends x 2
-    # decks.
+    # degenerate) + 2x20 bracing = 40 + 58 + 40 = 138, minus the 8 duplicate
+    # (chord vs end-panel web diagonal) pairs deduped by [FIX 2026-08-24]
+    # = 130. Supports: 2 ends x 2 decks.
     assert res["counts"]["nodes"] == 40
-    assert res["counts"]["bars"] == 138
+    assert res["counts"]["bars"] == 130
     assert res["counts"]["supports"] == 4
     assert geom["__composed"] is True
     # registry is cleared by finish (fresh composition next time)
@@ -1169,6 +1232,7 @@ def main():
     test_compose_copy_no_id_collision()
     test_compose_bracing_lengths_sane()
     test_merge_coincident_nodes()
+    test_merge_coincident_nodes_dedups_twin_arch_bars()
     test_compose_coincident_node_detector()
     test_compose_copy_then_bracing_no_id_collision()
     test_compose_per_op_validation()
