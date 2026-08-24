@@ -1,0 +1,60 @@
+PHASE 1 CLOSEOUT - CHS / RHS / SHS support (2026-08-23)
+================================================================
+
+(a) CATALOG DISCOVERY (live, read-only probe, CHS_discover_catalog.py)
+    Only the UKST catalog carries CHS/RHS/SHS; EURO/AISC/DIN/ARCLR/CISC/
+    CHINA/JAPAN returned NONE for every candidate convention tested.
+    Resolved in UKST (22 names):
+      CHS (12): 42.4x3.2, 48.3x3.2, 60.3x3.2, 76.1x3.2, 88.9x3.2,
+                88.9x4, 114.3x4, 114.3x5, 139.7x5, 139.7x8, 168.3x6, 219.1x8
+      RHS (5): 100x50x4, 120x80x5, 150x100x6, 200x100x6, 250x150x8
+      SHS (5): 80x80x4, 100x100x5, 120x120x6, 150x150x8, 200x200x10
+    Naming convention: CHS <outer_d>x<wall_t>, RHS <b>x<h>x<t>, SHS <b>x<b>x<t>.
+    Code: FAMILY_SIZES + CHS/RHS/SHS_SECTION_NAMES in tools/section_sizing.py;
+    available_sections(family) and the list_available_sections tool description
+    document these verified names (no bare-size guesses).
+
+(b) SELF-WEIGHT / UNIT MASS (CHS_mass_probe.py)
+    Live label area A -> mass = A * 7850 vs hand A = pi*t*(D-t)*7850:
+      CHS 139.7x5 : live 16.642 kg/m vs hand 16.610 -> 0.20%
+      CHS 88.9x4  : live 8.399  kg/m vs hand 8.375  -> 0.29%
+      CHS 48.3x3.2: live 3.556  kg/m vs hand 3.559  -> 0.09%
+    apply_self_weight on a 5 m CHS 139.7x5 bar: 0.8163 kN vs hand 0.8147 kN
+    -> 0.194% (within 1%). The 12 CHS masses are cached in
+    _SECTION_UNIT_MASS_TABLE (pure/offline paths match Robot).
+
+(c) LIVE VERIFICATION
+    c1) Single simply-supported CHS beam (10-element FE, span 5 m, pin+roller,
+        UDL 5 kN/m, CHS 139.7x5, STEEL E=210 GPa):
+          reactions   : 25.000 kN vs 25.000 kN applied     -> 0.00%
+          midspan MY  : 15.6250 kNm vs wL2/8 = 15.6250     -> 0.00%
+          midspan UZ  : 40.28 mm vs 5wL4/384EI = 40.28 mm  -> 0.00%
+        (Iy live = 4.810e-6 m4, E = 2.1e11 Pa; Y-free planar mechanism
+        dialog auto-answered Yes - in-plane results valid.)
+    c2) create_truss with explicit CHS sections (CHS 88.9x4 chords,
+        CHS 48.3x3.2 web), self-weight, solve:
+          sum(FZ) = 3.6480 kN vs applied 3.6473 kN -> 0.019%
+
+(d) CLASSIFICATION / LTB
+    Live-probed ShapeType: CHS = 36 (h=b=D, tw=tf=t, r=0); RHS/SHS = 47.
+    section_data.SHAPE_TYPE_KIND now maps 36 -> circular_hollow,
+    47 -> rect_hollow; has_full_dims accepts them.
+    classify_section:
+      circular_hollow -> EN 1993-1-1 Table 5.2 sheet 3: D/t vs 50e2/70e2/90e2
+        (Class 1/2/3; Class 4 -> NOT_CHECKABLE D7). Offline-tested 1/2/3/4.
+      rect_hollow -> sheet 1 internal parts, c = b-3t / h-3t (r~1.5t), limits
+        33/38/42e (compression) and 72/83/124e (bending). Offline-tested 1/2/4.
+    ltb_check: closed hollow sections -> explicit NOT_CHECKABLE with reason
+      "closed hollow section ... lateral-torsional buckling does not apply to
+      torsionally-stiff closed sections; use the flexural strong/weak-axis
+      checks instead (D7)" - no I-section LTB logic is ever misapplied.
+
+(e) OFFLINE TESTS (tools/test_chs_sections.py, no COM):
+    verified-name resolution (12/5/5), decimal-diameter depth parsing,
+    static unit-mass vs hand calc (<0.1%), sheet-3 + sheet-1 classification
+    including the Class-4 NOT_CHECKABLE gate, LTB hollow gate,
+    ShapeType 36/47 mapping. All existing suites still pass.
+
+VERDICT: Phase 1 DONE - (a) 12 real CHS names live-resolved, (b) self-weight
+0.2% (single bar), (c) beam + truss equilibrium 0.00%/0.019%, (d) correct
+CHS classification + explicit NOT_CHECKABLE for closed-hollow LTB.

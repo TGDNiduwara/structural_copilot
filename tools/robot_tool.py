@@ -1713,6 +1713,29 @@ class RobotBridge:
     ) -> None:
         """Applies a concentrated nodal force/moment in a given case."""
         self._ensure_connected()
+        # [AUDIT 2026-08-23] Fail LOUDLY on a nonexistent node id: a load
+        # record targeting a merged-away / stale node id (Robot's solver
+        # merges coincident nodes during Calculate(), renumbering away some
+        # ids) silently produced ZERO reactions before this guard. Verify the
+        # node exists in the LIVE model so the caller never gets a silent
+        # no-op result.
+        try:
+            if not bool(self.structure.Nodes.Exist(int(node_id))):
+                raise ValueError(
+                    f"apply_nodal_load: node {node_id} does not exist in the "
+                    f"live model (was it merged into a coincident node by a "
+                    f"previous solve? run export_structure_spec to see the "
+                    f"current node ids).")
+        except ValueError:
+            raise
+        except Exception:
+            # Exist() unavailable on this build - fall back to a Get probe.
+            try:
+                self.structure.Nodes.Get(int(node_id))
+            except Exception as exc:
+                raise ValueError(
+                    f"apply_nodal_load: node {node_id} does not exist in the "
+                    f"live model ({exc}).") from exc
         case = CastTo(self.structure.Cases.Get(case_id), "IRobotSimpleCase")
 
         # [FIX R4/R7] Same corrected record pattern as apply_bar_load:
@@ -3289,6 +3312,15 @@ class RobotBridge:
         "IPE270": 36.1, "IPE300": 42.2, "IPE330": 49.1, "IPE360": 57.1,
         "IPE400": 66.3, "IPE450": 77.6, "IPE500": 90.7,
         "UB203x133x25": 25.0, "UB305x165x40": 40.0, "UC203x203x46": 46.0,
+        # CHS (UKST catalog) - kg/m = A * 7850 with A = pi*t*(D-t); the
+        # formula reproduces the LIVE catalog area to <0.3% (probe
+        # 2026-08-23: 139.7x5 16.642 vs 16.610, 88.9x4 8.399 vs 8.375,
+        # 48.3x3.2 3.556 vs 3.559). Static entries cache the live value so
+        # pure/offline paths (batch sizing) match Robot exactly.
+        "CHS42.4X3.2": 3.09, "CHS48.3X3.2": 3.56, "CHS60.3X3.2": 4.51,
+        "CHS76.1X3.2": 5.75, "CHS88.9X3.2": 6.76, "CHS88.9X4": 8.38,
+        "CHS114.3X4": 10.88, "CHS114.3X5": 13.48, "CHS139.7X5": 16.61,
+        "CHS139.7X8": 25.98, "CHS168.3X6": 24.02, "CHS219.1X8": 41.65,
     }
 
     def _lookup_unit_mass(self, section_name: str, density_kg_m3: float) -> float:

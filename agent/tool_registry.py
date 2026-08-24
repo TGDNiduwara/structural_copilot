@@ -1037,7 +1037,7 @@ TOOL_SCHEMAS = [
     },
     {
         "name": "list_available_sections",
-        "description": "Returns valid catalog section names (e.g. 'IPE 300', 'HEA 200') that the geometry templates and optimizer draw from, optionally filtered by family (IPE / HEA / HEB / HEM / IPN / UPN / UPE / L). Catalog-only and fast — no Robot solve needed. Use this to pick realistic candidate_sections for an optimization design space or a section for a bar. IMPORTANT for family='L' (angles): the list returns LEG sizes (e.g. 'L 120'); Robot's catalog resolves the FULL equal-angle name 'L <leg>x<leg>x<thickness>', e.g. 'L 60x60x6' — a thin t=5 is not available on every leg (120x120x5 does NOT exist). Prefer the template auto web sizing (create_truss without web_section) or build the full name from a leg here with a standard thickness (5 for legs<=60, 6 for <=100, 8 for <=120, 10/12 above) and verify.",
+        "description": "eturns valid catalog section names (e.g. 'IPE 300', 'HEA 200') that the geometry templates and optimizer draw from, optionally filtered by family (IPE / HEA / HEB / HEM / IPN / UPN / UPE / L / CHS / RHS / SHS). Catalog-only and fast - no Robot solve needed. Use this to pick realistic candidate_sections for an optimization design space or a section for a bar. IMPORTANT for family='L' (angles): the list returns FULL resolvable equal-angle names like 'L 60x60x6' - always use the '<leg>x<leg>x<thickness>' form; thin webs are not available on every leg (L 120x120x5 does NOT exist). IMPORTANT for family='CHS'/'RHS'/'SHS' (hollow sections, VERIFIED in Robot's UKST catalog; EURO/AISC/DIN/ARCLR/CISC/CHINA/JAPAN do not carry these forms): names use the UK convention 'CHS <outer_d>x<wall_t>', 'RHS <b>x<h>x<t>', 'SHS <b>x<b>x<t>', e.g. 'CHS 139.7x5', 'CHS 114.3x4', 'RHS 150x100x6', 'SHS 100x100x5'. Use exactly the names the family filter returns - they are the ones that resolve live",
         "parameters": {
             "type": "object",
             "properties": {
@@ -2412,8 +2412,14 @@ class ToolExecutor:
                 "first": new_nodes[0]["id"], "last": new_nodes[-1]["id"],
                 "ids": [n["id"] for n in new_nodes],
             }
+            # [AUDIT 2026-08-23] advance past the copied chain's BAR ids too
+            # (not just node ids): a bracing/web op after a copy used to start
+            # at a next_id that collided with the copied chain's chord bars.
+            # The twin-arch only dodged this because the following web op
+            # discards its own leading chord bars; a bracing op does not.
             self._compose_next_id = max(
-                self._compose_next_id, self._compose_chains[name]["last"] + 1)
+                self._compose_next_id, self._compose_chains[name]["last"] + 1,
+                (new_bars[-1]["id"] + 1) if new_bars else 1)
             return {"status": "ok",
                     "message": f"chain '{name}' copied from '{step['source']}' "
                                f"with y_shift={y_shift}",
@@ -2508,9 +2514,18 @@ class ToolExecutor:
             "supports": list(self._compose_supports),
             "__composed": True,
         }
+        # [AUDIT] Robot's solver SILENTLY MERGES coincident-but-distinct nodes
+        # during Calculate() (live-verified: 35 composed -> 25 solved nodes;
+        # the merged-away ids are exactly the coincident pairs). That is the
+        # root cause of the bar_uniform load shortfall and makes round-trips
+        # lossy, so merge them HERE - the single chokepoint where compose
+        # geometry is finalized - before the integrity pre-flight. The spec
+        # returned is then identical to what Robot will actually analyze.
+        from tools.geometry_primitives import merge_coincident_nodes
+        spec = merge_coincident_nodes(spec)
         issues = self.robot.spec_integrity_issues(spec)
-        counts = {"nodes": len(nodes), "bars": len(bars),
-                  "supports": len(self._compose_supports)}
+        counts = {"nodes": len(spec["nodes"]), "bars": len(spec["bars"]),
+                  "supports": len(spec.get("supports") or [])}
         message = (
             f"assembled {counts['nodes']} nodes / {counts['bars']} bars / "
             f"{counts['supports']} supports")

@@ -101,8 +101,60 @@ def classify_section(props: Dict[str, Any], fy_mpa: float,
                     "without live GetValue data) — NOT_CHECKABLE"}
 
     eps = math.sqrt(235.0 / fy)
+    kind = props.get("shape_kind")
     h, b, tw, tf, r = (props["h_m"], props["b_m"], props["tw_m"],
                        props["tf_m"], props["r_m"])
+
+    if kind == "circular_hollow":
+        # EN 1993-1-1 Table 5.2 sheet 3 (circular hollow sections). The
+        # single D/t series applies to BOTH compression and bending:
+        #   Class 1: D/t <= 50e2   Class 2: D/t <= 70e2   Class 3: D/t <= 90e2
+        D = max(h, b)          # h == b == outer diameter for CHS
+        t = tw                 # wall thickness
+        d_over_t = D / t if t > 0.0 else float("inf")
+        e2 = eps * eps
+        cls = 1 if d_over_t <= 50.0 * e2 else               (2 if d_over_t <= 70.0 * e2 else
+               (3 if d_over_t <= 90.0 * e2 else 4))
+        reason = (f"circular hollow (Table 5.2 sheet 3): D/t={d_over_t:.2f} "
+                  f"vs 50e2={50.0*e2:.2f}/70e2={70.0*e2:.2f}/90e2={90.0*e2:.2f}")
+        if cls >= 4:
+            reason += ("; Class 4 - effective width per EN 1993-1-5 is out "
+                       "of v1 scope, so the section is NOT_CHECKABLE (D7).")
+        return {
+            "class": cls, "web_class": cls, "flange_class": cls,
+            "eps": round(eps, 4), "web_c_t": round(d_over_t, 3),
+            "flange_c_t": round(d_over_t, 3),
+            "web_clear_mm": round(D * 1000.0, 2),
+            "flange_outstand_mm": round(t * 1000.0, 2),
+            "stress_state": state, "reason": reason,
+        }
+
+    if kind == "rect_hollow":
+        # EN 1993-1-1 Table 5.2 sheet 1 (internal compression parts) for
+        # rectangular/square hollow sections. Flat width c = b - 3t / h - 3t
+        # (allows for the corner radius r ~= 1.5t, standard UK practice).
+        web_c = max(h - 3.0 * tw, 0.0)
+        fl_c = max(b - 3.0 * tf, 0.0)
+        web_c_t = web_c / tw if tw > 0.0 else float("inf")
+        fl_c_t = fl_c / tf if tf > 0.0 else float("inf")
+        limits = _WEB_COMPRESSION if state in ("compression", "combined")             else _WEB_BENDING
+        web_cls = _class_of(web_c_t, limits, eps)
+        fl_cls = _class_of(fl_c_t, limits, eps)
+        overall = max(web_cls, fl_cls)
+        reason = (f"rectangular hollow (Table 5.2 sheet 1, internal parts): "
+                  f"web (h-3t)/t={web_c_t:.2f}, flange (b-3t)/t={fl_c_t:.2f}")
+        if overall >= 4:
+            reason += ("; Class 4 - effective width per EN 1993-1-5 is out "
+                       "of v1 scope, so the section is NOT_CHECKABLE (D7).")
+        return {
+            "class": overall, "web_class": web_cls, "flange_class": fl_cls,
+            "eps": round(eps, 4), "web_c_t": round(web_c_t, 3),
+            "flange_c_t": round(fl_c_t, 3),
+            "web_clear_mm": round(web_c * 1000.0, 2),
+            "flange_outstand_mm": round(fl_c * 1000.0, 2),
+            "stress_state": state, "reason": reason,
+        }
+
     web_c = web_clear_height(h, tf, r)
     fl_c = flange_outstand(b, tw, r)
     web_c_t = web_c / tw if tw > 0.0 else float("inf")

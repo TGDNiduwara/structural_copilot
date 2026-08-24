@@ -5,13 +5,13 @@
   "geometry": {
     "compose_steps": 10,
     "counts": {
-      "nodes": 44,
+      "nodes": 40,
       "bars": 138,
       "supports": 4
     },
     "robot_summary": {
       "status": "ok",
-      "nodes": 44,
+      "nodes": 40,
       "bars": 138,
       "cases": 0,
       "bbox": {
@@ -72,7 +72,7 @@
     {
       "name": "compose step 6 (web )",
       "ok": true,
-      "detail": "web pratt added between 'arch_b' and 'deck_b' (dropped 2 zero-length end bar(s): [134, 144])"
+      "detail": "web pratt added between 'arch_b' and 'deck_b' (dropped 2 zero-length end bar(s): [152, 162])"
     },
     {
       "name": "compose step 7 (bracing )",
@@ -97,22 +97,22 @@
     {
       "name": "compose finish",
       "ok": true,
-      "detail": "assembled 44 nodes / 138 bars / 4 supports"
+      "detail": "assembled 40 nodes / 138 bars / 4 supports"
     },
     {
       "name": "composed geometry counts",
       "ok": true,
-      "detail": "{'nodes': 44, 'bars': 138, 'supports': 4}"
+      "detail": "{'nodes': 40, 'bars': 138, 'supports': 4}"
     },
     {
       "name": "create_structure_from_spec",
       "ok": true,
-      "detail": "{'status': 'ok', 'nodes': 44, 'bars': 138, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 58"
+      "detail": "{'status': 'ok', 'nodes': 40, 'bars': 138, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 58"
     },
     {
       "name": "get_structure_summary",
       "ok": true,
-      "detail": "{'status': 'ok', 'nodes': 44, 'bars': 138, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 58, 'L 60x60x6': 40}}"
+      "detail": "{'status': 'ok', 'nodes': 40, 'bars': 138, 'cases': 0, 'bbox': {'x': [0.0, 30.0], 'y': [0.0, 6.0], 'z': [0.0, 5.0]}, 'sections': {'IPE 500': 40, 'L 80x80x8': 58, 'L 60x60x6': 40}}"
     },
     {
       "name": "apply_self_weight",
@@ -137,12 +137,12 @@
     {
       "name": "check_model_stability",
       "ok": true,
-      "detail": "ok=True no mechanism detected (rank 124/124)"
+      "detail": "ok=True no mechanism detected (rank 112/112)"
     },
     {
       "name": "solve",
       "ok": true,
-      "detail": "ok Solver run completed successfully. (60.3s)"
+      "detail": "ok Solver run completed successfully. (60.1s)"
     },
     {
       "name": "Robot-registered nodal self-weight matches tool total",

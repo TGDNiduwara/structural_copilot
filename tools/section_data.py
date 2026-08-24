@@ -33,6 +33,10 @@ SHAPE_TYPE_I: set = {10, 12, 14, 20, 25}
 SHAPE_TYPE_KIND: Dict[int, str] = {
     1: "angle", 10: "i", 12: "i", 14: "i", 20: "i", 25: "i",
     37: "channel", 38: "channel",
+    # [CHS 2026-08-23] live-probed ShapeType codes (UKST catalog):
+    #   36 = circular hollow section (CHS): h=b=D, tw=tf=t, r=0
+    #   47 = rectangular/square hollow section (RHS/SHS): full dims incl. r
+    36: "circular_hollow", 47: "rect_hollow",
 }
 
 
@@ -83,7 +87,7 @@ def extract_section_props(getvalue: Callable[[int], Any],
 def has_full_dims(props: Dict[str, Any]) -> bool:
     """True when all dimensions needed for classification/LTB are live."""
     return bool(props.get("complete")) and props.get("shape_kind") in (
-        "i", "channel", "angle")
+        "i", "channel", "angle", "circular_hollow", "rect_hollow")
 
 
 def flange_outstand(b_m: float, tw_m: float, r_m: float) -> float:

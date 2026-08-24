@@ -245,7 +245,19 @@ def check_ltb_member(
     base = {"length_m": round(length, 4), "note": LTB_NOTE,
             "warnings": warnings}
 
-    if props.get("shape_kind") != "i" or not has_full_dims(props):
+    kind = props.get("shape_kind")
+    if kind in ("circular_hollow", "rect_hollow"):
+        # Closed (tube) sections are torsionally stiff: lateral-torsional
+        # buckling per §6.3.2 does not apply to CHS/RHS/SHS - a flexural
+        # (major/minor axis) check is the correct one. Explicitly NOT_CHECKABLE
+        # here so no I-section LTB logic is ever misapplied to a tube.
+        return {**base, "status": "NOT_CHECKABLE",
+                "reason": "closed hollow section (circular/rectangular): "
+                          "lateral-torsional buckling does not apply to "
+                          "torsionally-stiff closed sections; use the "
+                          "flexural strong/weak-axis checks instead (D7).",
+                "section_kind": kind}
+    if kind != "i" or not has_full_dims(props):
         return {**base, "status": "NOT_CHECKABLE",
                 "reason": "LTB v1 scope: doubly-symmetric rolled I-sections "
                           "with live dimensions only (D7)."}

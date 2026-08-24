@@ -80,7 +80,7 @@ if not geom:
     print("NO GEOMETRY - aborting")
     sys.exit(1)
 step("composed geometry counts",
-     str(fin.get("counts")), fin.get("counts", {}).get("nodes") == 44)
+     str(fin.get("counts")), fin.get("counts", {}).get("nodes") == 40)
 
 # -- 2. build through the real Robot ------------------------------------------
 build = run_tool("create_structure_from_spec", {"spec": geom})

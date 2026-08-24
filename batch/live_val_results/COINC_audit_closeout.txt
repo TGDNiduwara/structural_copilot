@@ -1,0 +1,88 @@
+PHASE 2 CLOSEOUT - COINCIDENT-NODE AUDIT (2026-08-23)
+================================================================
+
+ROOT-CAUSE DISCOVERED (live, COINC_probe_roundtrip.py):
+  Robot's SOLVER MERGES coincident-but-distinct nodes during Calculate().
+  A 35-node composed F2 model solved to a 25-node live model; the
+  merged-away ids are exactly the coincident pairs. This is the underlying
+  mechanism of the whole class: bar_uniform records on bars incident to
+  merged-away nodes are dropped (the original 15.68% shortfall), and
+  export_structure_spec round-trips are lossy after a solve.
+
+FIX AT THE SINGLE CHOKEPOINT:
+  * geometry_primitives.merge_coincident_nodes() (PURE) merges distinct
+    nodes at identical coordinates up front, rewriting bar endpoints /
+    supports / nodal-load references.
+  * _compose_finish applies it: compose-built specs NEVER contain
+    coincident nodes -> identical to what Robot will analyze -> no solver
+    merge, no load loss, lossless round-trip.
+  * apply_nodal_load now FAILS LOUDLY on a nonexistent node id (was a
+    silent no-op: a load on a merged-away id gave 0 reactions).
+  * Offline regressions: test_compose_copy_then_bracing_no_id_collision
+    (copy op advanced next_id past nodes only -> a following bracing op
+    collided with copied chord bars - FIXED), test_merge_coincident_nodes.
+
+EVIDENCE TABLE (tool | coincident behavior | verdict | evidence):
+--------------------------------------------------------------------------
+apply_bar_load (bar-uniform)
+  | coincident nodes: Robot drops loads on bars incident to merged nodes
+  | AT RISK for hand-built coincident specs (verified 6.9-20% shortfall)
+  | FIXED at the same chokepoint earlier: auto-nodal guard + compose now
+    merges up front (no coincident nodes remain for compose models)
+  | evidence: COMPOSE_LIVE_RUN6 (twin-arch 40-node, 0.00% equilibrium),
+    COMPOSE_probe_fix_verify.py (0.00% on all three builds)
+--------------------------------------------------------------------------
+apply_nodal_load
+  | at a coincident pair's member (pre-merge hand-built): load lands
+    correctly on the right node, reactions identical either side
+  | SAFE for existing nodes (case1..case4 = 10.000, 0.00%)
+  | NEW RISK found: a load on a MERGED-AWAY / nonexistent id silently
+    no-opped (0 reactions) -> now RAISES loudly
+  | evidence: COINC_live_audit2.py (4 cases = 10.000 each; nonexistent
+    9999 raises), first COINC_live_audit.py (coincident pair 4/102 both
+    gave 10.000 pre-merge)
+--------------------------------------------------------------------------
+define_combination / solve read-back
+  | combined reactions at coincident locations read back exactly
+  | SAFE (ULS_AB / ULS_CD = 27.000, 0.00%)
+  | evidence: COINC_live_audit2.py
+--------------------------------------------------------------------------
+export_structure_spec round-trip
+  | hand-built coincident spec: Robot merges at solve (35->25), export
+    returns the merged 25 -> SILENT LOSS of the composed topology
+  | AT RISK for hand-built coincident specs; FIXED for compose models
+    (merge up front -> export == composed, rebuild == 25 nodes)
+  | evidence: COINC_probe_roundtrip.py (35->25 after solve),
+    COINC_live_audit2.py (25 -> export 25 -> rebuild 25)
+--------------------------------------------------------------------------
+check_model_stability
+  | rank check keys nodes by id from the live collection -> coincident
+    nodes are counted separately; no false positive/negative
+  | SAFE (F2 unmerged rank 101/101 = 35 nodes; merged rank 71/71 = 25;
+    F3 control 38/38)
+  | evidence: COINC_live_audit.py + COINC_live_audit2.py
+--------------------------------------------------------------------------
+ltb_check / section_classification / connection_check
+  | these consume per-bar section props / connection dicts, NOT node
+    coordinates (code review) - no coincident-node interaction possible
+  | SAFE
+  | evidence: tools/ltb_check.py + section_classification.py +
+    connection_check.py signatures; CHS/classification offline tests
+--------------------------------------------------------------------------
+buckling_check (batch)
+  | reads bar endpoint node coords by ID for bar length (L/r) - distinct
+    ids at coincident coords give identical lengths; no merge
+  | SAFE
+  | evidence: batch/buckling_check.py lines 69-73 (per-id Nodes.Get)
+--------------------------------------------------------------------------
+
+FIXTURES (2.1): F1 twin-arch (springing pairs) - known-bad class;
+  F2 multi-location (supports / midspan / free-end coincident pairs via
+  arch+inverted-arch+ghost chains, 10 pairs) - after compose merge these
+  resolve up front to a clean 25-node model; F3 flat control (no pairs).
+  Offline: COINC_fixture_offline.py (F2 35->25 nodes after merge, 0
+  coincident pairs, 0 zero-length bars).
+
+VERDICT: coincident-node class fixed at the compose chokepoint + two new
+loud guards (apply_nodal_load existence, copy-op next_id). Every audited
+tool row has live evidence above.

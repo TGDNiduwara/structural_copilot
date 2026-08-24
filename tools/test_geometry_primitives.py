@@ -695,6 +695,48 @@ def test_compose_bracing_lengths_sane():
           "for mismatched span/rise chains")
 
 
+def test_merge_coincident_nodes():
+    # [AUDIT] Robot's solver merges coincident-but-distinct nodes during
+    # Calculate() (live-verified 35 -> 25). merge_coincident_nodes() does that
+    # merge UP FRONT so the composed spec equals what Robot analyzes.
+    from tools.geometry_primitives import merge_coincident_nodes
+    g = {
+        "nodes": [
+            {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
+            {"id": 56, "x": 0.0, "y": 0.0, "z": 0.0},
+            {"id": 7, "x": 6.0, "y": 0.0, "z": 0.0},
+            {"id": 62, "x": 6.0, "y": 0.0, "z": 0.0},
+            {"id": 4, "x": 3.0, "y": 0.0, "z": 0.0},
+        ],
+        "bars": [
+            {"id": 1, "n1": 56, "n2": 62, "section": "IPE 200"},
+            {"id": 2, "n1": 1, "n2": 7, "section": "IPE 200"},
+        ],
+        "supports": [{"node": 1, "type": "pinned"},
+                     {"node": 62, "type": "pinned"}],
+        "loads": [{"kind": "nodal", "node": 56, "case": 1,
+                    "fz": -10.0}],
+    }
+    m = merge_coincident_nodes(g)
+    ids = [n["id"] for n in m["nodes"]]
+    assert ids == [1, 7, 4], f"merged ids {ids}"
+    by_id = {n["id"]: n for n in m["nodes"]}
+    assert all(abs(by_id[i]["x"] - (0.0 if i == 1 else 6.0 if i == 7 else 3.0)) < 1e-9
+               for i in ids)
+    bars = {b["id"]: b for b in m["bars"]}
+    assert bars[1]["n1"] == 1 and bars[1]["n2"] == 7, bars[1]
+    assert bars[2]["n1"] == 1 and bars[2]["n2"] == 7, bars[2]
+    assert {s["node"] for s in m["supports"]} == {1, 7}
+    assert m["loads"][0]["node"] == 1
+    assert m["__merged_coincident_nodes"] == 2
+    # no coincident pairs -> unchanged copy
+    m2 = merge_coincident_nodes({"nodes": [{"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
+                                            {"id": 2, "x": 1.0, "y": 0.0, "z": 0.0}]})
+    assert m2["__merged_coincident_nodes"] == 0
+    print("  OK: merge_coincident_nodes rewrites endpoints/supports/loads, "
+          "keeps lowest id")
+
+
 def test_compose_coincident_node_detector():
     """_coincident_node_pairs() must flag distinct nodes sharing a coordinate
     (the arch-springing geometry that makes Robot silently lose bar-uniform
@@ -777,6 +819,33 @@ def test_compose_per_op_validation():
     print("  OK: per-op compose validation fails loudly on every bad input")
 
 
+def test_compose_copy_then_bracing_no_id_collision():
+    # [AUDIT 2026-08-23] a bracing op immediately after a copy must not
+    # collide with the copied chain chord bars (copy advanced the id
+    # counter past nodes only; a following bracing/web op used to collide).
+    from agent.tool_registry import ToolExecutor
+    t = ToolExecutor(robot_visible=False)
+    steps = [
+        {"op": "chord", "name": "top_a", "kind": "straight", "span": 6.0,
+         "n_panels": 6, "elevation": 2.0, "plane": 0.0, "section": "IPE 200"},
+        {"op": "copy", "source": "top_a", "name": "ghost_a", "y_shift": 0.0},
+        {"op": "bracing", "plane_a": "top_a", "plane_b": "ghost_a",
+         "pattern": "cross", "section": "L 50x50x5"},
+        {"op": "chord", "name": "deck_a", "kind": "straight", "span": 6.0,
+         "n_panels": 6, "elevation": 0.0, "plane": 0.0, "section": "IPE 200"},
+        {"op": "web", "top": "top_a", "bottom": "deck_a", "pattern": "pratt",
+         "web_section": "L 50x50x5"},
+    ]
+    for st in steps:
+        t._compose_apply_step(st)
+    res = t._compose_finish()
+    assert res["status"] == "ok", res
+    bar_ids = [b["id"] for b in res["geometry"]["bars"]]
+    assert len(bar_ids) == len(set(bar_ids)),         "duplicate bar ids after copy->bracing: " +         str(sorted({i for i in bar_ids if bar_ids.count(i) > 1}))
+    print("  OK: copy-then-bracing never collides bar ids "
+          f"({len(bar_ids)} unique bars)")
+
+
 def test_compose_full_assembly_finish():
     """End-to-end: a 2-plane twin-arch via per-step calls -> finish() returns
     ONE spec whose integrity pre-flight is clean and counts are exact."""
@@ -806,12 +875,14 @@ def test_compose_full_assembly_finish():
     res = t._compose_finish()
     assert res["status"] == "ok"
     geom = res["geometry"]
-    # 4 chains x 11 nodes = 44 nodes. Bars: 4x10 chain chord bars + 2x29 web
-    # (verticals+diagonals only; chains already carry chord bars; the 4
-    # zero-length end verticals where the arch springs from z=0 onto the deck
-    # ends are dropped as degenerate) + 2x20 bracing = 40 + 58 + 40 = 138.
-    # Supports: 2 ends x 2 decks.
-    assert res["counts"]["nodes"] == 44
+    # 4 chains x 11 nodes = 44 composed nodes, minus the 4 coincident
+    # arch-springing pairs merged by compose finish (Robot's solver merges
+    # coincident nodes; compose now does it up front) = 40 nodes. Bars: 4x10
+    # chain chord bars + 2x29 web (verticals+diagonals only; chains already
+    # carry chord bars; the 4 zero-length end verticals are dropped as
+    # degenerate) + 2x20 bracing = 40 + 58 + 40 = 138. Supports: 2 ends x 2
+    # decks.
+    assert res["counts"]["nodes"] == 40
     assert res["counts"]["bars"] == 138
     assert res["counts"]["supports"] == 4
     assert geom["__composed"] is True
@@ -842,7 +913,9 @@ def main():
     test_compose_web_and_bracing_primitives()
     test_compose_copy_no_id_collision()
     test_compose_bracing_lengths_sane()
+    test_merge_coincident_nodes()
     test_compose_coincident_node_detector()
+    test_compose_copy_then_bracing_no_id_collision()
     test_compose_per_op_validation()
     test_compose_full_assembly_finish()
     print("ALL PART A + PART B + PART C TESTS PASSED")

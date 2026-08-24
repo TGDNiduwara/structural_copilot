@@ -52,6 +52,9 @@ FAMILY_SIZES: Dict[str, List[int]] = {
             360, 400],
     "L": [20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 120, 150,
           200, 250],
+    "CHS": [42, 48, 60, 76, 89, 114, 140, 168, 219],
+    "RHS": [100, 120, 150, 200, 250],
+    "SHS": [80, 100, 120, 150, 200],
 }
 
 #: First-pass span-to-depth ratios per element type (engineering judgement;
@@ -86,6 +89,33 @@ _L_WEB_THICKNESS: Dict[int, int] = {
     100: 10, 120: 10, 150: 10,
 }
 
+#: Hollow-section names VERIFIED against Robot's live UKST catalog
+#: (probe 2026-08-23): CHS d x t / RHS b x h x t / SHS b x b x t.
+#: EURO/AISC/DIN/ARCLR/CISC/CHINA/JAPAN returned NONE for these forms;
+#: UKST is the catalog that carries them. Only these exact names are
+#: advertised so the LLM never sees a non-resolvable guess.
+CHS_SECTION_NAMES: List[str] = [
+    "CHS 42.4x3.2", "CHS 48.3x3.2", "CHS 60.3x3.2",
+    "CHS 76.1x3.2", "CHS 88.9x3.2", "CHS 88.9x4",
+    "CHS 114.3x4", "CHS 114.3x5", "CHS 139.7x5",
+    "CHS 139.7x8", "CHS 168.3x6", "CHS 219.1x8",
+]
+RHS_SECTION_NAMES: List[str] = [
+    "RHS 100x50x4", "RHS 120x80x5", "RHS 150x100x6",
+    "RHS 200x100x6", "RHS 250x150x8",
+]
+SHS_SECTION_NAMES: List[str] = [
+    "SHS 80x80x4", "SHS 100x100x5", "SHS 120x120x6",
+    "SHS 150x150x8", "SHS 200x200x10",
+]
+#: Family code -> verified-name table (L / CHS / RHS / SHS).
+_VERIFIED_SECTION_NAMES: Dict[str, List[str]] = {
+    "L": L_SECTION_NAMES,
+    "CHS": CHS_SECTION_NAMES,
+    "RHS": RHS_SECTION_NAMES,
+    "SHS": SHS_SECTION_NAMES,
+}
+
 
 def available_sections(family: Optional[str] = None) -> List[str]:
     """Valid catalog-style section names ("IPE 300", "HEA 200", ...) from
@@ -105,13 +135,13 @@ def available_sections(family: Optional[str] = None) -> List[str]:
             raise ValueError(
                 f"Unknown section family '{family}'. Known families: "
                 f"{sorted(FAMILY_SIZES)}")
-        if key == "L":
-            return list(L_SECTION_NAMES)
+        if key in _VERIFIED_SECTION_NAMES:
+            return list(_VERIFIED_SECTION_NAMES[key])
         return [f"{key} {size}" for size in FAMILY_SIZES[key]]
     out: List[str] = []
     for fam in sorted(FAMILY_SIZES):
-        if fam == "L":
-            out.extend(L_SECTION_NAMES)
+        if fam in _VERIFIED_SECTION_NAMES:
+            out.extend(_VERIFIED_SECTION_NAMES[fam])
         else:
             out.extend(f"{fam} {size}" for size in FAMILY_SIZES[fam])
     return out
@@ -260,10 +290,10 @@ def section_depth_mm(section_name: str) -> Optional[float]:
     name = str(section_name or "").strip().upper()
     if not name:
         return None
-    m = re.match(r"^([A-Z]+)\s*([0-9]+)", name)
+    m = re.match(r"^([A-Z]+)\s*([0-9]+\.[0-9]*|[0-9]+)", name)
     if not m:
         return None
-    family, num = m.group(1), int(m.group(2))
+    family, num = m.group(1), float(m.group(2))
     if family == "W":
         return num * 25.4
     return float(num)

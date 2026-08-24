@@ -460,4 +460,53 @@ def apply_support_pattern(
     return [{"node": int(nid), "type": st} for nid in node_ids]
 
 
+def merge_coincident_nodes(geometry: Dict[str, Any]) -> Dict[str, Any]:
+    # Merge distinct nodes at IDENTICAL coordinates into one (lowest id wins),
+    # rewriting every bar endpoint / support node / nodal-load reference and
+    # dropping the duplicate nodes.
+    #
+    # [AUDIT] Live-verified: Robot's SOLVER merges coincident-but-distinct
+    # nodes during Calculate() (a 35-node composed model solved to a 25-node
+    # live model; the merged-away ids are exactly the coincident pairs). That
+    # silent merge is the root cause of the bar-uniform load shortfall (loads
+    # on bars incident to merged-away nodes are dropped) and makes
+    # export_structure_spec round-trips lossy. Merging HERE - the single place
+    # compose geometry is finalized - makes the spec identical to what Robot
+    # will actually analyze, so the class cannot occur for compose models.
+    # PURE (no COM): takes/returns a spec dict {nodes, bars, supports, loads}.
+    nodes = geometry.get("nodes") or []
+    bars = geometry.get("bars") or []
+    supports = geometry.get("supports") or []
+    loads = geometry.get("loads") or []
 
+    coord_to_id: Dict[Tuple[float, float, float], int] = {}
+    remap: Dict[int, int] = {}
+    for n in nodes:
+        nid = int(n["id"])
+        key = (round(float(n.get("x", 0.0)), 6),
+               round(float(n.get("y", 0.0)), 6),
+               round(float(n.get("z", 0.0)), 6))
+        if key in coord_to_id:
+            remap[nid] = coord_to_id[key]
+        else:
+            coord_to_id[key] = nid
+    if not remap:
+        out = dict(geometry)
+        out["__merged_coincident_nodes"] = 0
+        return out
+    keep = set(coord_to_id.values())
+
+    def r(nid: int) -> int:
+        return remap.get(int(nid), int(nid))
+
+    out = dict(geometry)
+    out["nodes"] = [n for n in nodes if int(n["id"]) in keep]
+    out["bars"] = [dict(b, n1=r(b["n1"]), n2=r(b["n2"])) for b in bars]
+    if isinstance(supports, list):
+        out["supports"] = [dict(s, node=r(s["node"])) for s in supports]
+    if isinstance(loads, list):
+        out["loads"] = [dict(ld, node=r(ld["node"]))
+                        if str(ld.get("kind")) == "nodal" else dict(ld)
+                        for ld in loads]
+    out["__merged_coincident_nodes"] = len(remap)
+    return out

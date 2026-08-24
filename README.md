@@ -423,6 +423,14 @@ names all raise actionable errors, never deferred to `finish`); `finish` then
 runs the same `spec_integrity_issues` pre-flight as `build_structure_from_spec`
 and refuses to return a broken spec. Auto-numbering means node/bar ids are
 never computed by hand and copies can never collide with existing chains.
+[2026-08-23 AUDIT] compose finish also MERGES coincident-but-distinct nodes
+(identical coordinates) into one node up front - Robot's solver silently
+merges them during Calculate() anyway, which was the root cause of the
+bar-uniform load shortfall and of lossy export_structure_spec round-trips
+after a solve. Compose-built models therefore never contain coincident
+nodes, so bar_uniform loads are always exact on them and the round-trip is
+lossless. apply_nodal_load now fails loudly if the target node does not
+exist in the live model (a silent no-op otherwise).
 The named templates (`truss_spec` / `arch_truss_spec` / `cylindrical_tank_spec`)
 are themselves re-implemented as recipes over these primitives, guarded
 byte-identical by `tools/test_geometry_primitives.py::test_legacy_byte_identity`.
