@@ -1,0 +1,56 @@
+BAR-DELETION / RENUMBER CONFIRMATION - twin-arch, Calculate() - 2026-08-24
+=======================================================================
+QUESTION: do the 8 chord bars that vanish across Calculate() get DELETED
+or RENUMBERED?
+
+VERDICT: DELETED. Not renumbered. Root cause: the compose node-merge
+creates 8 coincident (duplicate node-pair) BAR pairs at the 4 support
+locations, and Robot's solver deletes one member of each pair - the IPE 500
+chord - silently dropping its load records (the E1 20% shortfall mechanism).
+
+EVIDENCE (single-session probe COINC_AUDIT_BAR_DELETION3.py, READ-ONLY;
+confirmed across COINC_AUDIT_BAR_DELETION.py / _DELETION2.py):
+  1. POST-SOLVE live ids = pre ids MINUS exactly {11, 20, 31, 40, 102, 111,
+     122, 131}; NEW (post - pre) = []. No renumbering.
+  2. Bars.Get(31) etc. throw E_FAIL post-solve (id genuinely absent).
+  3. UDL records post-solve target ONLY the 16 interior deck bars
+     (32-39, 123-130). The 4 end-deck-bar records are REMOVED:
+     UDL load on LIVE bars = 480.000 kN; on vanished bars = 0.000 kN.
+  4. reaction sum(FZ) = 480.000 kN (20.00% shortfall vs 600).
+  5. The 8 end CONNECTIONS still appear live, but ONLY at the coincident
+     L 80x80x8 end-panel web bars (ids 72/73/90/91/163/164/181/182) that
+     share the SAME node pair as the deleted chords - a coordinate-match
+     false positive that explained the earlier 'renumbered' appearance.
+
+OFFLINE GEOMETRY PROOF (compose finish, no Robot): the merged geometry
+has 8 duplicate node-pair bars, each (web L 80x80x8, chord IPE 500):
+  [1,22]  (72, L) + (31, IPE)   [1,2]   (73, L) + (11, IPE)
+  [10,11] (90, L) + (20, IPE)   [11,30] (91, L) + (40, IPE)
+  [92,113](163, L)+ (122, IPE)  [92,93] (164, L)+ (102, IPE)
+  [101,102](181, L)+(111, IPE)  [102,121](182, L)+(131, IPE)
+
+ROOT-CAUSE CHAIN
+  1. Compose builds arch springing nodes coincident with deck-end nodes.
+  2. merge_coincident_nodes() merges the 4 NODE pairs (fixes node dup).
+  3. The node merge REWRITES bar endpoints, and the end-panel pratt web
+     diagonals become geometrically identical to the end deck/arch chord
+     bars -> 8 coincident BAR pairs are CREATED by the merge.
+  4. Robot's Calculate() deletes one member of each duplicate pair -
+     the IPE 500 chord - keeping the L web.
+  5. The deleted chords' bar_uniform records are removed with them: the 4
+     end deck bars carried 4 x 30 kN = 120 kN -> 20% reaction shortfall.
+
+IMPLICATIONS
+  * The E1 20% shortfall is fully explained and deterministic.
+  * merge_coincident_nodes() fixes coincident NODES but CREATES coincident
+    BARS; compose should also dedupe coincident bars (or flag them).
+  * apply_bar_load cannot protect against this: the model has NO coincident
+    node pairs, so bar_uniform_record is chosen, then Calculate deletes the
+    loaded bars.
+  * fix_verify BUILD1's 0.000% was a false negative (its id filter loaded
+    only the 8 interior deck_a bars, none of which are in a duplicate pair).
+  * The 8 deleted bars are the SAME ids that made Bars.Get() fail in the
+    section checks - they are absent, not thinner: the section-difference
+    theory is definitively dead.
+
+STATUS: READ-ONLY diagnosis. NOTHING patched (per instruction).

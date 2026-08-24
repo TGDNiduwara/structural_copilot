@@ -1,0 +1,118 @@
+COINCIDENT-NODE AUDIT - PHASE 2 (third-solver, OpenSeesPy) - 2026-08-24
+=======================================================================
+Status: OFFLINE COMPLETE. Live-Robot quantification PENDING one-seat
+coordination (Calculate() NOT invoked yet).
+
+(a) TRUST GATE (tools/diagnostics/opensees_crosscheck.py --self-test)
+    ALL PASS at 0.000% (portal col axial 30/30, M_end+M_mid=45 kNm;
+    CHS beam reactions 25 kN + midspan 15.625 kNm; cantilever shear 50 /
+    moment 250 kNm).
+
+(b) CROSS-CHECK TOOL HARDENING (found + fixed during THIS audit)
+    Global-direction bar_uniform on INCLINED bars was under-applied by the
+    diagnostic: -beamUniform is transverse-only, so the AXIAL component of a
+    global-Z UDL was dropped (arch reference measured 284.6 kN vs the exact
+    316.2 kN). Fixed by lumping the axial component (full vector along the
+    bar axis) to the sub-element ends. Trust gate re-passed 0.000%; repo
+    green (ruff check ., pytest 36/36). Horizontal-bar cases were always
+    exact - this only affected inclined bars.
+
+(c) SPECS (batch/live_val_results/COINC_AUDIT_OPENSEES_specs.json)
+    S2_premerge : hand-built single-plane arch truss, 6 nodes / 5 bars /
+                  2 pinned deck-ends. Arch springing nodes 4 and 6 sit at
+                  the SAME coordinates as deck-end nodes 1 and 3.
+                  Robot detector _coincident_node_pairs() -> [(1,4),(3,6)].
+    S3_merged   : merge_coincident_nodes(S2) -> 4 nodes (2 merged),
+                  identical to what compose's _compose_finish chokepoint
+                  produces and what Robot's solver silently analyzes.
+
+(d) GAP SURFACE (code map, who writes true bar-load records)
+    apply_bar_load          : PROTECTED (coincident check -> nodal_lumped)
+    apply_self_weight       : PROTECTED by construction (nodal_lumped since
+                              2026-08-23 fix; no records written)
+    apply_bar_concentrated  : NOT PROTECTED - writes a true
+                              I_LRT_BAR_FORCE_CONCENTRATED record with no
+                              coincident-node check. Reachable from
+                              build_structure_from_spec(kind="bar_concentrated"),
+                              custom scripts, and smoke tests.
+    => CODE-LEVEL GAP CONFIRMED for concentrated bar loads on coincident
+       models. Whether it under-transfers (like bar_uniform's 6.9-20%)
+       still needs the live measurement below.
+
+(e) OPENSEESPY IDEAL REFERENCES (S3_merged; COINC_AUDIT_OPENSEES_refs.json)
+    VA deck bar_uniform       : FZ 150.0 / 150.0   total 300.000 kN
+    VB arch bar_uniform       : FZ 158.114 / 158.114 total 316.228 kN
+    VC deck bar_concentrated  : FZ 37.5 / 12.5     total 50.000 kN (P*a/L)
+    VD nodal at surviving node: FZ 30.0 / 0.0      total 30.000 kN
+    VE self-weight (nodal)    : FZ 27.653 / 27.653 total 55.306 kN
+
+(f) OPENSEESPY PRE-MERGE == MERGED (all variants, diff ~1e-12)
+    The ideal solver treats coincident distinct nodes as independent and
+    never merges/drops loads - so any shortfall measured live in Robot on
+    S2 is Robot-solver-specific, with the OpenSeesPy totals as the truth
+    reference. (This also confirms compose's pre-merge is the correct
+    defensive fix: the as-specified and merged models are identical for
+    a solver that does not drop loads.)
+
+(g) PENDING LIVE ROBOT EXPERIMENTS (need seat coordination, NOT run yet)
+    E1 compose twin-arch + deck UDL   -> expect 0.00% vs OpenSeesPy/closed
+    E2 hand-built S2 + apply_bar_load -> expect method=nodal_lumped,
+                                         0.00% vs reference (protection works)
+    E3 hand-built S2 + force_record   -> quantify shortfall vs reference
+    E4 hand-built S2 + bar_concentrated (the gap) -> quantify shortfall
+    E5 hand-built S2 + nodal on node 4 -> does the load survive the merge?
+    E6 hand-built S2 + apply_self_weight -> expect 0.00% (nodal by design)
+    E7 hand-built S3 (control) + bar_uniform -> expect 0.00%
+===========================================================================
+LIVE ROBOT RESULTS (approved one-seat run, 2026-08-24 ~16:40-17:10)
+===========================================================================
+REAL GAP CONFIRMED - see (h). Full per-experiment detail:
+
+E1 compose twin-arch + deck bar_uniform (ALL 20 deck bars, 600 kN):
+    merge fired (merged_coincident=4), apply_bar_load -> bar_uniform_record x20
+    solve -> sum(FZ) = 480.000 kN vs 600.0 applied -> SHORTFALL 20.00%
+    (no instability dialog on this solve; clean 60 s solve)
+
+E1b reconciliation (rigorous, logged):
+    filter A (geometric, both endpoints z==0): 20 deck bars, total 600.0 kN
+    filter B (fix_verify id ranges {21..31}|{103..113}): 8 bars, total 240.0 kN
+    => COMPOSE_probe_fix_verify BUILD1 was a FALSE NEGATIVE: its id-based
+       filter matched only the 8 INTERIOR deck_a bars (240 kN) on the merged
+       geometry and excluded exactly the 4 END deck bars (31, 40, 122, 131 -
+       the ones whose endpoints sit at the former coincident coordinates
+       1/11/92/102). 240 kN @ 0.000% said nothing about the dropped bars.
+
+E2 hand-built S2 + apply_bar_load : method=nodal_lumped, 300.000 vs 300 -> 0.0000%
+E3 hand-built S2 + force_record(deck): 300.000 vs 300 -> 0.00% (deck bars touch
+    surviving nodes only)
+E4 hand-built S2 + bar_concentrated(deck): 50.000 vs 50 -> 0.00%
+E5 hand-built S2 + nodal @ merged-away node 4: 30.000 vs 30 -> 100% retained
+    (nodal loads survive Robot's silent merge)
+E6 hand-built S2 + apply_self_weight: method=nodal_lumped, 55.3040 vs reported
+    55.3035 -> 0.0009%
+E7 hand-built S3 (merged control) + apply_bar_load: bar_uniform_record,
+    300.000 vs 300 -> 0.0000%
+E3b hand-built S2 + force_record(ARCH bars 3,4 incident to merged-away nodes):
+    316.228 vs 316.228 -> 0.00%
+E4b hand-built S2 + bar_concentrated(ARCH bar 3): 50.000 vs 50 -> 100%
+    => the S2 planar model does NOT reproduce the drop (solver continues past
+       out-of-plane instability dialogs); the drop is specific to the twin-arch
+       3D geometry end deck bars.
+E1c/E1d (interior-only vs end-only deck bars) - NOT COMPLETED: the Robot
+    session died mid-solve (dialogs/session instability); the core finding in
+    (h) does not depend on it.
+
+(h) REAL GAP - STOP AND REPORT (not patched)
+    A compose-built, merged twin-arch (no coincident node pairs remaining,
+    _coincident_node_pairs() == [] on the bookkeeping) STILL under-transfers
+    bar_uniform loads by 20.0% when the FULL deck UDL is applied. apply_bar_load
+    correctly reports method=bar_uniform_record (the protection cannot fire
+    because the historical coincidence is invisible after merge), yet Robot's
+    solver drops the loads on the 4 end deck bars incident to the former
+    coincident coordinates. The compose merge chokepoint + apply_bar_load
+    detection therefore do NOT close the shortfall class for compose models.
+    fix_verify's BUILD1 0.000% was an artifact of its bar filter (240 kN subset).
+    Per instruction this finding is REPORTED, not silently patched. It affects
+    live analysis correctness for compose-built models under bar_uniform loads
+    (and by mechanism, any bar-record load on end/edge members at former
+    coincident-node locations).

@@ -1,0 +1,127 @@
+{
+ "E1_compose_deck_uniform": {
+  "ok": false,
+  "summary": "sumFZ=480.000 vs 600.0 kN (open ref) err=20.0000% (solve 60s)",
+  "extra": {
+   "rows": [
+    [
+     1,
+     120.0
+    ],
+    [
+     11,
+     120.0
+    ],
+    [
+     92,
+     120.0
+    ],
+    [
+     102,
+     120.0
+    ]
+   ],
+   "method": "bar_uniform_record",
+   "merged": 4
+  }
+ },
+ "E2_S2_apply_bar_load": {
+  "ok": true,
+  "summary": "method=nodal_lumped sumFZ=300.000 vs 300.0 (ref) err=0.0000%",
+  "extra": {
+   "rows": [
+    [
+     1,
+     150.0
+    ],
+    [
+     3,
+     150.0
+    ]
+   ],
+   "r1_method": "nodal_lumped"
+  }
+ },
+ "E3_S2_force_record": {
+  "ok": true,
+  "summary": "sumFZ=300.000 vs 300.0 (ref) shortfall=0.00%",
+  "extra": {
+   "rows": [
+    [
+     1,
+     150.0
+    ],
+    [
+     3,
+     150.0
+    ]
+   ]
+  }
+ },
+ "E4_S2_bar_concentrated": {
+  "ok": true,
+  "summary": "sumFZ=50.000 vs 50.0 (ref) shortfall=0.00%",
+  "extra": {
+   "rows": [
+    [
+     1,
+     50.0
+    ],
+    [
+     3,
+     0.0
+    ]
+   ]
+  }
+ },
+ "E5_S2_nodal_at_node4": {
+  "ok": true,
+  "summary": "sumFZ=30.000 vs 30.0 (ref on surviving node) retained=100.0%",
+  "extra": {
+   "rows": [
+    [
+     1,
+     30.0
+    ],
+    [
+     3,
+     0.0
+    ]
+   ]
+  }
+ },
+ "E6_S2_selfweight": {
+  "ok": true,
+  "summary": "method=nodal_lumped reported=55.3035 sumFZ=55.3040 err=0.0009%",
+  "extra": {
+   "rows": [
+    [
+     1,
+     27.652
+    ],
+    [
+     3,
+     27.652
+    ]
+   ],
+   "reported_total": 55.3035
+  }
+ },
+ "E7_S3_control": {
+  "ok": true,
+  "summary": "method=bar_uniform_record sumFZ=300.000 vs 300.0 err=0.0000%",
+  "extra": {
+   "rows": [
+    [
+     1,
+     150.0
+    ],
+    [
+     3,
+     150.0
+    ]
+   ],
+   "r1_method": "bar_uniform_record"
+  }
+ }
+}

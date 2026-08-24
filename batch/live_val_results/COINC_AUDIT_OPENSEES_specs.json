@@ -1,0 +1,286 @@
+{
+ "S2_premerge": {
+  "project": "3D",
+  "nodes": [
+   {
+    "id": 1,
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "id": 2,
+    "x": 15.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "id": 3,
+    "x": 30.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "id": 4,
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "id": 5,
+    "x": 15.0,
+    "y": 0.0,
+    "z": 5.0
+   },
+   {
+    "id": 6,
+    "x": 30.0,
+    "y": 0.0,
+    "z": 0.0
+   }
+  ],
+  "bars": [
+   {
+    "id": 1,
+    "n1": 1,
+    "n2": 2,
+    "section": "IPE 500"
+   },
+   {
+    "id": 2,
+    "n1": 2,
+    "n2": 3,
+    "section": "IPE 500"
+   },
+   {
+    "id": 3,
+    "n1": 4,
+    "n2": 5,
+    "section": "IPE 500"
+   },
+   {
+    "id": 4,
+    "n1": 5,
+    "n2": 6,
+    "section": "IPE 500"
+   },
+   {
+    "id": 5,
+    "n1": 5,
+    "n2": 2,
+    "section": "L 80x80x8"
+   }
+  ],
+  "supports": [
+   {
+    "node": 1,
+    "type": "pinned"
+   },
+   {
+    "node": 3,
+    "type": "pinned"
+   }
+  ],
+  "cases": [
+   {
+    "id": 1,
+    "name": "C1",
+    "nature": "permanent"
+   }
+  ],
+  "loads": []
+ },
+ "S3_merged": {
+  "project": "3D",
+  "nodes": [
+   {
+    "id": 1,
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "id": 2,
+    "x": 15.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "id": 3,
+    "x": 30.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   {
+    "id": 5,
+    "x": 15.0,
+    "y": 0.0,
+    "z": 5.0
+   }
+  ],
+  "bars": [
+   {
+    "id": 1,
+    "n1": 1,
+    "n2": 2,
+    "section": "IPE 500"
+   },
+   {
+    "id": 2,
+    "n1": 2,
+    "n2": 3,
+    "section": "IPE 500"
+   },
+   {
+    "id": 3,
+    "n1": 1,
+    "n2": 5,
+    "section": "IPE 500"
+   },
+   {
+    "id": 4,
+    "n1": 5,
+    "n2": 3,
+    "section": "IPE 500"
+   },
+   {
+    "id": 5,
+    "n1": 5,
+    "n2": 2,
+    "section": "L 80x80x8"
+   }
+  ],
+  "supports": [
+   {
+    "node": 1,
+    "type": "pinned"
+   },
+   {
+    "node": 3,
+    "type": "pinned"
+   }
+  ],
+  "cases": [
+   {
+    "id": 1,
+    "name": "C1",
+    "nature": "permanent"
+   }
+  ],
+  "loads": [],
+  "__merged_coincident_nodes": 2
+ },
+ "load_variants": {
+  "VA_deck_bar_uniform": [
+   {
+    "kind": "bar_uniform",
+    "bar": 1,
+    "case": 1,
+    "direction": "Z",
+    "value": -10.0
+   },
+   {
+    "kind": "bar_uniform",
+    "bar": 2,
+    "case": 1,
+    "direction": "Z",
+    "value": -10.0
+   }
+  ],
+  "VB_arch_bar_uniform": [
+   {
+    "kind": "bar_uniform",
+    "bar": 3,
+    "case": 1,
+    "direction": "Z",
+    "value": -10.0
+   },
+   {
+    "kind": "bar_uniform",
+    "bar": 4,
+    "case": 1,
+    "direction": "Z",
+    "value": -10.0
+   }
+  ],
+  "VC_deck_bar_concentrated": [
+   {
+    "kind": "bar_concentrated",
+    "bar": 1,
+    "case": 1,
+    "fz": -50.0,
+    "ratio": 0.5
+   }
+  ],
+  "VD_nodal_at_coincident_node": [
+   {
+    "kind": "nodal",
+    "node": 4,
+    "case": 1,
+    "fz": -30.0
+   }
+  ],
+  "VE_selfweight_nodal": [
+   {
+    "kind": "nodal",
+    "node": 1,
+    "case": 1,
+    "fz": -6.6732525
+   },
+   {
+    "kind": "nodal",
+    "node": 2,
+    "case": 1,
+    "fz": -6.6732525
+   },
+   {
+    "kind": "nodal",
+    "node": 2,
+    "case": 1,
+    "fz": -6.6732525
+   },
+   {
+    "kind": "nodal",
+    "node": 3,
+    "case": 1,
+    "fz": -6.6732525
+   },
+   {
+    "kind": "nodal",
+    "node": 1,
+    "case": 1,
+    "fz": -7.034225767137595
+   },
+   {
+    "kind": "nodal",
+    "node": 5,
+    "case": 1,
+    "fz": -7.034225767137595
+   },
+   {
+    "kind": "nodal",
+    "node": 5,
+    "case": 1,
+    "fz": -7.034225767137595
+   },
+   {
+    "kind": "nodal",
+    "node": 3,
+    "case": 1,
+    "fz": -7.034225767137595
+   },
+   {
+    "kind": "nodal",
+    "node": 5,
+    "case": 1,
+    "fz": -0.2378925
+   },
+   {
+    "kind": "nodal",
+    "node": 2,
+    "case": 1,
+    "fz": -0.2378925
+   }
+  ]
+ }
+}

@@ -1,0 +1,49 @@
+SECTION CHECK - POST-SOLVE (Calculate-in-the-loop) - 2026-08-24
+================================================================
+QUESTION (revisited): after E1's solve, are the chord bars near the 4
+support nodes smaller sections? Prior check read labels WITHOUT solving.
+
+VERDICT: NO bar is re-sectioned, and NO foreshortening explains it either -
+Calculate() DELETES the 8 end chord bars outright (130 = 138 - 8 live bars
+post-solve). The 32 surviving chord bars are all IPE 500.
+
+METHOD (COINC_AUDIT_SECTION_CHECK_POSTSOLVE.py, READ-ONLY, Robot open
+throughout): rebuild twin-arch (COMPOSE_STEPS; finish 40/138/4,
+merged_coincident=4) -> pre-solve read of all 40 chord bars via
+CastTo(bar,"IRobotBar").GetLabel(I_LT_BAR_SECTION).Name + StartNode/EndNode
++ node coords -> apply E1 deck bar_uniform (20 deck bars, -10 kN/m Z,
+bar_uniform_record x20) -> solve() -> post-solve re-read (no close) +
+Bars.GetAll().Count + Nodes.GetAll() + export_reactions.
+
+RESULTS
+  PRE-SOLVE : bars=138 nodes=40; all 40 chord bars = IPE 500.
+  POST-SOLVE: bars=130 nodes=40 (8 bars REMOVED by Calculate; node ids
+              unchanged: 1-11, 22-30, 92-102, 113-121).
+  Bars.Get(bar_id) FAILS post-solve for EXACTLY these 8:
+      DECK end bars 31, 40, 122, 131  (the 4 end deck bars)
+      ARCH end bars 11, 20, 102, 111  (the 4 end arch bars)
+    = the bars whose endpoints sit at the 4 support / former-coincident
+      coordinates (nodes 1, 11, 92, 102). All other bars (incl. high ids
+      123-130) still read fine -> genuine deletion, not id renumbering.
+  Surviving 32 chord bars: section unchanged = IPE 500 (spec == live).
+  Reaction sum(FZ) = 480.000 vs 600.000 applied -> 20.00% shortfall
+  (reproduces E1 exactly, with the mechanism now visible).
+
+MECHANISM (this is the E1 gap made concrete)
+  Robot's Calculate() silently REMOVES the 8 end chord bars from the live
+  model. The 4 end deck bars carried 4 x 30 kN = 120 kN of the 600 kN deck
+  UDL -> those loads vanish with the bars -> 20% reaction shortfall.
+  This is the same class as the documented "solver silently merges/restructures
+  during Calculate" behavior, now observed as BAR deletion on the merged
+  compose model (nodes stay 40/40 here because compose already merged pairs).
+  It is NOT a section difference: no bar ever carries a non-IPE-500 label.
+
+IMPLICATION FOR THE VISUAL QUESTION
+  Post-solve screenshots of the support corners do not show "thinner members"
+  - the end members are ABSENT (deleted by Calculate). The earlier
+  foreshortening explanation applied to the pre-solve geometry; the solved
+  model is topologically different near the supports.
+
+STILL OPEN (unchanged, awaiting direction - NOT patched)
+  E1 20% bar_uniform under-transfer on the merged compose twin-arch, now
+  with a confirmed mechanism (8 end bars deleted by Calculate).

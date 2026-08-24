@@ -1,0 +1,50 @@
+SECTION-DIFFERENCE AUDIT - compose twin-arch chord bars (2026-08-24)
+=================================================================
+QUESTION: are the chord bars near the 4 support nodes genuinely smaller
+sections, or is the isometric look a foreshortening artifact?
+
+VERDICT: (a) - FORESHORTENING. Every chord bar is IPE 500 in BOTH the
+compose-finish spec AND the live Robot COM object. No real difference.
+
+EVIDENCE
+(1) LIVE COM READBACK (COINC_AUDIT_SECTION_CHECK.py, this session):
+    rebuilt the twin-arch via the SAME COMPOSE_STEPS used in the E1 audit
+    (compose finish: 40 nodes / 138 bars / 4 supports, merged_coincident=4),
+    then for all 40 IPE-500 chord bars (20 deck + 20 arch, both planes):
+      bar = structure.Bars.Get(bar_id); bar.GetLabel(I_LT_BAR_SECTION).Name
+    Result: 40/40 bars read back "IPE 500". Table in probe output.
+    Deck bars: 31-40, 122-131 -> IPE 500 (all 3.00 m).
+    Arch bars: 11-20, 102-111 -> IPE 500 (3.01-3.57 m).
+
+(2) SPEC CROSS-CHECK (offline): the compose-finish geometry carries
+    section="IPE 500" for the same 40 bar ids; spec == live for every bar.
+    No silent override between spec generation and Robot bar creation.
+
+(3) WHY IT LOOKS THINNER NEAR THE SUPPORTS (foreshortening, quantified):
+    the arc chord is generated at UNIFORM X-steps, so the panel nearest
+    each support is the STEEPEST segment: arch bars 11/20/102/111 are
+    3.57 m long vs 3.01 m at mid-span (18.6% longer). In an isometric
+    3D solid-extrusion view a steep segment is seen web-edge-on (the
+    flange is foreshortened toward zero apparent width), while a
+    mid-span panel is nearer to flange-broadside. Identical IPE 500
+    section, very different apparent thickness - matches the report.
+
+(4) NO CODE PATH CHANGES THE SECTION: create_bar / _assign_bar_section
+    SetLabel the exact passed section_name; generate_*_chord assign ONE
+    section per chain; no auto_size/resize/optimize/downsize logic exists.
+    modify_bar_section / design_space / buckling_check optimizers were
+    NOT invoked in this session's audit (E1-E7/E1b/E3b/E4b only used
+    compose/build/load/solve/export). The live readback is the ground
+    truth regardless: 40/40 = IPE 500.
+
+(5) ORTHOGONAL-VIEW RE-SCREENSHOT: the codebase has no Robot view API
+    wiring (RobotEnum has no view constants), so an automated view switch
+    was not possible from here, and screenshot pixels cannot be verified
+    programmatically in this environment. Manual confirmation (View > 2D
+    Projections > Front elevation) is expected to show uniform 500 mm
+    chord depth at the supports. This is optional visual confirmation;
+    the objective section readback above is already conclusive.
+
+CONCLUSION: drop the sections theory. All chord bars are IPE 500 in the
+live model; the near-support look is isometric foreshortening of the
+steepest arch panels.

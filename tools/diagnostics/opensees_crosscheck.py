@@ -208,6 +208,7 @@ def solve_spec(spec: dict[str, Any], divisions: int = 4) -> dict[str, Any]:
         elem_info: list[tuple[int, int, int]] = []  # (bar_id, k, element_tag)
         elem_stations: dict[int, list[tuple[int, int]]] = {}  # bar_id -> [(tag, k)]
         sub_nodes_by_bar: dict[int, list[int]] = {}
+        sub_end_nodes: dict[int, list[int]] = {}
         sub_xyz_by_bar: dict[int, list[tuple]] = {}
         bar_len: dict[int, float] = {}
 
@@ -218,6 +219,7 @@ def solve_spec(spec: dict[str, Any], divisions: int = 4) -> dict[str, Any]:
             L = _vec3_len(_vec3_sub(j, i))
             tag_list: list[int] = []
             xyz_list: list[tuple] = []
+            node_list: list[int] = [int(b["n1"])]
             prev = int(b["n1"])
             prev_xyz = i
             for k in range(1, divisions + 1):
@@ -229,6 +231,7 @@ def solve_spec(spec: dict[str, Any], divisions: int = 4) -> dict[str, Any]:
                     sub_node_counter += 1
                     ops.node(sub_node_counter, *end_xyz)
                     end = sub_node_counter
+                node_list.append(end)
                 tag = len(elem_info) + 1
                 props = section_props_offline(str(b.get("section") or "IPE 200"))
                 ops.element(
@@ -249,7 +252,8 @@ def solve_spec(spec: dict[str, Any], divisions: int = 4) -> dict[str, Any]:
                 xyz_list.append(end_xyz)
                 prev = end
                 prev_xyz = end_xyz
-            sub_nodes_by_bar[bid] = [int(b["n1"])] + tag_list  # node at start + sub tags
+            sub_nodes_by_bar[bid] = [int(b["n1"])] + tag_list  # element tags (for -ele)
+            sub_end_nodes[bid] = node_list  # node tag at each sub-boundary
             sub_xyz_by_bar[bid] = [i] + xyz_list
             bar_len[bid] = L
 
@@ -297,10 +301,23 @@ def solve_spec(spec: dict[str, Any], divisions: int = 4) -> dict[str, Any]:
                 pts = sub_xyz_by_bar[bid]
                 for k in range(1, len(pts)):
                     xa, ya, za = _local_axes(pts[k - 1], pts[k])
+                    ax = _vec3_dot(gvec, xa)
                     fy = _vec3_dot(gvec, ya)
                     fz = _vec3_dot(gvec, za)
                     tag = sub_nodes_by_bar[bid][k]
                     ops.eleLoad("-ele", tag, "-type", "-beamUniform", float(fy), float(fz))
+                    # -beamUniform is transverse-only: the AXIAL component of a
+                    # global-direction UDL on an inclined bar is applied as
+                    # equivalent nodal end loads (exact for reactions).
+                    seg_len = _vec3_len(_vec3_sub(pts[k], pts[k - 1]))
+                    if abs(ax) > 1e-12 and seg_len > 0:
+                        # axial component acts ALONG the bar axis: lump the full
+                        # vector ax*xhat (not just the X part) to the segment ends
+                        n_i = sub_end_nodes[bid][k - 2] if k >= 2 else int(b["n1"])
+                        n_j = sub_end_nodes[bid][k - 1]
+                        half = _vec3_scale(xa, ax * seg_len / 2.0)
+                        ops.load(n_i, half[0], half[1], half[2], 0.0, 0.0, 0.0)
+                        ops.load(n_j, half[0], half[1], half[2], 0.0, 0.0, 0.0)
             elif kind == "bar_concentrated":
                 bid = int(ld["bar"])
                 ratio = float(ld.get("ratio", 0.5))

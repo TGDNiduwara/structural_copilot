@@ -1,0 +1,107 @@
+{
+ "VA_deck_bar_uniform": {
+  "reactions": [
+   {
+    "Node_ID": 1,
+    "Support_Type": "pinned",
+    "FX_kN": 277.44594752809024,
+    "FY_kN": 0.0,
+    "FZ_kN": 150.0000000000001,
+    "MY_kNm": 1.7053025658242404e-13
+   },
+   {
+    "Node_ID": 3,
+    "Support_Type": "pinned",
+    "FX_kN": -277.44594752808985,
+    "FY_kN": 0.0,
+    "FZ_kN": 149.9999999999997,
+    "MY_kNm": -2.5579538487363607e-13
+   }
+  ],
+  "total": 299.9999999999998
+ },
+ "VB_arch_bar_uniform": {
+  "reactions": [
+   {
+    "Node_ID": 1,
+    "Support_Type": "pinned",
+    "FX_kN": 293.2069633167922,
+    "FY_kN": 0.0,
+    "FZ_kN": 158.1138830084192,
+    "MY_kNm": 1.1368683772161603e-13
+   },
+   {
+    "Node_ID": 3,
+    "Support_Type": "pinned",
+    "FX_kN": -293.2069633167927,
+    "FY_kN": 0.0,
+    "FZ_kN": 158.11388300841912,
+    "MY_kNm": -1.9895196601282805e-13
+   }
+  ],
+  "total": 316.22776601683836
+ },
+ "VC_deck_bar_concentrated": {
+  "reactions": [
+   {
+    "Node_ID": 1,
+    "Support_Type": "pinned",
+    "FX_kN": 50.873074315484295,
+    "FY_kN": 0.0,
+    "FZ_kN": 37.500000000000256,
+    "MY_kNm": 0.0
+   },
+   {
+    "Node_ID": 3,
+    "Support_Type": "pinned",
+    "FX_kN": -50.87307431548457,
+    "FY_kN": 0.0,
+    "FZ_kN": 12.500000000000169,
+    "MY_kNm": 5.329070518200751e-15
+   }
+  ],
+  "total": 50.000000000000426
+ },
+ "VD_nodal_at_coincident_node": {
+  "reactions": [
+   {
+    "Node_ID": 1,
+    "Support_Type": "pinned",
+    "FX_kN": 0.0,
+    "FY_kN": 0.0,
+    "FZ_kN": 30.0,
+    "MY_kNm": 0.0
+   },
+   {
+    "Node_ID": 3,
+    "Support_Type": "pinned",
+    "FX_kN": 0.0,
+    "FY_kN": 0.0,
+    "FZ_kN": 0.0,
+    "MY_kNm": 0.0
+   }
+  ],
+  "total": 30.0
+ },
+ "VE_selfweight_nodal": {
+  "reactions": [
+   {
+    "Node_ID": 1,
+    "Support_Type": "pinned",
+    "FX_kN": 41.32345319353526,
+    "FY_kN": 0.0,
+    "FZ_kN": 27.652849034275185,
+    "MY_kNm": 3.6637359812630166e-15
+   },
+   {
+    "Node_ID": 3,
+    "Support_Type": "pinned",
+    "FX_kN": -41.323453193535244,
+    "FY_kN": 0.0,
+    "FZ_kN": 27.652849034275164,
+    "MY_kNm": -7.327471962526033e-15
+   }
+  ],
+  "total": 55.30569806855035
+ }
+}
