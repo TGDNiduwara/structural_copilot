@@ -8,6 +8,7 @@ candidate/results/checkpoint so a crashed run can be resumed: the runner
 checkpoints after every candidate, and `get_resume_point()` reports where to
 continue after a process restart.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,7 +16,7 @@ import logging
 import os
 import sqlite3
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -76,12 +77,11 @@ def _j(obj: Any) -> str:
 
 
 class Storage:
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         if db_path is None:
-            db_path = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "runs.db")
+            db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs.db")
         self.db_path = os.path.abspath(db_path)
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
 
     def _connect(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -97,7 +97,7 @@ class Storage:
             self._conn.close()
             self._conn = None
 
-    def __enter__(self) -> "Storage":
+    def __enter__(self) -> Storage:
         self._connect()
         return self
 
@@ -106,7 +106,7 @@ class Storage:
 
     # ---------------- runs ----------------
 
-    def create_run(self, spec: Dict[str, Any], objective: str = "") -> int:
+    def create_run(self, spec: dict[str, Any], objective: str = "") -> int:
         conn = self._connect()
         cur = conn.execute(
             "INSERT INTO runs (created_at, spec_json, status, objective) "
@@ -118,23 +118,22 @@ class Storage:
 
     def mark_run_status(self, run_id: int, status: str) -> None:
         if status not in RUN_STATUSES:
-            raise ValueError(
-                f"invalid run status '{status}'; allowed: {RUN_STATUSES}")
+            raise ValueError(f"invalid run status '{status}'; allowed: {RUN_STATUSES}")
         conn = self._connect()
-        conn.execute("UPDATE runs SET status = ? WHERE run_id = ?",
-                     (status, int(run_id)))
+        conn.execute("UPDATE runs SET status = ? WHERE run_id = ?", (status, int(run_id)))
         conn.commit()
 
-    def get_run(self, run_id: int) -> Optional[Dict[str, Any]]:
+    def get_run(self, run_id: int) -> dict[str, Any] | None:
         conn = self._connect()
         row = conn.execute(
-            "SELECT run_id, created_at, spec_json, status, objective "
-            "FROM runs WHERE run_id = ?", (int(run_id),)).fetchone()
+            "SELECT run_id, created_at, spec_json, status, objective FROM runs WHERE run_id = ?",
+            (int(run_id),),
+        ).fetchone()
         return dict(row) if row else None
 
     # ---------------- candidates ----------------
 
-    def add_candidate(self, run_id: int, design_vars: Dict[str, Any]) -> int:
+    def add_candidate(self, run_id: int, design_vars: dict[str, Any]) -> int:
         conn = self._connect()
         try:
             cur = conn.execute(
@@ -144,19 +143,18 @@ class Storage:
             )
         except sqlite3.IntegrityError as exc:
             raise ValueError(
-                f"run {run_id} does not exist -- create it with create_run "
-                "first.") from exc
+                f"run {run_id} does not exist -- create it with create_run first."
+            ) from exc
         conn.commit()
         return int(cur.lastrowid)
 
     def mark_candidate_status(self, candidate_id: int, status: str) -> None:
         if status not in CANDIDATE_STATUSES:
-            raise ValueError(
-                f"invalid candidate status '{status}'; "
-                f"allowed: {CANDIDATE_STATUSES}")
+            raise ValueError(f"invalid candidate status '{status}'; allowed: {CANDIDATE_STATUSES}")
         conn = self._connect()
-        conn.execute("UPDATE candidates SET status = ? WHERE candidate_id = ?",
-                     (status, int(candidate_id)))
+        conn.execute(
+            "UPDATE candidates SET status = ? WHERE candidate_id = ?", (status, int(candidate_id))
+        )
         conn.commit()
 
     def mark_candidate_failed(self, candidate_id: int, reason: str) -> None:
@@ -176,8 +174,9 @@ class Storage:
             "evaluated_at = excluded.evaluated_at",
             (int(candidate_id), payload, _now()),
         )
-        conn.execute("UPDATE candidates SET status = 'failed' "
-                     "WHERE candidate_id = ?", (int(candidate_id),))
+        conn.execute(
+            "UPDATE candidates SET status = 'failed' WHERE candidate_id = ?", (int(candidate_id),)
+        )
         conn.commit()
 
     def list_candidates(self, run_id: int) -> pd.DataFrame:
@@ -185,7 +184,9 @@ class Storage:
         df = pd.read_sql_query(
             "SELECT candidate_id, run_id, created_at, design_vars_json, "
             "status FROM candidates WHERE run_id = ? ORDER BY candidate_id",
-            conn, params=(int(run_id),))
+            conn,
+            params=(int(run_id),),
+        )
         return df
 
     # ---------------- results ----------------
@@ -193,12 +194,12 @@ class Storage:
     def record_result(
         self,
         candidate_id: int,
-        weight_kg: Optional[float],
-        max_utilization: Optional[float],
-        governing_check: Optional[str] = None,
-        buckling_status: Optional[str] = None,
-        pass_fail: Optional[str] = None,
-        raw_results_json: Optional[str] = None,
+        weight_kg: float | None,
+        max_utilization: float | None,
+        governing_check: str | None = None,
+        buckling_status: str | None = None,
+        pass_fail: str | None = None,
+        raw_results_json: str | None = None,
     ) -> None:
         conn = self._connect()
         conn.execute(
@@ -213,14 +214,21 @@ class Storage:
             "pass_fail = excluded.pass_fail, "
             "raw_results_json = excluded.raw_results_json, "
             "evaluated_at = excluded.evaluated_at",
-            (int(candidate_id),
-             None if weight_kg is None else float(weight_kg),
-             None if max_utilization is None else float(max_utilization),
-             governing_check, buckling_status, pass_fail,
-             raw_results_json, _now()),
+            (
+                int(candidate_id),
+                None if weight_kg is None else float(weight_kg),
+                None if max_utilization is None else float(max_utilization),
+                governing_check,
+                buckling_status,
+                pass_fail,
+                raw_results_json,
+                _now(),
+            ),
         )
-        conn.execute("UPDATE candidates SET status = 'evaluated' "
-                     "WHERE candidate_id = ?", (int(candidate_id),))
+        conn.execute(
+            "UPDATE candidates SET status = 'evaluated' WHERE candidate_id = ?",
+            (int(candidate_id),),
+        )
         conn.commit()
 
     def get_all_results(self, run_id: int) -> pd.DataFrame:
@@ -234,7 +242,9 @@ class Storage:
             "FROM candidates c "
             "LEFT JOIN results r ON r.candidate_id = c.candidate_id "
             "WHERE c.run_id = ? ORDER BY c.candidate_id",
-            conn, params=(int(run_id),))
+            conn,
+            params=(int(run_id),),
+        )
         return df
 
     def get_all_results_all_runs(self) -> pd.DataFrame:
@@ -257,7 +267,8 @@ class Storage:
             "FROM candidates c "
             "LEFT JOIN results r ON r.candidate_id = c.candidate_id "
             "ORDER BY c.run_id, c.candidate_id",
-            conn)
+            conn,
+        )
         return df
 
     # ---------------- checkpoints ----------------
@@ -274,7 +285,6 @@ class Storage:
             (int(run_id), int(index), _now()),
         )
         conn.commit()
-
 
     # ---------------- cancellation (Phase 7) ----------------
 
@@ -294,18 +304,19 @@ class Storage:
     def is_cancel_requested(self, run_id: int) -> bool:
         conn = self._connect()
         row = conn.execute(
-            "SELECT 1 FROM run_cancellations WHERE run_id = ?",
-            (int(run_id),)).fetchone()
+            "SELECT 1 FROM run_cancellations WHERE run_id = ?", (int(run_id),)
+        ).fetchone()
         return row is not None
 
     def clear_cancel(self, run_id: int) -> None:
         conn = self._connect()
-        conn.execute("DELETE FROM run_cancellations WHERE run_id = ?",
-                     (int(run_id),))
+        conn.execute("DELETE FROM run_cancellations WHERE run_id = ?", (int(run_id),))
         conn.commit()
-    def get_resume_point(self, run_id: int) -> Optional[int]:
+
+    def get_resume_point(self, run_id: int) -> int | None:
         conn = self._connect()
         row = conn.execute(
-            "SELECT last_completed_candidate_index FROM checkpoints "
-            "WHERE run_id = ?", (int(run_id),)).fetchone()
+            "SELECT last_completed_candidate_index FROM checkpoints WHERE run_id = ?",
+            (int(run_id),),
+        ).fetchone()
         return None if row is None else int(row[0])

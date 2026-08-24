@@ -31,8 +31,8 @@ import sys
 
 sys.path.insert(0, r"c:/Users/dinat/Downloads/structural_multi_app_agent/structural_copilot")
 
-from tools.robot_tool import RobotBridge
 from tools.ltb_check import check_lateral_torsional_buckling
+from tools.robot_tool import RobotBridge
 
 
 def _build_beam(bridge, p_kn: float) -> None:
@@ -69,9 +69,11 @@ def main() -> int:
         assert b["utilization"] < 1.0
     gov = max(res["bars"], key=lambda r: r["m_ed_knm"])
     assert abs(gov["m_ed_knm"] - 56.25) < 1.0, gov["m_ed_knm"]
-    print(f"  [OK] P=50: PASS (governing MEd={gov['m_ed_knm']:.2f} kNm "
-          f"at fixed end, Mb,Rd={gov['mb_rd_knm']:.1f} kNm; "
-          f"lcr_lt defaulted+warning)")
+    print(
+        f"  [OK] P=50: PASS (governing MEd={gov['m_ed_knm']:.2f} kNm "
+        f"at fixed end, Mb,Rd={gov['mb_rd_knm']:.1f} kNm; "
+        f"lcr_lt defaulted+warning)"
+    )
 
     # 2) explicit lcr_lt via set_bracing -> higher Mb,Rd, lower utilization
     for bar in (1, 2):
@@ -83,8 +85,7 @@ def main() -> int:
     before = gov["utilization"]
     after = max(b["utilization"] for b in res["bars"])
     assert after < before, f"bracing must reduce utilization ({before}->{after})"
-    print(f"  [OK] lcr_lt=1.5 m explicit: util {before} -> {after} "
-          f"(source='explicit')")
+    print(f"  [OK] lcr_lt=1.5 m explicit: util {before} -> {after} (source='explicit')")
 
     # 3) FAIL case: P=150 kN -> MEd = 168.75 kNm > Mb,Rd
     bridge.bracing.clear()
@@ -94,8 +95,10 @@ def main() -> int:
     b = max(res["bars"], key=lambda r: r.get("m_ed_knm", 0.0))
     assert b["status"] == "FAIL", b
     assert b["utilization"] > 1.0
-    print(f"  [OK] P=150: FAIL util={b['utilization']} "
-          f"(MEd={b['m_ed_knm']:.1f} vs Mb,Rd={b['mb_rd_knm']:.1f})")
+    print(
+        f"  [OK] P=150: FAIL util={b['utilization']} "
+        f"(MEd={b['m_ed_knm']:.1f} vs Mb,Rd={b['mb_rd_knm']:.1f})"
+    )
 
     print("LIVE LTB VALIDATION PASSED")
     return 0
@@ -103,5 +106,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

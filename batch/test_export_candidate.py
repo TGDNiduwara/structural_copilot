@@ -16,6 +16,7 @@ save_project path, so we can assert
 
 Run:  python batch/test_export_candidate.py
 """
+
 from __future__ import annotations
 
 import json
@@ -39,8 +40,10 @@ def _portal_spec(project: str = "3D", load: float = -10.0) -> dict:
         "geometry": {
             "project": project,
             "nodes": [
-                {"id": 1, "x": 0, "z": 0}, {"id": 2, "x": 0, "z": 3},
-                {"id": 3, "x": 6, "z": 3}, {"id": 4, "x": 6, "z": 0},
+                {"id": 1, "x": 0, "z": 0},
+                {"id": 2, "x": 0, "z": 3},
+                {"id": 3, "x": 6, "z": 3},
+                {"id": 4, "x": 6, "z": 0},
             ],
             "bars": [
                 {"id": 1, "n1": 1, "n2": 2, "section": "HEA 160"},
@@ -48,24 +51,30 @@ def _portal_spec(project: str = "3D", load: float = -10.0) -> dict:
                 {"id": 3, "n1": 3, "n2": 4, "section": "HEA 160"},
             ],
             "supports": [
-                {"node": 1, "type": "pinned"}, {"node": 4, "type": "pinned"},
+                {"node": 1, "type": "pinned"},
+                {"node": 4, "type": "pinned"},
             ],
             "cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
-            "loads": [{"kind": "bar_uniform", "bar": 2, "case": 1,
-                       "direction": "Z", "value": load}],
+            "loads": [
+                {"kind": "bar_uniform", "bar": 2, "case": 1, "direction": "Z", "value": load}
+            ],
         },
         "variable_groups": [
-            {"group_name": "columns", "bar_ids": [1, 3],
-             "candidate_sections": ["HEA 160", "HEA 200", "HEA 240"]},
-            {"group_name": "beam", "bar_ids": [2],
-             "candidate_sections": ["IPE 200", "IPE 300"]},
+            {
+                "group_name": "columns",
+                "bar_ids": [1, 3],
+                "candidate_sections": ["HEA 160", "HEA 200", "HEA 240"],
+            },
+            {"group_name": "beam", "bar_ids": [2], "candidate_sections": ["IPE 200", "IPE 300"]},
         ],
         "load_cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
         "analysis_types": ["static"],
-        "objective": {"minimize": "weight",
-                      "constraint": "max_utilization <= 1.0 AND "
-                                    "buckling_pass == True"},
+        "objective": {
+            "minimize": "weight",
+            "constraint": "max_utilization <= 1.0 AND buckling_pass == True",
+        },
     }
+
 
 class _FakeSession:
     """Records the surface export_candidate touches, never touches Robot."""
@@ -107,6 +116,7 @@ def _make_factory(fake_holder):
     def factory():
         fake_holder["fake"] = _FakeSession()
         return fake_holder["fake"]
+
     return factory
 
 
@@ -118,8 +128,7 @@ def test_export_candidate_applies_design_vars():
     out = os.path.join(tmpdir, "design.rtd")
 
     holder = {}
-    saved = export_candidate(ds, cand, out,
-                             session_factory=_make_factory(holder))
+    saved = export_candidate(ds, cand, out, session_factory=_make_factory(holder))
     fake = holder["fake"]
 
     # Right design_vars applied: the geometry Robot would build carries
@@ -140,11 +149,12 @@ def test_export_candidate_applies_design_vars():
     holder2 = {}
     bare = {1: "HEA 240", 2: "IPE 300", 3: "HEA 240"}
     export_candidate(ds, bare, out, session_factory=_make_factory(holder2))
-    got2 = {b["id"]: b["section"]
-            for b in holder2["fake"].built_geometries[0]["bars"]}
+    got2 = {b["id"]: b["section"] for b in holder2["fake"].built_geometries[0]["bars"]}
     assert got2 == bare, got2
-    print("EXPORT CANDIDATE: design_vars applied exactly, solved once, "
-          "saved to requested path, session closed")
+    print(
+        "EXPORT CANDIDATE: design_vars applied exactly, solved once, "
+        "saved to requested path, session closed"
+    )
 
 
 def test_export_candidate_2d_warns():
@@ -165,37 +175,39 @@ def test_export_candidate_2d_warns():
         export_candidate(ds, cand, out, session_factory=_make_factory(holder))
     finally:
         logger.removeHandler(h)
-    assert any("2D" in r.getMessage() for r in records), \
-        [r.getMessage() for r in records]
+    assert any("2D" in r.getMessage() for r in records), [r.getMessage() for r in records]
     # Still saved (the person opens it and sees the problem) - not silent.
     assert holder["fake"].saved_paths == [out]
     print("EXPORT 2D: warning surfaced (not silent), file still saved")
+
 
 def test_export_best_from_run():
     tmpdir = tempfile.mkdtemp(prefix="exp_run_")
     db = os.path.join(tmpdir, "runs.db")
     ds = DesignSpace(_portal_spec())
     storage = Storage(db_path=db)
-    run_id = storage.create_run(ds.to_dict(),
-                                objective=json.dumps(ds.objective, default=str))
+    run_id = storage.create_run(ds.to_dict(), objective=json.dumps(ds.objective, default=str))
 
     weights = {1: 300.0, 2: 350.0, 3: 400.0, 4: 420.0, 5: 500.0, 6: 600.0}
-    fail_candidates = {3}   # candidate 3 FAILS the gate
+    fail_candidates = {3}  # candidate 3 FAILS the gate
     for cand in ds.generate_candidates():
         cid = storage.add_candidate(run_id, cand)
         w = weights[cand["candidate_index"]]
         u = 0.9 - 0.05 * cand["candidate_index"]
         ok = cand["candidate_index"] not in fail_candidates
-        storage.record_result(cid, weight_kg=w, max_utilization=u,
-                              pass_fail="PASS" if ok else "FAIL",
-                              buckling_status="PASS (no compression members)")
+        storage.record_result(
+            cid,
+            weight_kg=w,
+            max_utilization=u,
+            pass_fail="PASS" if ok else "FAIL",
+            buckling_status="PASS (no compression members)",
+        )
     storage.mark_run_status(run_id, "completed")
     storage.close()
 
     out = os.path.join(tmpdir, "best.rtd")
     holder = {}
-    saved = export_best_from_run(run_id, out, db_path=db,
-                                 session_factory=_make_factory(holder))
+    saved = export_best_from_run(run_id, out, db_path=db, session_factory=_make_factory(holder))
     fake = holder["fake"]
 
     # frontier[0] must be the LIGHTEST PASSING candidate (candidate 1 at
@@ -209,16 +221,17 @@ def test_export_best_from_run():
     # frontier_index=1 -> second lightest passing (candidate 2, HEA 160 +
     # IPE 300 - itertools.product order: columns outer, beam inner).
     holder2 = {}
-    export_best_from_run(run_id, out, frontier_index=1, db_path=db,
-                         session_factory=_make_factory(holder2))
-    sections2 = {b["id"]: b["section"]
-                 for b in holder2["fake"].built_geometries[0]["bars"]}
+    export_best_from_run(
+        run_id, out, frontier_index=1, db_path=db, session_factory=_make_factory(holder2)
+    )
+    sections2 = {b["id"]: b["section"] for b in holder2["fake"].built_geometries[0]["bars"]}
     assert sections2 == {1: "HEA 160", 3: "HEA 160", 2: "IPE 300"}, sections2
 
     # Errors: index out of range; no passing candidates at all.
     try:
-        export_best_from_run(run_id, out, frontier_index=99, db_path=db,
-                             session_factory=_make_factory(holder))
+        export_best_from_run(
+            run_id, out, frontier_index=99, db_path=db, session_factory=_make_factory(holder)
+        )
         raise AssertionError("expected out-of-range error")
     except ValueError:
         pass
@@ -228,17 +241,17 @@ def test_export_best_from_run():
     run2 = storage2.create_run(all_fail.to_dict(), objective="")
     for cand in all_fail.generate_candidates():
         cid = storage2.add_candidate(run2, cand)
-        storage2.record_result(cid, weight_kg=100.0, max_utilization=2.0,
-                               pass_fail="FAIL")
+        storage2.record_result(cid, weight_kg=100.0, max_utilization=2.0, pass_fail="FAIL")
     storage2.close()
     try:
-        export_best_from_run(run2, out, db_path=db,
-                             session_factory=_make_factory(holder))
+        export_best_from_run(run2, out, db_path=db, session_factory=_make_factory(holder))
         raise AssertionError("expected empty-frontier error")
     except ValueError as exc:
         assert "no candidates passing" in str(exc), exc
-    print("EXPORT BEST: frontier[0]=lightest PASSING (FAIL excluded), "
-          "index selection works, errors raise cleanly")
+    print(
+        "EXPORT BEST: frontier[0]=lightest PASSING (FAIL excluded), "
+        "index selection works, errors raise cleanly"
+    )
 
 
 def main():
@@ -254,5 +267,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

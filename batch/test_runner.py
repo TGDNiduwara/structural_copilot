@@ -1,4 +1,4 @@
-﻿"""
+"""
 batch/test_runner.py
 ====================
 [PHASE 5] Batch runner tests - five required scenarios:
@@ -16,6 +16,7 @@ batch/test_runner.py
 
 Run: python batch/test_runner.py   (needs a live Robot COM server)
 """
+
 from __future__ import annotations
 
 import json
@@ -28,12 +29,12 @@ import time
 sys.path.insert(0, r"c:\Users\dinat\Downloads\structural_multi_app_agent\structural_copilot")
 
 from batch.design_space import DesignSpace
-from batch.runner import run_batch
-from batch.storage import Storage
 from batch.headless_driver import (
     HeadlessSession,
     SolverInstabilityError,
 )
+from batch.runner import run_batch
+from batch.storage import Storage
 
 # --------------------------------------------------------------------------- #
 # Shared test spec (SPEC A from Phase 4, plus load cases/loads so the model
@@ -68,15 +69,20 @@ SPEC = {
         # A UDL on the beam gives real forces/stresses.
         "cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
         "loads": [
-            {"kind": "bar_uniform", "bar": 2, "case": 1,
-             "direction": "Z", "value": -10.0},
+            {"kind": "bar_uniform", "bar": 2, "case": 1, "direction": "Z", "value": -10.0},
         ],
     },
     "variable_groups": [
-        {"group_name": "columns", "bar_ids": [1, 3],
-         "candidate_sections": ["HEA 200", "HEA 220", "HEA 240", "HEB 200"]},
-        {"group_name": "beam", "bar_ids": [2],
-         "candidate_sections": ["IPE 270", "IPE 300", "IPE 330"]},
+        {
+            "group_name": "columns",
+            "bar_ids": [1, 3],
+            "candidate_sections": ["HEA 200", "HEA 220", "HEA 240", "HEB 200"],
+        },
+        {
+            "group_name": "beam",
+            "bar_ids": [2],
+            "candidate_sections": ["IPE 270", "IPE 300", "IPE 330"],
+        },
     ],
     "load_cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
     "analysis_types": ["static"],
@@ -89,8 +95,13 @@ SPEC = {
 #: Unit masses from RobotBridge._SECTION_UNIT_MASS_TABLE (kg/m) - used for
 #: manual weight spot-checks against the runner's recorded weights.
 UNIT_MASS = {
-    "HEA 200": 42.3, "HEA 220": 50.5, "HEA 240": 60.3, "HEB 200": 61.3,
-    "IPE 270": 36.1, "IPE 300": 42.2, "IPE 330": 49.1,
+    "HEA 200": 42.3,
+    "HEA 220": 50.5,
+    "HEA 240": 60.3,
+    "HEB 200": 61.3,
+    "IPE 270": 36.1,
+    "IPE 300": 42.2,
+    "IPE 330": 49.1,
 }
 
 
@@ -103,10 +114,13 @@ def _make_session_factory():
     """Returns (factory, counter_dict) where counter['sessions'] counts how
     many HeadlessSession instances the runner created (== Robot launches)."""
     counter = {"sessions": 0}
+
     def factory():
         counter["sessions"] += 1
         return HeadlessSession(visible=False)
+
     return factory, counter
+
 
 def _spot_check_results(results_df, n_spots=3) -> None:
     """Manually verify weight for a few candidates against unit masses."""
@@ -125,7 +139,8 @@ def _spot_check_results(results_df, n_spots=3) -> None:
         tol = 0.02 * expected
         assert abs(actual - expected) <= tol, (
             f"weight mismatch for {columns}/{beam}: expected ~{expected:.1f} "
-            f"kg, got {actual:.1f} kg")
+            f"kg, got {actual:.1f} kg"
+        )
         assert float(row["max_utilization"]) > 0.0, "utilization must be > 0"
         assert row["buckling_status"] not in (None, ""), "buckling status set"
         assert row["pass_fail"] in ("PASS", "FAIL"), "pass_fail set"
@@ -152,15 +167,14 @@ def test_full_run_and_reuse() -> None:
 
     factory, counter = _make_session_factory()
     ds = DesignSpace(SPEC)
-    summary = run_batch(ds, db_path=db, log_path=log,
-                        session_factory=factory)
+    summary = run_batch(ds, db_path=db, log_path=log, session_factory=factory)
 
     assert summary["status"] == "completed", summary
     assert summary["evaluated"] == 12, summary
     assert summary["failed"] == 0, summary
     assert counter["sessions"] == 1, (
-        f"expected ONE Robot launch for the whole run, got "
-        f"{counter['sessions']}")
+        f"expected ONE Robot launch for the whole run, got {counter['sessions']}"
+    )
 
     storage = Storage(db_path=db)
     df = storage.get_all_results(summary["run_id"])
@@ -175,8 +189,9 @@ def test_full_run_and_reuse() -> None:
     assert "ETA ~" in log_text, "progress ETA must be logged"
     assert "[12/12]" in log_text or "checkpoint" in log_text, "progress logged"
     print(f"  run_id={summary['run_id']} elapsed={summary['elapsed_s']}s")
-    print(f"  log file has progress/ETA lines: OK")
+    print("  log file has progress/ETA lines: OK")
     print("  ALL 12 evaluated; single Robot session confirmed")
+
 
 class _MechanismSpec(DesignSpace):
     """Design space whose candidate #6 gets an isolated, unsupported node
@@ -188,8 +203,7 @@ class _MechanismSpec(DesignSpace):
         if isinstance(design_vars, dict):
             idx = design_vars.get("candidate_index")
             if idx == 6:
-                geom.setdefault("nodes", []).append(
-                    {"id": 999, "x": 50.0, "y": 0.0, "z": 50.0})
+                geom.setdefault("nodes", []).append({"id": 999, "x": 50.0, "y": 0.0, "z": 50.0})
         return geom
 
 
@@ -214,11 +228,11 @@ def test_failure_isolation() -> None:
     raw = json.loads(failed_rows.iloc[0]["raw_results_json"] or "{}")
     reason = str(raw.get("failure_reason", ""))
     assert "mechanism" in reason.lower(), reason
-    print(f"  failed candidate #{failed_rows.iloc[0]['candidate_id']}: "
-          f"reason={reason}")
+    print(f"  failed candidate #{failed_rows.iloc[0]['candidate_id']}: reason={reason}")
     evaluated = df[df["candidate_status"] == "evaluated"]
     assert len(evaluated) == 11
     print(f"  {len(evaluated)} other candidates evaluated; run completed - OK")
+
 
 class _KillAfterSecondSolveSession(HeadlessSession):
     """Wraps a real HeadlessSession but force-terminates the OWNED Robot
@@ -237,13 +251,13 @@ class _KillAfterSecondSolveSession(HeadlessSession):
             # Simulate DialogWatcher force-terminating the Robot process.
             for pid in list(self._owned_pids):
                 try:
-                    subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                                   capture_output=True, timeout=15)
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=15
+                    )
                 except Exception:  # noqa: BLE001
                     pass
             time.sleep(1.0)
-            raise SolverInstabilityError(
-                "simulated DialogWatcher unknown-dialog force-kill")
+            raise SolverInstabilityError("simulated DialogWatcher unknown-dialog force-kill")
         return super().solve_all(analysis_types)
 
 
@@ -271,8 +285,7 @@ def test_dead_session_recovery() -> None:
         return s
 
     ds = DesignSpace(SPEC)
-    summary = run_batch(ds, db_path=db, log_path=log,
-                        session_factory=factory)
+    summary = run_batch(ds, db_path=db, log_path=log, session_factory=factory)
 
     assert summary["status"] == "completed", summary
     # Candidate 2 (the kill target) is recorded failed; the other 11 succeed
@@ -280,10 +293,9 @@ def test_dead_session_recovery() -> None:
     assert summary["evaluated"] == 11, summary
     assert summary["failed"] == 1, summary
     assert launched["n"] >= 2, (
-        f"expected >=2 Robot launches (initial + reconnect), "
-        f"got {launched['n']}")
-    assert any("SolverInstabilityError" in f for f in summary["failures"]), \
-        summary["failures"]
+        f"expected >=2 Robot launches (initial + reconnect), got {launched['n']}"
+    )
+    assert any("SolverInstabilityError" in f for f in summary["failures"]), summary["failures"]
 
     storage = Storage(db_path=db)
     df = storage.get_all_results(summary["run_id"])
@@ -297,6 +309,7 @@ def test_dead_session_recovery() -> None:
     print(f"  evaluated candidate_ids={ev_ids} (failed={list(failed['candidate_id'])})")
     assert 1 in ev_ids and 12 in ev_ids, "run did not restart from scratch"
     print("  dead-session reconnect verified: 11 evaluated, 1 killed candidate")
+
 
 from batch.headless_driver import _robot_pids
 
@@ -335,15 +348,17 @@ def test_kill_and_resume() -> None:
     # SAME run_id - matches the contract run_batch(run_id=...) uses.
     ds = DesignSpace(SPEC)
     storage = Storage(db_path=db)
-    run_id = storage.create_run(ds.to_dict(),
-                                objective=json.dumps(ds.objective, default=str))
+    run_id = storage.create_run(ds.to_dict(), objective=json.dumps(ds.objective, default=str))
     for cand in ds.generate_candidates():
         storage.add_candidate(run_id, cand)
 
     robots_before = _robot_pids()
     proc = subprocess.Popen(
         [sys.executable, driver_path, spec_path, str(run_id), db, log],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
 
     # Poll the DB for checkpoint >= 6 (candidate 6 completed + checkpointed).
     deadline = time.time() + 300
@@ -380,16 +395,16 @@ def test_kill_and_resume() -> None:
     evaluated = df[df["candidate_status"] == "evaluated"]
     assert len(evaluated) == 12, f"expected all 12 evaluated, got {len(evaluated)}"
     _spot_check_results(evaluated)
-    print(f"  resumed at 7; all 12 recorded; spot-checked weights OK")
+    print("  resumed at 7; all 12 recorded; spot-checked weights OK")
 
     # Cleanup: the killed subprocess orphaned its Robot. Kill only the PIDs
     # that appeared AFTER we started (never an interactive instance).
     for pid in _robot_pids() - robots_before:
         try:
-            subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                           capture_output=True, timeout=15)
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=15)
         except Exception:  # noqa: BLE001
             pass
+
 
 def main() -> None:
     print("=" * 72)
@@ -406,8 +421,9 @@ def main() -> None:
         # kill test); never touch pre-existing interactive instances.
         for pid in _robot_pids() - robots_before:
             try:
-                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=15)
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=15
+                )
             except Exception:  # noqa: BLE001
                 pass
     print()

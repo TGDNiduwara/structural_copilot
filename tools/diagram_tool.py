@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 import pandas as pd
 
@@ -31,7 +30,9 @@ def _ensure_matplotlib():
     matplotlib.use("Agg")  # headless-safe backend for server / Streamlit contexts
     import matplotlib.pyplot as plt
     import matplotlib.ticker as mticker
+
     return plt, mticker
+
 
 logger = logging.getLogger("structural_copilot.diagram_tool")
 logger.setLevel(logging.INFO)
@@ -54,12 +55,12 @@ def plot_structure_wireframe(
     plt, _ = _ensure_matplotlib()
 
     if isinstance(nodes, dict):
-        coords = {int(k): [float(v[0]), float(v[1]), float(v[2])]
-                  for k, v in nodes.items()}
+        coords = {int(k): [float(v[0]), float(v[1]), float(v[2])] for k, v in nodes.items()}
     else:
-        coords = {int(n["id"]): [float(n.get("x", 0.0)),
-                                 float(n.get("y", 0.0)),
-                                 float(n.get("z", 0.0))] for n in nodes}
+        coords = {
+            int(n["id"]): [float(n.get("x", 0.0)), float(n.get("y", 0.0)), float(n.get("z", 0.0))]
+            for n in nodes
+        }
     if not coords:
         raise ValueError("No nodes to preview - build geometry first.")
     if isinstance(bars, dict):
@@ -73,16 +74,24 @@ def plot_structure_wireframe(
         ax = fig.add_subplot(111)
         xs = [c[0] for c in coords.values()]
         zs = [c[2] for c in coords.values()]
-        for (n1, n2) in pairs.values():
+        for n1, n2 in pairs.values():
             if n1 in coords and n2 in coords:
-                ax.plot([coords[n1][0], coords[n2][0]],
-                        [coords[n1][2], coords[n2][2]],
-                        color="#1F618D", lw=1.6)
+                ax.plot(
+                    [coords[n1][0], coords[n2][0]],
+                    [coords[n1][2], coords[n2][2]],
+                    color="#1F618D",
+                    lw=1.6,
+                )
         ax.scatter(xs, zs, color="#C0392B", s=24, zorder=3)
         for nid, c in coords.items():
-            ax.annotate(str(nid), (c[0], c[2]),
-                        textcoords="offset points", xytext=(4, 4),
-                        fontsize=7, color="#444444")
+            ax.annotate(
+                str(nid),
+                (c[0], c[2]),
+                textcoords="offset points",
+                xytext=(4, 4),
+                fontsize=7,
+                color="#444444",
+            )
         ax.set_xlabel("X (m)")
         ax.set_ylabel("Z (m)")
         ax.set_title(title)
@@ -93,12 +102,15 @@ def plot_structure_wireframe(
         xs = [c[0] for c in coords.values()]
         ys = [c[1] for c in coords.values()]
         zs = [c[2] for c in coords.values()]
-        for (n1, n2) in pairs.values():
+        for n1, n2 in pairs.values():
             if n1 in coords and n2 in coords:
-                ax.plot([coords[n1][0], coords[n2][0]],
-                        [coords[n1][1], coords[n2][1]],
-                        [coords[n1][2], coords[n2][2]],
-                        color="#1F618D", lw=1.6)
+                ax.plot(
+                    [coords[n1][0], coords[n2][0]],
+                    [coords[n1][1], coords[n2][1]],
+                    [coords[n1][2], coords[n2][2]],
+                    color="#1F618D",
+                    lw=1.6,
+                )
         ax.scatter(xs, ys, zs, color="#C0392B", s=24, zorder=3)
         ax.set_xlabel("X (m)")
         ax.set_ylabel("Y (m)")
@@ -170,14 +182,22 @@ class DiagramGenerator:
         if not required_cols.issubset(set(df.columns)):
             missing = required_cols - set(df.columns)
             logger.error(
-                "DataFrame missing required columns for diagram: %s. "
-                "Available: %s", missing, list(df.columns)
+                "DataFrame missing required columns for diagram: %s. Available: %s",
+                missing,
+                list(df.columns),
             )
             # Create empty placeholder figure
             fig, ax = plt.subplots(figsize=self.figsize)
-            ax.text(0.5, 0.5, f"Missing data columns: {missing}",
-                    transform=ax.transAxes, ha="center", va="center",
-                    fontsize=12, color="red")
+            ax.text(
+                0.5,
+                0.5,
+                f"Missing data columns: {missing}",
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=12,
+                color="red",
+            )
             ax.set_title(title, fontsize=14, fontweight="bold", color="#1F3864")
             os.makedirs(os.path.dirname(os.path.abspath(save_path)) or ".", exist_ok=True)
             fig.savefig(save_path, dpi=self.dpi, bbox_inches="tight")
@@ -188,8 +208,11 @@ class DiagramGenerator:
         n_bars = max(len(bar_ids), 1)
 
         fig, axes = plt.subplots(
-            nrows=1, ncols=n_bars, figsize=(self.figsize[0], self.figsize[1]),
-            sharey=True, squeeze=False,
+            nrows=1,
+            ncols=n_bars,
+            figsize=(self.figsize[0], self.figsize[1]),
+            sharey=True,
+            squeeze=False,
         )
         axes = axes[0]
 
@@ -218,15 +241,23 @@ class DiagramGenerator:
                 ax.annotate(
                     f"{plot_y[max_idx]:.2f}",
                     xy=(x[max_idx], plot_y[max_idx]),
-                    xytext=(0, 6), textcoords="offset points",
-                    ha="center", fontsize=7.5, color="#1F3864", fontweight="bold",
+                    xytext=(0, 6),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=7.5,
+                    color="#1F3864",
+                    fontweight="bold",
                 )
                 if min_idx != max_idx:
                     ax.annotate(
                         f"{plot_y[min_idx]:.2f}",
                         xy=(x[min_idx], plot_y[min_idx]),
-                        xytext=(0, -12), textcoords="offset points",
-                        ha="center", fontsize=7.5, color="#1F3864", fontweight="bold",
+                        xytext=(0, -12),
+                        textcoords="offset points",
+                        ha="center",
+                        fontsize=7.5,
+                        color="#1F3864",
+                        fontweight="bold",
                     )
 
             ax.set_title(f"Bar {bar_id}", fontsize=10, fontweight="bold")

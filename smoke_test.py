@@ -39,36 +39,52 @@ GENERATED = os.path.join(BASE_DIR, "generated")
 # Synthetic data (closed-form 6 m simply-supported beam, w = 10 kN/m)
 # ---------------------------------------------------------------------- #
 
+
 def _synthetic_member_forces() -> pd.DataFrame:
     rows = []
     for i in range(9):
         x = i * 6.0 / 8.0
-        v = 10.0 * (3.0 - x)          # V(x) = w(L/2 - x)
-        m = 5.0 * x * (6.0 - x)       # M(x) = w*x*(L-x)/2
-        rows.append({
-            "Bar_ID": 1, "Position_m": round(x, 3),
-            "FX_kN": 0.0, "FZ_kN": round(v, 3), "MY_kNm": round(m, 3),
-        })
+        v = 10.0 * (3.0 - x)  # V(x) = w(L/2 - x)
+        m = 5.0 * x * (6.0 - x)  # M(x) = w*x*(L-x)/2
+        rows.append(
+            {
+                "Bar_ID": 1,
+                "Position_m": round(x, 3),
+                "FX_kN": 0.0,
+                "FZ_kN": round(v, 3),
+                "MY_kNm": round(m, 3),
+            }
+        )
     return pd.DataFrame(rows)
 
 
 def _synthetic_reactions() -> pd.DataFrame:
-    return pd.DataFrame([
-        {"Node_ID": 1, "Support_Type": "Pinned", "FX_kN": 0.0, "FZ_kN": 30.0, "MY_kNm": 0.0},
-        {"Node_ID": 2, "Support_Type": "Pinned", "FX_kN": 0.0, "FZ_kN": 30.0, "MY_kNm": 0.0},
-    ])
+    return pd.DataFrame(
+        [
+            {"Node_ID": 1, "Support_Type": "Pinned", "FX_kN": 0.0, "FZ_kN": 30.0, "MY_kNm": 0.0},
+            {"Node_ID": 2, "Support_Type": "Pinned", "FX_kN": 0.0, "FZ_kN": 30.0, "MY_kNm": 0.0},
+        ]
+    )
 
 
 def _synthetic_boq() -> pd.DataFrame:
-    return pd.DataFrame([
-        {"Section": "IPE300", "Count": 1, "Total_Length_m": 6.0,
-         "Unit_Mass_kg_m": 42.2, "Total_Weight_kg": 253.2},
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "Section": "IPE300",
+                "Count": 1,
+                "Total_Length_m": 6.0,
+                "Unit_Mass_kg_m": 42.2,
+                "Total_Weight_kg": 253.2,
+            },
+        ]
+    )
 
 
 # ---------------------------------------------------------------------- #
 # Office artifact generation (no Robot / no LLM required)
 # ---------------------------------------------------------------------- #
+
 
 def run_office_artifacts(member_df, reactions_df, boq_df, tag: str) -> None:
     os.makedirs(GENERATED, exist_ok=True)
@@ -81,25 +97,32 @@ def run_office_artifacts(member_df, reactions_df, boq_df, tag: str) -> None:
 
     xlsx = os.path.join(GENERATED, f"{tag}_Results.xlsx")
     ExcelReporter().create_structural_workbook(
-        file_path=xlsx, project_name="Smoke Test Project",
-        member_forces_df=member_df, reactions_df=reactions_df, boq_df=boq_df,
+        file_path=xlsx,
+        project_name="Smoke Test Project",
+        member_forces_df=member_df,
+        reactions_df=reactions_df,
+        boq_df=boq_df,
     )
 
     docx = os.path.join(GENERATED, f"{tag}_Report.docx")
     WordReporter().generate_calculation_report(
-        file_path=docx, project_title="Smoke Test Project",
+        file_path=docx,
+        project_title="Smoke Test Project",
         engineer_name="smoke_test.py",
         summary_text="Verification run: 6 m simply-supported beam, 10 kN/m UDL.",
-        member_df=member_df, reactions_df=reactions_df,
+        member_df=member_df,
+        reactions_df=reactions_df,
         diagram_paths=[sfd, bmd],
     )
 
     pptx = os.path.join(GENERATED, f"{tag}_Presentation.pptx")
     PowerPointReporter().generate_presentation(
-        file_path=pptx, project_title="Smoke Test Project",
+        file_path=pptx,
+        project_title="Smoke Test Project",
         engineer_name="smoke_test.py",
         summary_text="Verification run: 6 m simply-supported beam, 10 kN/m UDL.",
-        member_df=member_df, reactions_df=reactions_df,
+        member_df=member_df,
+        reactions_df=reactions_df,
         diagram_paths=[sfd, bmd],
     )
 
@@ -108,9 +131,11 @@ def run_office_artifacts(member_df, reactions_df, boq_df, tag: str) -> None:
         assert size > 0, f"{p} is empty"
         print(f"  OK  {os.path.basename(p)}  ({size:,} bytes)")
 
+
 # ---------------------------------------------------------------------- #
 # Full Robot COM round trip
 # ---------------------------------------------------------------------- #
+
 
 def run_robot_roundtrip():
     from tools.robot_tool import RobotBridge
@@ -144,8 +169,10 @@ def run_robot_roundtrip():
     reactions_df = robot.export_reactions(case_id=1)
     boq_df = robot.export_bill_of_materials()
 
-    print(f"  [OK] exports: {len(member_df)} force rows, "
-          f"{len(reactions_df)} reaction rows, {len(boq_df)} BOQ rows")
+    print(
+        f"  [OK] exports: {len(member_df)} force rows, "
+        f"{len(reactions_df)} reaction rows, {len(boq_df)} BOQ rows"
+    )
     if not member_df.empty:
         print(member_df.to_string(index=False))
     if not reactions_df.empty:
@@ -173,8 +200,7 @@ def test_milestone_a() -> None:
     robot.solve(timeout_s=180)
     mf = robot.export_all_member_forces(case_id=1, divisions=4)
     re_ = robot.export_reactions(case_id=1)
-    print("  [OK] truss solved -> forces rows=%d, reactions=%d"
-          % (len(mf), len(re_)))
+    print("  [OK] truss solved -> forces rows=%d, reactions=%d" % (len(mf), len(re_)))
 
     g = robot.create_rectangular_grid_frame(levels=2, bays_x=2, bays_y=2)
     assert g["status"] == "ok" and g["nodes"] == 27 and g["bars"] == 42, g
@@ -197,13 +223,13 @@ def test_milestone_a() -> None:
         ],
         "supports": [{"node": 1, "type": "pinned"}, {"node": 2, "type": "pinned"}],
         "cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
-        "loads": [{"kind": "bar_uniform", "bar": 3, "case": 1,
-                   "direction": "Z", "value": -12.0}],
+        "loads": [{"kind": "bar_uniform", "bar": 3, "case": 1, "direction": "Z", "value": -12.0}],
     }
     su = robot.build_structure_from_spec(spec)
     assert su["status"] == "ok" and su["nodes"] == 4 and su["bars"] == 4, su
-    print("  [OK] spec builder -> nodes=%d bars=%d cases=%d"
-          % (su["nodes"], su["bars"], su["cases"]))
+    print(
+        "  [OK] spec builder -> nodes=%d bars=%d cases=%d" % (su["nodes"], su["bars"], su["cases"])
+    )
     print("  [OK] Milestone A")
 
 
@@ -213,8 +239,10 @@ def main() -> int:
         if offline:
             print("[offline] generating office artifacts from synthetic data...")
             run_office_artifacts(
-                _synthetic_member_forces(), _synthetic_reactions(),
-                _synthetic_boq(), "smoke_offline",
+                _synthetic_member_forces(),
+                _synthetic_reactions(),
+                _synthetic_boq(),
+                "smoke_offline",
             )
             print("[offline] ALL CHECKS PASSED")
         else:
@@ -231,4 +259,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

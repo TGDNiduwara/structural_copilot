@@ -1,4 +1,4 @@
-﻿"""
+"""
 tools/test_robot_dialog_guard.py
 =================================
 LIVE integration test for the interactive-safe dialog guard around
@@ -23,6 +23,7 @@ Expect: "ROBOT DIALOG GUARD TESTS PASSED" printed. If a real
 watch_and_dismiss about an UNKNOWN dialog - capture that printed body text and
 update SAVE_PROMPT_PATTERNS in tools/win_dialogs.py accordingly.
 """
+
 from __future__ import annotations
 
 import sys
@@ -80,22 +81,22 @@ def main() -> int:
     try:
         bridge.clear_structure("2D")
         elapsed = time.time() - start
-        check("(b) clear_structure returned", elapsed < 20.0,
-              f"took {elapsed:.1f}s")
+        check("(b) clear_structure returned", elapsed < 20.0, f"took {elapsed:.1f}s")
     except Exception as exc:  # noqa: BLE001
         elapsed = time.time() - start
-        check("(b) clear_structure returned", False,
-              f"{type(exc).__name__} after {elapsed:.1f}s: {exc}")
+        check(
+            "(b) clear_structure returned",
+            False,
+            f"{type(exc).__name__} after {elapsed:.1f}s: {exc}",
+        )
 
     # (c) the resulting project is genuinely empty (discard really completed)
     try:
         n = node_count(bridge)
         b = bar_count(bridge)
-        check("(c) model empty after clear", n == 0 and b == 0,
-              f"nodes={n} bars={b}")
+        check("(c) model empty after clear", n == 0 and b == 0, f"nodes={n} bars={b}")
     except Exception as exc:  # noqa: BLE001
-        check("(c) model empty after clear", False,
-              f"{type(exc).__name__}: {exc}")
+        check("(c) model empty after clear", False, f"{type(exc).__name__}: {exc}")
 
     bridge.close()
     print("\nROBOT DIALOG GUARD TESTS PASSED", flush=True)

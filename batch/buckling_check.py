@@ -1,4 +1,4 @@
-﻿"""
+"""
 batch/buckling_check.py
 =======================
 [PHASE 3] Basic Euler buckling screening for compression members.
@@ -28,18 +28,18 @@ auto-creates proxies for nonexistent IDs on this build, so bar_id and
 case/combination ids are validated against real enumerations here, never
 via a bare .Get().
 """
+
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from tools.robot_tool import RobotEnum
 
 #: Constant note attached to every result so the "basic screening" nature is
 #: impossible to miss (same discipline as the elastic utilization tool).
 EULER_NOTE = (
-    "Minor-axis Euler check only, basic screening - not full code-based "
-    "buckling/interaction check."
+    "Minor-axis Euler check only, basic screening - not full code-based buckling/interaction check."
 )
 
 
@@ -75,25 +75,24 @@ def _bar_length(bridge, bar_id: int) -> float:
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 
 
-def _section_a_i(bridge, section_name: str) -> Tuple[float, float]:
+def _section_a_i(bridge, section_name: str) -> tuple[float, float]:
     """(A m2, I_minor m4) for a section label via the empirical GetValue
     map (0=A, 4/5=I - probed live). Uses the SMALLER of the two principal
     inertias (conservative, weak-axis)."""
-    data = bridge.structure.Labels.Get(
-        RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
+    data = bridge.structure.Labels.Get(RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
     a = float(data.GetValue(0))
     i1, i2 = float(data.GetValue(4)), float(data.GetValue(5))
     return a, min(i1, i2)
 
 
-def _bar_material_e_pa(bridge, bar_id: int) -> Tuple[Optional[float], str]:
+def _bar_material_e_pa(bridge, bar_id: int) -> tuple[float | None, str]:
     """(E in Pa, material_name) for a bar. Lookup order matches
     get_utilization_ratios' strength lookup: the bar's own material label,
     then the section's material reference. Returns (None, reason) if no
     material/E can be found."""
     labels = bridge.structure.Labels
 
-    def _e_of_label(mat_name: str) -> Optional[float]:
+    def _e_of_label(mat_name: str) -> float | None:
         try:
             data = labels.Get(RobotEnum.I_LT_MATERIAL, mat_name).Data
             e_pa = float(data.E or 0.0)
@@ -116,8 +115,10 @@ def _bar_material_e_pa(bridge, bar_id: int) -> Tuple[Optional[float], str]:
     try:
         sec_name = str(bar.GetLabelName(RobotEnum.I_LT_BAR_SECTION))
         from tools.robot_tool import CastTo
-        sdata = CastTo(labels.Get(RobotEnum.I_LT_BAR_SECTION, sec_name).Data,
-                       "IRobotBarSectionData")
+
+        sdata = CastTo(
+            labels.Get(RobotEnum.I_LT_BAR_SECTION, sec_name).Data, "IRobotBarSectionData"
+        )
         sec_mat = str(sdata.MaterialName or "")
         if sec_mat:
             e = _e_of_label(sec_mat)
@@ -134,8 +135,8 @@ def check_euler_buckling(
     bar_id: int,
     case_or_combination_id: int,
     effective_length_factor: float = 1.0,
-    axial_force_kn: Optional[float] = None,
-) -> Dict[str, Any]:
+    axial_force_kn: float | None = None,
+) -> dict[str, Any]:
     """Basic Euler buckling check for a single member.
 
     Applies only to members in COMPRESSION (negative axial force per the
@@ -161,12 +162,14 @@ def check_euler_buckling(
     if int(bar_id) not in real_bars:
         raise ValueError(
             f"bar {bar_id} does not exist in the model "
-            f"(real bars: {sorted(real_bars)[:10]}{'...' if len(real_bars) > 10 else ''}).")
+            f"(real bars: {sorted(real_bars)[:10]}{'...' if len(real_bars) > 10 else ''})."
+        )
     real_cases = _real_case_ids(bridge)
     if int(case_or_combination_id) not in real_cases:
         raise ValueError(
             f"case/combination {case_or_combination_id} does not exist "
-            f"(real cases: {sorted(real_cases)}).")
+            f"(real cases: {sorted(real_cases)})."
+        )
 
     if axial_force_kn is not None:
         # Runner already exported forces once - reuse to avoid a second,
@@ -177,17 +180,18 @@ def check_euler_buckling(
         # axial force is roughly constant along a member, so a single reliable
         # station is sufficient for the screening check.
         try:
-            df = bridge.export_all_member_forces(
-                case_id=int(case_or_combination_id), divisions=2)
+            df = bridge.export_all_member_forces(case_id=int(case_or_combination_id), divisions=2)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
                 f"Could not read member forces for bar {bar_id} in case "
-                f"{case_or_combination_id}: {exc}") from exc
+                f"{case_or_combination_id}: {exc}"
+            ) from exc
         sub = df[df["Bar_ID"] == int(bar_id)] if df is not None else None
         if sub is None or sub.empty:
             raise RuntimeError(
                 f"No force results for bar {bar_id} in case "
-                f"{case_or_combination_id} - has the model been solved?")
+                f"{case_or_combination_id} - has the model been solved?"
+            )
         axial_kN = float(sub["FX_kN"].iloc[len(sub) // 2])
 
     if axial_kN >= 0.0:
@@ -217,8 +221,8 @@ def check_euler_buckling(
     e_pa, mat_name = _bar_material_e_pa(bridge, int(bar_id))
     if e_pa is None or e_pa <= 0.0:
         raise RuntimeError(
-            f"bar {bar_id}: {mat_name or 'no material E'} - cannot compute "
-            "Euler Pcr.")
+            f"bar {bar_id}: {mat_name or 'no material E'} - cannot compute Euler Pcr."
+        )
 
     k = float(effective_length_factor)
     kl = k * length_m
@@ -240,5 +244,3 @@ def check_euler_buckling(
         "length_m": round(length_m, 3),
         "E_GPa": round(e_pa / 1e9, 2),
     }
-
-

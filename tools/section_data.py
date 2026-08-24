@@ -23,20 +23,27 @@ Author: Principal Structural Software Architecture Team
 
 from __future__ import annotations
 
-import math
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 #: ShapeType codes verified as doubly-symmetric rolled I-sections.
 SHAPE_TYPE_I: set = {10, 12, 14, 20, 25}
 #: ShapeType code -> engineering shape kind (verified subset; anything
 #: unlisted is "other" until probed).
-SHAPE_TYPE_KIND: Dict[int, str] = {
-    1: "angle", 10: "i", 12: "i", 14: "i", 20: "i", 25: "i",
-    37: "channel", 38: "channel",
+SHAPE_TYPE_KIND: dict[int, str] = {
+    1: "angle",
+    10: "i",
+    12: "i",
+    14: "i",
+    20: "i",
+    25: "i",
+    37: "channel",
+    38: "channel",
     # [CHS 2026-08-23] live-probed ShapeType codes (UKST catalog):
     #   36 = circular hollow section (CHS): h=b=D, tw=tf=t, r=0
     #   47 = rectangular/square hollow section (RHS/SHS): full dims incl. r
-    36: "circular_hollow", 47: "rect_hollow",
+    36: "circular_hollow",
+    47: "rect_hollow",
 }
 
 
@@ -46,14 +53,14 @@ def shape_kind(shape_type: Any) -> str:
     return SHAPE_TYPE_KIND.get(int(shape_type), "other")
 
 
-def extract_section_props(getvalue: Callable[[int], Any],
-                          shape_type: Any) -> Dict[str, Any]:
+def extract_section_props(getvalue: Callable[[int], Any], shape_type: Any) -> dict[str, Any]:
     """PURE: reads the probe-verified GetValue map into a props dict.
 
     ``getvalue(i)`` returns the Data.GetValue(i) value (or raises for
     unsupported indices). Returns a dict with all values in SI units
     (m / m2 / m3 / m4) plus the derived Wy and a ``complete`` flag.
     """
+
     def v(i: int) -> float:
         try:
             return float(getvalue(i)) or 0.0
@@ -65,8 +72,7 @@ def extract_section_props(getvalue: Callable[[int], Any],
     tw, tf, r = v(14), v(15), v(16)
     wpl_y = v(19)
     wy = (2.0 * iy / h) if h > 0.0 and iy > 0.0 else 0.0
-    complete = (h > 0.0 and b > 0.0 and tw > 0.0 and tf > 0.0
-                and iy > 0.0 and iz > 0.0)
+    complete = h > 0.0 and b > 0.0 and tw > 0.0 and tf > 0.0 and iy > 0.0 and iz > 0.0
     return {
         "shape_type": int(shape_type),
         "shape_kind": shape_kind(shape_type),
@@ -84,10 +90,15 @@ def extract_section_props(getvalue: Callable[[int], Any],
     }
 
 
-def has_full_dims(props: Dict[str, Any]) -> bool:
+def has_full_dims(props: dict[str, Any]) -> bool:
     """True when all dimensions needed for classification/LTB are live."""
     return bool(props.get("complete")) and props.get("shape_kind") in (
-        "i", "channel", "angle", "circular_hollow", "rect_hollow")
+        "i",
+        "channel",
+        "angle",
+        "circular_hollow",
+        "rect_hollow",
+    )
 
 
 def flange_outstand(b_m: float, tw_m: float, r_m: float) -> float:
@@ -100,8 +111,7 @@ def web_clear_height(h_m: float, tf_m: float, r_m: float) -> float:
     return max(float(h_m) - 2.0 * float(tf_m) - 2.0 * float(r_m), 0.0)
 
 
-def it_from_dims(h_m: float, b_m: float, tw_m: float, tf_m: float,
-                 r_m: float) -> float:
+def it_from_dims(h_m: float, b_m: float, tw_m: float, tf_m: float, r_m: float) -> float:
     """St. Venant torsion constant (m4) for a rolled I-section.
 
     Thin-wall three-rectangle model + fillet-corner correction:
@@ -111,9 +121,8 @@ def it_from_dims(h_m: float, b_m: float, tw_m: float, tf_m: float,
     """
     web = max(float(h_m) - 2.0 * float(tf_m), 0.0)
     d = float(r_m) + float(tw_m) / 2.0
-    corner = 2.0 * 0.105 * d ** 4
-    return (2.0 * float(b_m) * float(tf_m) ** 3
-            + web * float(tw_m) ** 3) / 3.0 + corner
+    corner = 2.0 * 0.105 * d**4
+    return (2.0 * float(b_m) * float(tf_m) ** 3 + web * float(tw_m) ** 3) / 3.0 + corner
 
 
 def iw_from_dims(iz_m4: float, h_m: float, tf_m: float) -> float:
@@ -122,16 +131,15 @@ def iw_from_dims(iz_m4: float, h_m: float, tf_m: float) -> float:
     return float(iz_m4) * (float(h_m) - float(tf_m)) ** 2 / 4.0
 
 
-def read_section_props(bridge,
-                       section_name: str) -> Optional[Dict[str, Any]]:
+def read_section_props(bridge, section_name: str) -> dict[str, Any] | None:
     """COM-facing wrapper: loads a section label's Data and extracts the
     probe-verified props (None if the section cannot be loaded)."""
     try:
         # Lazy import: section_data is imported BY robot_tool, so importing
         # robot_tool at module level here would be circular.
         from tools.robot_tool import RobotEnum
-        data = bridge.structure.Labels.Get(
-            RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
+
+        data = bridge.structure.Labels.Get(RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
         return extract_section_props(data.GetValue, data.ShapeType)
     except Exception:
         return None

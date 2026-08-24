@@ -19,36 +19,40 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import quote
 
 import requests
+import structlog
 
-logger = logging.getLogger("structural_copilot.llm_providers")
-logger.setLevel(logging.INFO)
+logger = structlog.get_logger(
+    "structural_copilot.llm_providers"
+)  # [FIX 08]  # filtering at INFO via make_filtering_bound_logger
 
 
 # --------------------------------------------------------------------------
 # Normalized data structures
 # --------------------------------------------------------------------------
 
+
 @dataclass
 class ToolCall:
     id: str
     name: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
 
 
 @dataclass
 class LLMResponse:
     content: str
-    tool_calls: List[ToolCall] = field(default_factory=list)
-    raw: Optional[dict] = None
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    raw: dict | None = None
     finish_reason: str = "stop"
+    # [FIX 11] token usage from the provider response (if reported):
+    usage: dict | None = None
 
 
 class LLMProviderError(RuntimeError):
@@ -119,15 +123,17 @@ API_KEY_ENV_VARS = {
 # [FIX H4] Retry logic for transient HTTP errors
 # --------------------------------------------------------------------------
 
-MAX_HTTP_RETRIES = 3
+# [FIX 03] MAX_HTTP_RETRIES now comes from config (was a 3 literal here).
+from config import MAX_HTTP_RETRIES  # noqa: E402
+
 RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 
 def _request_with_retry(
     method_func,
     url: str,
-    headers: Dict[str, str],
-    payload: Dict[str, Any],
+    headers: dict[str, str],
+    payload: dict[str, Any],
     timeout_s: int,
     provider_name: str = "",
 ) -> requests.Response:
@@ -142,10 +148,14 @@ def _request_with_retry(
         except requests.RequestException as exc:
             # Connection-level errors: retry once, then give up
             if attempt < MAX_HTTP_RETRIES and attempt < 1:
-                delay = (2 ** attempt) + random.uniform(0.5, 1.5)
+                delay = (2**attempt) + random.uniform(0.5, 1.5)
                 logger.warning(
                     "%s connection error (attempt %d/%d), retrying in %.1fs: %s",
-                    provider_name, attempt + 1, MAX_HTTP_RETRIES + 1, delay, exc,
+                    provider_name,
+                    attempt + 1,
+                    MAX_HTTP_RETRIES + 1,
+                    delay,
+                    exc,
                 )
                 time.sleep(delay)
                 continue
@@ -156,19 +166,22 @@ def _request_with_retry(
 
         # Transient server error — retry with backoff
         if attempt < MAX_HTTP_RETRIES:
-            delay = (2 ** attempt) + random.uniform(0.5, 1.5)
+            delay = (2**attempt) + random.uniform(0.5, 1.5)
             # Respect Retry-After for rate limits
             if resp.status_code == 429:
                 retry_after = resp.headers.get("Retry-After")
                 if retry_after:
-                    try:
+                    import contextlib  # [FIX 09] SIM105
+
+                    with contextlib.suppress(ValueError):
                         delay = max(delay, float(retry_after))
-                    except ValueError:
-                        pass
             logger.warning(
                 "%s returned HTTP %d (attempt %d/%d), retrying in %.1fs",
-                provider_name, resp.status_code, attempt + 1,
-                MAX_HTTP_RETRIES + 1, delay,
+                provider_name,
+                resp.status_code,
+                attempt + 1,
+                MAX_HTTP_RETRIES + 1,
+                delay,
             )
             time.sleep(delay)
             last_resp = resp
@@ -185,10 +198,11 @@ def _request_with_retry(
 # Public entry point
 # --------------------------------------------------------------------------
 
+
 def _build_image_content(
-    messages: List[Dict[str, Any]],
-    attachments: Optional[List[Dict[str, Any]]],
-) -> List[Dict[str, Any]]:
+    messages: list[dict[str, Any]],
+    attachments: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
     """
     [ATTACH] Converts the LAST user message into an OpenAI-style multimodal
     content list (text + image_url data-URL parts) when image attachments are
@@ -203,23 +217,25 @@ def _build_image_content(
             content = msgs[i].get("content") or ""
             if not isinstance(content, str):
                 break
-            parts: List[Dict[str, Any]] = [{"type": "text", "text": content}]
+            parts: list[dict[str, Any]] = [{"type": "text", "text": content}]
             for a in attachments:
                 mime = a.get("mime") or "image/png"
                 b64 = base64.b64encode(a["bytes"]).decode("ascii")
-                parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime};base64,{b64}"},
-                })
+                parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    }
+                )
             msgs[i]["content"] = parts
             break
     return msgs
 
 
 def _apply_gemini_attachments(
-    contents: List[dict],
-    attachments: Optional[List[Dict[str, Any]]],
-) -> List[dict]:
+    contents: list[dict],
+    attachments: list[dict[str, Any]] | None,
+) -> list[dict]:
     """
     [ATTACH] Appends inline_data (base64) image parts to the last user turn
     for Gemini's generateContent format.
@@ -230,12 +246,14 @@ def _apply_gemini_attachments(
         if contents[i].get("role") == "user":
             parts = contents[i].setdefault("parts", [])
             for a in attachments:
-                parts.append({
-                    "inline_data": {
-                        "mime_type": a.get("mime") or "image/png",
-                        "data": base64.b64encode(a["bytes"]).decode("ascii"),
+                parts.append(
+                    {
+                        "inline_data": {
+                            "mime_type": a.get("mime") or "image/png",
+                            "data": base64.b64encode(a["bytes"]).decode("ascii"),
+                        }
                     }
-                })
+                )
             break
     return contents
 
@@ -244,13 +262,13 @@ def call_llm(
     provider: str,
     model: str,
     api_key: str,
-    messages: List[Dict[str, Any]],
-    tool_schemas: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
+    tool_schemas: list[dict[str, Any]],
     temperature: float = 0.2,
     max_tokens: int = 4000,
     timeout_s: int = 90,
-    base_url: Optional[str] = None,
-    attachments: Optional[List[Dict[str, Any]]] = None,
+    base_url: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> LLMResponse:
     """
     Dispatches a chat-completion + tool-calling request to the selected
@@ -297,17 +315,18 @@ def call_llm(
 # OpenAI / OpenRouter (OpenAI-compatible /chat/completions)
 # --------------------------------------------------------------------------
 
+
 def _call_openai_compatible(
     provider: str,
     model: str,
     api_key: str,
-    messages: List[Dict[str, Any]],
-    tool_schemas: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
+    tool_schemas: list[dict[str, Any]],
     temperature: float,
     max_tokens: int,
     timeout_s: int,
-    base_url: Optional[str] = None,
-    attachments: Optional[List[Dict[str, Any]]] = None,
+    base_url: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> LLMResponse:
     url = base_url or PROVIDERS[provider]["base_url"]
 
@@ -334,24 +353,32 @@ def _call_openai_compatible(
 
     # [FIX H4] Use retry wrapper instead of bare requests.post
     resp = _request_with_retry(
-        requests.post, url, headers, payload, timeout_s, provider_name=provider,
+        requests.post,
+        url,
+        headers,
+        payload,
+        timeout_s,
+        provider_name=provider,
     )
 
     if resp.status_code >= 400:
         hint = ""
         if attachments:
-            hint = (" The attached image may not be supported by this model/"
-                    "endpoint — try a vision-capable model or describe the "
-                    "sketch in text.")
-        raise LLMProviderError(f"{provider} returned HTTP {resp.status_code}: {resp.text[:500]}{hint}")
+            hint = (
+                " The attached image may not be supported by this model/"
+                "endpoint — try a vision-capable model or describe the "
+                "sketch in text."
+            )
+        raise LLMProviderError(
+            f"{provider} returned HTTP {resp.status_code}: {resp.text[:500]}{hint}"
+        )
 
     # [FIX M7] Handle JSON decode errors gracefully
     try:
         data = resp.json()
     except (json.JSONDecodeError, ValueError) as exc:
         raise LLMProviderError(
-            f"{provider} returned non-JSON response (HTTP {resp.status_code}): "
-            f"{resp.text[:500]}"
+            f"{provider} returned non-JSON response (HTTP {resp.status_code}): {resp.text[:500]}"
         ) from exc
 
     try:
@@ -363,7 +390,7 @@ def _call_openai_compatible(
     content = message.get("content") or ""
     finish_reason = choice.get("finish_reason", "stop")
 
-    tool_calls: List[ToolCall] = []
+    tool_calls: list[ToolCall] = []
     for tc in message.get("tool_calls") or []:
         try:
             args = json.loads(tc["function"]["arguments"] or "{}")
@@ -371,31 +398,38 @@ def _call_openai_compatible(
             # [FIX H3] Log the error and include error marker instead of silent empty dict
             logger.error(
                 "Malformed JSON in tool call '%s' arguments: %s — raw: %r",
-                tc["function"]["name"], exc, tc["function"]["arguments"][:200],
+                tc["function"]["name"],
+                exc,
+                tc["function"]["arguments"][:200],
             )
             args = {
                 "_json_decode_error": True,
                 "_error_message": str(exc),
                 "_raw_arguments": tc["function"]["arguments"][:500],
             }
-        tool_calls.append(
-            ToolCall(id=tc["id"], name=tc["function"]["name"], arguments=args)
-        )
+        tool_calls.append(ToolCall(id=tc["id"], name=tc["function"]["name"], arguments=args))
 
-    return LLMResponse(content=content, tool_calls=tool_calls, raw=data, finish_reason=finish_reason)
+    return LLMResponse(
+        content=content,
+        tool_calls=tool_calls,
+        raw=data,
+        finish_reason=finish_reason,
+        usage=data.get("usage") if isinstance(data, dict) else None,  # [FIX 11]
+    )
 
 
 # --------------------------------------------------------------------------
 # Google AI Studio (Gemini generateContent + functionCall)
 # --------------------------------------------------------------------------
 
-def _openai_messages_to_gemini(messages: List[Dict[str, Any]]) -> tuple[Optional[str], List[dict]]:
+
+def _openai_messages_to_gemini(messages: list[dict[str, Any]]) -> tuple[str | None, list[dict]]:
     """
     Converts an OpenAI-style message list into Gemini's `contents` array plus
     an extracted system instruction string.
     """
     system_instruction = None
-    contents: List[dict] = []
+    contents: list[dict] = []
 
     for msg in messages:
         role = msg["role"]
@@ -449,7 +483,7 @@ def _openai_messages_to_gemini(messages: List[Dict[str, Any]]) -> tuple[Optional
     return system_instruction, contents
 
 
-def _openai_schema_to_gemini_tools(tool_schemas: List[Dict[str, Any]]) -> List[dict]:
+def _openai_schema_to_gemini_tools(tool_schemas: list[dict[str, Any]]) -> list[dict]:
     if not tool_schemas:
         return []
     function_declarations = []
@@ -467,12 +501,12 @@ def _openai_schema_to_gemini_tools(tool_schemas: List[Dict[str, Any]]) -> List[d
 def _call_gemini(
     model: str,
     api_key: str,
-    messages: List[Dict[str, Any]],
-    tool_schemas: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
+    tool_schemas: list[dict[str, Any]],
     temperature: float,
     max_tokens: int,
     timeout_s: int,
-    attachments: Optional[List[Dict[str, Any]]] = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> LLMResponse:
     base_url = PROVIDERS["Google AI Studio"]["base_url"]
     # [FIX L2] URL-encode the model name to handle special characters safely
@@ -483,7 +517,7 @@ def _call_gemini(
     contents = _apply_gemini_attachments(contents, attachments)
     tools = _openai_schema_to_gemini_tools(tool_schemas)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "contents": contents,
         "generationConfig": {
             "temperature": temperature,
@@ -497,7 +531,8 @@ def _call_gemini(
 
     # [FIX H4] Use retry wrapper
     resp = _request_with_retry(
-        requests.post, url,
+        requests.post,
+        url,
         headers={"Content-Type": "application/json"},
         payload=payload,
         timeout_s=timeout_s,
@@ -524,8 +559,8 @@ def _call_gemini(
     except (KeyError, IndexError) as exc:
         raise LLMProviderError(f"Google AI Studio returned an unexpected payload: {data}") from exc
 
-    content_text_chunks: List[str] = []
-    tool_calls: List[ToolCall] = []
+    content_text_chunks: list[str] = []
+    tool_calls: list[ToolCall] = []
 
     for i, part in enumerate(parts):
         if "text" in part:
@@ -543,4 +578,5 @@ def _call_gemini(
         tool_calls=tool_calls,
         raw=data,
         finish_reason=finish_reason,
+        usage=(data.get("usageMetadata") if isinstance(data, dict) else None),  # [FIX 11]
     )

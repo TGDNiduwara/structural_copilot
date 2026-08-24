@@ -24,8 +24,7 @@ from __future__ import annotations
 
 import logging
 import math
-import threading
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -36,10 +35,28 @@ ALLOWED_MODULES = {"math", "json", "statistics", "itertools", "pandas"}
 
 # Static token screen — rejected before execution regardless of context.
 FORBIDDEN_TOKENS = (
-    "__import__", "open(", "exec(", "eval(", "compile(", "getattr(sys",
-    "globals()", "locals()", "os.", "sys.", "subprocess", "socket",
-    "shutil", "pathlib", "requests", "urllib", "__subclasses__",
-    "__builtins__", "importlib", "ctypes", "win32com", "pythoncom",
+    "__import__",
+    "open(",
+    "exec(",
+    "eval(",
+    "compile(",
+    "getattr(sys",
+    "globals()",
+    "locals()",
+    "os.",
+    "sys.",
+    "subprocess",
+    "socket",
+    "shutil",
+    "pathlib",
+    "requests",
+    "urllib",
+    "__subclasses__",
+    "__builtins__",
+    "importlib",
+    "ctypes",
+    "win32com",
+    "pythoncom",
 )
 
 
@@ -72,17 +89,49 @@ def screen_script(code: str) -> None:
                 )
 
 
-def _safe_builtins(print_fn) -> Dict[str, Any]:
+def _safe_builtins(print_fn) -> dict[str, Any]:
     """A minimal builtins dict for the sandbox (no open/exec/eval; a guarded
     __import__ only permits ALLOWED_MODULES)."""
     import builtins as _b
 
-    names = (
-        "abs min max sum round len range enumerate zip sorted reversed "
-        "isinstance str int float bool list dict set tuple any all map "
-        "filter print type repr Exception ValueError TypeError RuntimeError "
-        "ZeroDivisionError StopIteration KeyError IndexError ArithmeticError"
-    ).split()
+    names = [
+        "abs",
+        "min",
+        "max",
+        "sum",
+        "round",
+        "len",
+        "range",
+        "enumerate",
+        "zip",
+        "sorted",
+        "reversed",
+        "isinstance",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "list",
+        "dict",
+        "set",
+        "tuple",
+        "any",
+        "all",
+        "map",
+        "filter",
+        "print",
+        "type",
+        "repr",
+        "Exception",
+        "ValueError",
+        "TypeError",
+        "RuntimeError",
+        "ZeroDivisionError",
+        "StopIteration",
+        "KeyError",
+        "IndexError",
+        "ArithmeticError",
+    ]
     ns = {n: getattr(_b, n) for n in names}
     ns["print"] = print_fn
 
@@ -138,8 +187,8 @@ def run_sandboxed(
     code: str,
     robot: Any,
     timeout_s: float = 60.0,
-    extra_vars: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    extra_vars: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Executes `code` in the restricted namespace and returns
     {"result": ..., "stdout": [...]} or raises RuntimeError.
@@ -156,12 +205,12 @@ def run_sandboxed(
 
     screen_script(code)
 
-    output: List[str] = []
+    output: list[str] = []
 
     def _print(*args, **kwargs):
         output.append(" ".join(str(a) for a in args))
 
-    ns: Dict[str, Any] = {
+    ns: dict[str, Any] = {
         # [ATTACH-FIX] Proxy converts DataFrame exports to record lists so
         # LLM scripts that do `for r in robot.export_all_member_forces(...)`
         # get dicts, not column-name iteration.
@@ -190,12 +239,13 @@ def run_sandboxed(
 
     return {"result": ns.get("result"), "stdout": output}
 
+
 # --- [CT_REGISTRY] ---
 class CustomToolRegistry:
     """Session-scoped registry of LLM-authored, parameterized tools."""
 
     def __init__(self) -> None:
-        self._tools: Dict[str, Dict[str, Any]] = {}
+        self._tools: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ #
 
@@ -203,7 +253,7 @@ class CustomToolRegistry:
         self,
         name: str,
         description: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         code: str,
     ) -> str:
         """Validates and stores a custom tool. `parameters` is a JSON-schema
@@ -212,13 +262,16 @@ class CustomToolRegistry:
         import re as _re
 
         if not _re.fullmatch(r"[a-z][a-z0-9_]{2,40}", name or ""):
-            return (f"Error: invalid tool name '{name}'. Use snake_case, "
-                    "3-40 chars, letters/digits/underscore, starting with a "
-                    "letter.")
-        if name in {s.get("name") for s in self.schemas()} or \
-                name in _BUILTIN_TOOL_NAMES:
-            return (f"Error: a tool named '{name}' already exists. Choose a "
-                    "different name or delete it first.")
+            return (
+                f"Error: invalid tool name '{name}'. Use snake_case, "
+                "3-40 chars, letters/digits/underscore, starting with a "
+                "letter."
+            )
+        if name in {s.get("name") for s in self.schemas()} or name in _BUILTIN_TOOL_NAMES:
+            return (
+                f"Error: a tool named '{name}' already exists. Choose a "
+                "different name or delete it first."
+            )
         try:
             screen_script(code)
         except ScriptRejected as exc:
@@ -231,34 +284,37 @@ class CustomToolRegistry:
             "code": code,
         }
         logger.info("Custom tool '%s' registered.", name)
-        return (f"Custom tool '{name}' registered and now callable. Test it "
-                "by calling it with sample arguments.")
+        return (
+            f"Custom tool '{name}' registered and now callable. Test it "
+            "by calling it with sample arguments."
+        )
 
     # ------------------------------------------------------------------ #
 
-    def call(self, name: str, arguments: Dict[str, Any], robot: Any,
-             timeout_s: float = 120.0) -> Any:
+    def call(
+        self, name: str, arguments: dict[str, Any], robot: Any, timeout_s: float = 120.0
+    ) -> Any:
         """Executes a registered custom tool with the given arguments."""
         tool = self._tools.get(name)
         if tool is None:
             raise KeyError(
-                f"Unknown custom tool '{name}'. Registered: "
-                f"{list(self._tools) or '(none)'}."
+                f"Unknown custom tool '{name}'. Registered: {list(self._tools) or '(none)'}."
             )
         # Only inject declared properties (defensive: extra LLM args ignored).
         declared = (tool["parameters"] or {}).get("properties", {}) or {}
         inject = {k: v for k, v in (arguments or {}).items() if k in declared}
-        outcome = run_sandboxed(tool["code"], robot,
-                                timeout_s=timeout_s, extra_vars=inject)
+        outcome = run_sandboxed(tool["code"], robot, timeout_s=timeout_s, extra_vars=inject)
         return outcome
 
     # ------------------------------------------------------------------ #
 
     def list_tools(self) -> str:
         if not self._tools:
-            return ("No custom tools registered yet. Write one with "
-                    "run_custom_script first, then register it via "
-                    "create_custom_tool.")
+            return (
+                "No custom tools registered yet. Write one with "
+                "run_custom_script first, then register it via "
+                "create_custom_tool."
+            )
         lines = [f"{len(self._tools)} custom tool(s):"]
         for name, t in self._tools.items():
             props = list((t["parameters"] or {}).get("properties", {}) or {})
@@ -269,10 +325,9 @@ class CustomToolRegistry:
         if name in self._tools:
             del self._tools[name]
             return f"Custom tool '{name}' deleted."
-        return (f"Error: no custom tool named '{name}'. "
-                f"Registered: {list(self._tools) or '(none)'}.")
+        return f"Error: no custom tool named '{name}'. Registered: {list(self._tools) or '(none)'}."
 
-    def schemas(self) -> List[Dict[str, Any]]:
+    def schemas(self) -> list[dict[str, Any]]:
         """OpenAI-style tool schemas for all registered custom tools."""
         return [
             {
@@ -290,4 +345,3 @@ class CustomToolRegistry:
 # Built-in tool names that custom tools must not shadow (kept in sync with
 # TOOL_SCHEMAS at import time by tool_registry).
 _BUILTIN_TOOL_NAMES: set = set()
-

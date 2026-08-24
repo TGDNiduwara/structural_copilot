@@ -26,21 +26,48 @@ import json
 import logging
 import os
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import streamlit as st
+import structlog
 
-from agent.llm_providers import call_llm, PROVIDERS, LLMProviderError
-from agent.tool_registry import ToolExecutor, TOOL_SCHEMAS, ToolExecutionError, GENERATED_DIR, MAX_TOOL_CALLS_PER_STEP
+from agent.conversation_store import ConversationStore, default_db_path  # [FIX 10]
+from agent.history import compact_messages  # [FIX 12]
+from agent.llm_providers import PROVIDERS, LLMProviderError, call_llm
+from agent.token_tracker import TokenTracker  # [FIX 11]
+from agent.tool_registry import ToolExecutionError, ToolExecutor
+from config import (  # [FIX 03] centralized config (was hardcoded literals)
+    MAX_AGENT_STEPS,
+    MAX_ERROR_RETRIES,
+    MAX_STUCK_PATTERN_COUNT,
+    MAX_TOOL_CALLS_PER_STEP,
+    MAX_TOOL_RESULT_CHARS,
+)
 
+# [FIX 08] Structured logging via structlog.  Migrated modules render JSON
+# lines (add_log_level + iso timestamp + JSON renderer).  Non-migrated stdlib
+# loggers keep the basicConfig handler below so nothing is lost.
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("structural_copilot.app")
+structlog.configure(
+    processors=[
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.JSONRenderer(),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    logger_factory=structlog.stdlib.LoggerFactory(),
+)
+logger = structlog.get_logger("structural_copilot.app")
 
-MAX_AGENT_STEPS = 60         # ceiling on tool-call round trips per user turn
-MAX_ERROR_RETRIES = 3         # autonomous error-reflection retries per failing tool call
+# [FIX 13] Sentry error tracking (opt-in via SENTRY_DSN env var).
+if os.environ.get("SENTRY_DSN"):
+    try:
+        import sentry_sdk
 
-# [FIX H7] Maximum identical error signatures before breaking the loop
-MAX_STUCK_PATTERN_COUNT = 3
+        sentry_sdk.init(dsn=os.environ["SENTRY_DSN"], traces_sample_rate=0.1)
+        logger.info("Sentry enabled")
+    except Exception as _sentry_exc:  # noqa: BLE001 - never break startup
+        logger.warning("Sentry init failed: %s", _sentry_exc)
 
 # --------------------------------------------------------------------------
 # Minimal .env loader (no external dependency). Reads KEY=VALUE lines from
@@ -49,11 +76,12 @@ MAX_STUCK_PATTERN_COUNT = 3
 # re-entered every session. .env is gitignored - real keys are never committed.
 # --------------------------------------------------------------------------
 
-def load_env_file(env_path: str = None) -> None:
+
+def load_env_file(env_path: str | None = None) -> None:
     if env_path is None:
         env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     try:
-        with open(env_path, "r", encoding="utf-8") as fh:
+        with open(env_path, encoding="utf-8") as fh:
             for raw in fh:
                 line = raw.strip()
                 if not line or line.startswith("#") or "=" not in line:
@@ -68,263 +96,38 @@ def load_env_file(env_path: str = None) -> None:
 
 load_env_file()
 
-SYSTEM_PROMPT = """\
-You are a Senior Structural Engineer AI Copilot operating the "Structural \
-Multi-App Agent". You have direct tool access to:
+# [FIX 07] SYSTEM_PROMPT externalized to prompts/system_prompt_v1.md (was an
+# inline ~240-line constant). Override via STRUCTURAL_AGENT_SYSTEM_PROMPT.
+_PROMPT_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "prompts", "system_prompt_v1.md"
+)
 
-1. Autodesk Robot Structural Analysis (build nodes/bars/supports/loads, \
-solve the FEA model, and export member forces / reactions / bill of materials).
-2. An Excel report generator (writes formatted .xlsx workbooks from exported \
-result data).
-3. A diagram generator (renders Shear Force and Bending Moment Diagrams as \
-PNG images).
-4. A Word report generator (assembles a formal structural calculation report \
-embedding result tables and diagrams).
-5. A PowerPoint report generator (builds a presentation deck with \
-assumptions, standards, summary, tables, and diagrams).
 
-=============================================================================
-YOUR ENGINEERING REASONING PROCESS (mandatory on every turn)
-=============================================================================
+def _load_prompt() -> str:
+    """Loads the system prompt from prompts/system_prompt_v1.md.
+    [FIX 07] Prompt externalized so it can be edited without touching code.
+    """
+    env_override = os.environ.get("STRUCTURAL_AGENT_SYSTEM_PROMPT")
+    if env_override:
+        return env_override
+    with open(_PROMPT_FILE, encoding="utf-8") as fh:
+        return fh.read()
 
-**Step 1 — Analyse.** Before calling any tool, reason about the structure
-type. A "bridge" could be beam, truss, arch, or cable-stayed; a "building"
-could be moment-frame, braced-frame, with slabs/walls, etc. Identify the
-load-bearing system and the critical design parameters.
 
-**Step 2 — Identify missing data.** If the user's request is vague (e.g.
-"Build a bridge") you MUST ask targeted questions before building:
-- Bridge: span? width? loading (traffic/rail/pedestrian)? type preference?
-- Building: storeys? bay spacing? floor height? column/beam sections?
-- Truss/frame: span/height? panel divisions? member sections?
-- Any structure: supports, loads (dead/live/wind), analysis type, outputs?
-Keep questions concise — ask at most two at a time; then proceed.
-
-**Step 3 — Design and plan.** Once you have enough data, output a short
-design narrative BEFORE building:
-  "I'll design this as a [structure type] with [key dimensions]. \
-  Sections: columns=HEB 200, beams=IPE 300. Supports: pinned at base. \
-  Load: 10 kN/m dead on roof. I'll build via create_structure_from_spec \
-  with a custom spec, then solve and export."
-
-**Step 4 — Build.** For custom or complex geometry (bridges, special \
-frames, towers) ALWAYS use create_structure_from_spec with a JSON spec you \
-generate yourself. Do NOT force-fit a default template. Reserve the named \
-templates (create_truss etc.) for when the user explicitly asks for those \
-forms or the design exactly matches them.
-
-**NEVER re-clear an in-progress model.** Before calling clear_structure or \
-starting to build geometry, ALWAYS call get_structure_summary first. If it \
-shows nodes/bars/supports already matching what's being asked for, you are \
-CONTINUING an unfinished task (e.g. after "continue" or a step-limit \
-message) — proceed directly to the next incomplete step (loads, \
-combinations, solve, results). Only call clear_structure if the user \
-explicitly asks to start over, or if get_structure_summary confirms the \
-model is genuinely empty/wrong for this request.
-
-**Step 5 — Verify, solve, report.** After building (or when resuming), call \
-get_structure_summary to confirm counts, then solve, export, and narrate \
-key results (max moment, max shear, reactions, steel weight).
-
-=============================================================================
-GUIDANCE FOR COMMON STRUCTURAL TYPES
-=============================================================================
-
-BRIDGES — Do NOT default to a 6-panel truss. Think about span and loading:
-- Short (<15 m): beam / slab bridge (rectangular section, uniform load).
-- Medium (15-50 m): truss (Pratt/Warren/Howe) or plate girder.
-- Long (>50 m): truss, arch, cable-stayed, suspension.
-- Roadway width: typical lane = 3.5 m; two-lane ~8 m.
-- Loading: highway 5-10 kPa per lane + 100 kN concentrated; pedestrian 4 kPa.
-Ask if missing: span, width, loading type, deck type.
-
-BUILDINGS — When someone says "building":
-- Column grid: typical bays 5-9 m each direction.
-- Storeys and floor height (office ~3.5 m).
-- Lateral system: moment frame / braced frame / shear walls?
-- Slab: RC solid or composite steel deck?
-- Loads: dead (5-6 kPa including finishes), live (office ~3 kPa).
-- Sections: European (IPE/HEA/HEB) or US (W shapes) — ask if unsure.
-Ask if missing: storeys, bay sizes, floor height, loading, location.
-
-TRUSSES / FRAMES — When asked generically, ask about span, height, panel \
-divisions, bay sizes, section preferences, loading. Use \
-create_structure_from_spec with exact geometry you compute; do not use \
-default template parameters unless they match the user's stated needs.
-
-TANKS / SILOS / CIRCULAR STRUCTURES — A cylinder is NOT a square box. When \
-someone asks for a cylindrical tank (e.g. "5 m diameter, 15 m high"), use \
-create_cylindrical_tank(radius, height, segments, ring_levels) so the model \
-has a true circular cross-section (faceted ring of nodes). Do not model it \
-with the rectangular grid frame. For a 5 m diameter tank radius = 2.5 m. \
-Ask for: diameter/radius, height, wall/thickness or member sections, and \
-loading (water hydrostatic ~ 10 kN/m3 * depth, plus self-weight).
-
-SCALE-AWARE SECTIONS — member sections MUST be sized to the ACTUAL
-span/height of the structure in the CURRENT model. The classic mistake is
-a 1 m bridge built with "IPE 200": a 1 m member needs ~IPE 80, while a
-30 m truss needs ~IPE 500-600. When you use the create_* template tools
-(create_truss, create_arch_truss, create_rectangular_grid_frame,
-create_braced_frame, create_cylindrical_tank, create_panel) and leave the
-section arguments unspecified, the tool auto-sizes them from the span
-(beams/chords ~ span/18, columns ~ height/25, light angle web members)
-and returns `section_notes` in the summary telling you what was chosen.
-When you DO pass sections explicitly, pick depths near those ratios and
-NEVER copy sections from a previous model with different spans. For
-hand-built create_structure_from_spec geometry, run
-check_section_proportions(spec) before building to catch absurd
-span/depth mismatches.
-
-ALWAYS SAVE THE MODEL — whenever you generate reports/diagrams/excel for a \
-model, the .rtd Robot file is auto-saved into the generated artifacts. If \
-the user asks to save the model somewhere specific, call save_project with \
-their path. Mention the saved .rtd file when you summarize outputs.
-
-=============================================================================
-CUSTOM TOOLS (meta-layer) — when the built-in catalog cannot express it
-=============================================================================
-
-If the request needs geometry, a pattern, a material, or a batch study the \
-built-in tools cannot express (arch bridge, custom truss pattern, material \
-sweep, ...), WRITE A TOOL instead of approximating:
-1. Prototype with run_custom_script(code=...) — the script has `robot` \
-(the live bridge: create_node, create_bar, set_support, create_load_case, \
-apply_bar_load/apply_nodal_load/apply_bar_concentrated, \
-modify_bar_section/support/bar_release, solve, \
-export_all_member_forces/export_reactions/export_bill_of_materials, \
-get_structure_summary, clear_structure, build_structure_from_spec, \
-truss_spec/grid_frame_spec/arch_truss_spec), `RobotEnum`, `math`, `json`, `pd`. Set `result` \
-to return data. On error you get the traceback — fix and retry.
-2. If reusable, register it with create_custom_tool(name, description, \
-parameters, code) — it becomes a callable tool immediately.
-3. For comparing variants (sections/patterns/panel counts), a custom \
-script can loop: build -> solve -> export -> store_result(key) per variant \
-and return a comparison table via `result` — far better than many manual \
-tool calls.
-
-Verified Robot facts for scripts: label types 0=node support, 3=bar \
-section, 4=bar release, 8=material; load record types 0=nodal force, \
-3=concentrated, 5=uniform; sections load from catalogs like 'EURO' \
-(spaced names, e.g. 'IPE 300'); forces via \
-robot.export_all_member_forces(case_id, divisions).
-
-SCRIPT RETURN FORMAT (CRITICAL): in run_custom_script / create_custom_tool, \
-the bridge export methods return LISTS OF DICTS (records), NOT DataFrames: \
-e.g. rows = robot.export_all_member_forces(1, 10); then iterate with \
-'for r in rows: r["Bar_ID"], r["Position_m"], r["MY_kNm"]'. Never call \
-.to_dict() or expect .columns — records are ready to use directly. \
-get_structure_summary() returns a dict. Non-export helpers (create_node, \
-solve, ...) return plain values as documented.
-
-ATTACHMENTS (photo/PDF import): the user can attach images (sketch/photo) \
-and PDFs in the sidebar before a message. Images are sent to you as \
-vision content when the selected model supports it — read the sketch \
-(e.g. member layout, dimensions, supports) and use it. PDF text is \
-included verbatim in the user message — mine it for requirements \
-(materials, loads, clauses). If the model cannot view an image, the app \
-tells you — ask the user to describe the sketch in text.
-
-RESULTS (export after solve): export_member_forces gives all 6 components \
-FX/FY/FZ/MX/MY/MZ; export_node_displacements gives UX/UY/UZ (m) and RX/RY/RZ \
-(rad) per node; export_bar_stresses gives MPa (axial FXSX, extreme Smax/Smin, \
-bending SmaxMY/SmaxMZ, shear ShearY/ShearZ, Torsion). Compose any Excel \
-output with export_results_to_excel(file_name, sheets=[...]) choosing from \
-member_forces / reactions / displacements / stresses / boq.
-
-WP4 (shells/materials/volumes) verified facts: RobotOM v27 has NO panel/plate \
-object server, so create_panel builds an equivalent bar grillage (state this \
-limitation honestly); set_material uses native material labels ('STEEL' -> \
-E=210 GPa); apply_panel_pressure converts pressure to equivalent nodal loads; \
-solid volumes ARE native via create_solid / create_solid_box (Objects.\
-CreateSolid) but solve with Robot's default fine mesh (expect slow solve). \
-Spec keys 'materials' and 'panels' are supported in create_structure_from_spec.
-
-WP7 (modal) verified facts: modal cases and ModesCount are supported, and the \
-result servers live at Results.Advanced.Eigenvalues / Eigenvectors. BUT the \
-modal solver does not complete programmatically in this RobotOM v27 build \
-(Calculate() hangs and results stay empty) — solve_modal returns an honest \
-results_available=False and removes the modal case so static analysis still \
-works. Tell the user modal frequencies need the Robot GUI in this environment.
-
-P4 (code check) verified facts: RobotOM v27 exposes NO code-check/design \
-server at all, so get_utilization_ratios is an ANALYTICAL elastic check: \
-Robot's own solved stresses / material strength RE (fy). Call it after solve \
-(case_id = any case or combination). Catalog 'STEEL' carries fy=235 MPa; the \
-EURO section default reads 248.2 MPa (36 ksi) — the returned fy_MPa column is \
-the source of truth. Custom materials are checkable ONLY if set_material was \
-given fy_mpa; otherwise rows come back Status=NOT_CHECKABLE with the reason. \
-Utilization > 1.0 = FAIL. store_result snapshots include pass/fail.
-
-P5 (combinations) verified facts: define_combination(name, case_factors, \
-'ULS'|'SLS'|'ALS') creates real Robot combinations — solve() evaluates them \
-AUTOMATICALLY (verified: 1.2D+1.6L = exactly 1.2*M_dead + 1.6*M_live; no \
-separate trigger). Read combined results with export_member_forces / \
-export_reactions using the combination's returned case_id. Workflow: create \
-simple cases + loads -> define_combination -> solve_combination -> export / \
-get_utilization_ratios(case_id=combo) -> get_governing_combination(bar_id, \
-'MY') to name the critical arrangement.
-
-=============================================================================
-TOOL USE & ORDERING — always follow these rules
-=============================================================================
-
-- Always build the model (new_2d_frame/new_3d_frame -> create_node -> \
-create_bar -> set_support -> create_load_case -> apply_bar_load / \
-apply_nodal_load) BEFORE calling solve().
-- Always call solve() before any export_* tool.
-- Always call the relevant export_* tools (export_member_forces, \
-export_reactions, export_bill_of_materials) before export_to_excel, \
-generate_diagrams, generate_word_report, or generate_powerpoint_report -- \
-those tools consume cached results and will fail if nothing has been \
-exported yet.
-- If a request asks for diagrams to be embedded in a Word or PowerPoint \
-report, call generate_diagrams BEFORE generate_word_report or \
-generate_powerpoint_report.
-- If a Robot connection error mentions the gen_py cache, instruct the \
-user to stop the app, delete the gen_py cache folder, and restart.
-- Use realistic, standard catalog steel sections with catalog-style names \
-such as 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26', or 'UB 305x165x40' \
-(family + space + size) unless the user specifies otherwise. Unspaced \
-forms like 'IPE300' are auto-corrected, but the spaced form is preferred.
-- After completing a multi-step build, narrate what you did in plain \
-engineering language and summarize key governing results (max moment, max \
-shear, total reactions, total steel weight) for the user.
-- If a tool call fails, read the error message carefully, adjust your \
-arguments or sequence, and retry. Do not repeat an identical failing call.
-- For large or complex structures, prefer create_structure_from_spec with a \
-single JSON spec (nodes/bars/supports/cases/loads) over many individual \
-create_node/create_bar calls; use create_rectangular_grid_frame, create_truss, \
-or create_braced_frame for common shapes, then get_structure_summary to \
-verify the model before solving.
-- BATCH OPTIMIZATION: when the user wants to try/compare/optimize many \
-section combinations (e.g. "optimize this frame, columns HEA200-HEB200, \
-beam IPE270-IPE330"), use the batch tools: start_optimization_run(spec) to \
-validate + estimate candidate count/time (it does NOT start anything), \
-SHOW the estimate to the user and get explicit confirmation, then \
-confirm_and_start_optimization_run(run_config_id), poll \
-check_optimization_status(run_id), and finally get_optimization_results(run_id) \
-for the Pareto frontier. cancel_optimization_run(run_id) stops cleanly between \
-candidates. The spec's objective constraint 'max_utilization <= 1.0 AND \
-buckling_pass == True' is a HARD filter — failing candidates are excluded from \
-the Pareto set. Remember: utilization is an elastic stress check + basic Euler \
-buckling only, not full code compliance.
-- Be precise with units: forces in kN, moments in kN·m, distances in \
-meters, distributed loads in kN/m.
-"""
+SYSTEM_PROMPT = _load_prompt()
 
 
 # --------------------------------------------------------------------------
 # Session state initialization
 # --------------------------------------------------------------------------
 
+
 def init_session_state():
     # [FIX M4] Use simple assignment instead of PEP 526 type annotations
     # on session_state, which can cause serialization issues in some
     # Streamlit versions.
     if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ]
+        st.session_state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if "chat_display" not in st.session_state:
         st.session_state.chat_display = []
     if "tool_executor" not in st.session_state:
@@ -337,18 +140,36 @@ def init_session_state():
     # [ATTACH] Photo/PDF attachments pending for the next user turn.
     if "_attachments" not in st.session_state:
         st.session_state._attachments = []
+    # [FIX 10] SQLite conversation persistence + stable per-session id.
+    if "conversation_store" not in st.session_state:
+        st.session_state.conversation_store = ConversationStore(db_path=default_db_path())
+    if "conversation_id" not in st.session_state:
+        import uuid
+
+        st.session_state.conversation_id = str(uuid.uuid4())
+    # [FIX 10] Opt-in resume: set STRUCTURAL_AGENT_CONVERSATION_ID to load a saved transcript.
+    resume_id = os.environ.get("STRUCTURAL_AGENT_CONVERSATION_ID")
+    if resume_id and len(st.session_state.messages) == 1:
+        loaded = st.session_state.conversation_store.get_conversation(resume_id)
+        if loaded:
+            st.session_state.messages = st.session_state.messages[:1] + loaded
+            st.session_state.conversation_id = resume_id
+    # [FIX 11] Daily token/cost budget tracker for LLM calls.
+    if "token_tracker" not in st.session_state:
+        st.session_state.token_tracker = TokenTracker()
 
 
 # --------------------------------------------------------------------------
 # Agent loop: LLM turn -> tool calls -> error reflection -> repeat
 # --------------------------------------------------------------------------
 
+
 def run_agent_turn(
     provider: str,
     model: str,
     api_key: str,
     temperature: float,
-    base_url: Optional[str] = None,
+    base_url: str | None = None,
     attachments=None,
     live=None,
 ) -> str:
@@ -363,6 +184,10 @@ def run_agent_turn(
     literally read "I'm about to do X" as it happens instead of only seeing
     tool names after the fact.
     """
+    # [FIX 15] Resolve the API key through secret_manager - never session_state.
+    from agent.secret_manager import resolve_llm_key
+
+    api_key = resolve_llm_key(provider, api_key)
     executor: ToolExecutor = st.session_state.tool_executor
     messages = st.session_state.messages
 
@@ -378,11 +203,22 @@ def run_agent_turn(
     final_text = ""
     empty_final_retries = 0
 
-    for step in range(MAX_AGENT_STEPS):
+    # [FIX 11] Enforce the daily token/cost budget before any LLM call.
+    tracker: TokenTracker = st.session_state.token_tracker
+    if tracker.is_over_budget():
+        summary = tracker.get_usage_summary()
+        return (
+            "⚠️ I've hit the configured daily token/cost budget "
+            f"({summary['total_tokens']} tokens, ${summary['estimated_cost_usd']:.2f}). "
+            "Review config.py / STRUCTURAL_AGENT_DAILY_TOKEN_BUDGET and retry later."
+        )
+
+    for _step in range(MAX_AGENT_STEPS):  # [FIX 09] loop var unused
         # [FIX H7] Check for stuck pattern
         if _is_stuck(st.session_state.error_signatures):
-            last_sigs = ", ".join(dict.fromkeys(
-                st.session_state.error_signatures[-3:])) or "unknown"
+            last_sigs = (
+                ", ".join(dict.fromkeys(st.session_state.error_signatures[-3:])) or "unknown"
+            )
             final_text = (
                 "I've encountered a persistent error pattern that I cannot "
                 "resolve autonomously. Last failing tool(s): "
@@ -408,8 +244,7 @@ def run_agent_turn(
                 attachments=attachments,
             )
         except LLMProviderError as exc:
-            if attachments and ("image" in str(exc).lower()
-                                or "vision" in str(exc).lower()):
+            if attachments and ("image" in str(exc).lower() or "vision" in str(exc).lower()):
                 # The endpoint rejected the image payload — honest fallback.
                 return (
                     "I couldn't send the attached image to this model — it "
@@ -423,14 +258,23 @@ def run_agent_turn(
 
         _drain_executor_activity()
 
+        # [FIX 11] Record provider-reported token usage into the tracker.
+        if getattr(response, "usage", None):
+            _usage = response.usage or {}
+            tracker.add_usage(
+                prompt_tokens=_usage.get("prompt_tokens") or _usage.get("promptTokenCount") or 0,
+                completion_tokens=_usage.get("completion_tokens")
+                or _usage.get("candidatesTokenCount")
+                or 0,
+            )
+
         # [OBS] Stream the model's reasoning text LIVE whenever it is non-empty,
         # even when it accompanies tool_calls (not just on the final reply).
         # This is the Step-3 design narrative: the user should read what the
         # model says it is about to do BEFORE the tool calls run.
         if response.tool_calls and (response.content or "").strip():
             chunk = response.content.strip()
-            st.session_state.chat_display.append(
-                {"role": "assistant", "content": chunk})
+            st.session_state.chat_display.append({"role": "assistant", "content": chunk})
             if live is not None:
                 live.write(f"💭 {chunk}")
 
@@ -467,8 +311,10 @@ def run_agent_turn(
         # confirm_* call, tell the LLM the run was NOT started, and force it to
         # present the estimate and wait for a separate user confirmation.
         names_in_response = {tc.name for tc in tool_calls_to_execute}
-        if ("start_optimization_run" in names_in_response
-                and "confirm_and_start_optimization_run" in names_in_response):
+        if (
+            "start_optimization_run" in names_in_response
+            and "confirm_and_start_optimization_run" in names_in_response
+        ):
             st.session_state.activity_log.append(
                 "🛑 Blocked confirm_and_start_optimization_run: a batch run "
                 "cannot start in the same turn it was staged. Presenting the "
@@ -536,7 +382,7 @@ def run_agent_turn(
     return final_text
 
 
-def _is_stuck(error_signatures: List[str]) -> bool:
+def _is_stuck(error_signatures: list[str]) -> bool:
     """[FIX H7] Detects when the agent is stuck in a repeating error cycle."""
     if len(error_signatures) < MAX_STUCK_PATTERN_COUNT:
         return False
@@ -546,7 +392,7 @@ def _is_stuck(error_signatures: List[str]) -> bool:
         return True
     # Also check if we have many different tools all failing
     if len(error_signatures) >= MAX_STUCK_PATTERN_COUNT * 2:
-        last_n = error_signatures[-(MAX_STUCK_PATTERN_COUNT * 2):]
+        last_n = error_signatures[-(MAX_STUCK_PATTERN_COUNT * 2) :]
         unique_tools = len(set(last_n))
         if unique_tools <= 2 and len(last_n) >= 6:
             return True
@@ -556,8 +402,8 @@ def _is_stuck(error_signatures: List[str]) -> bool:
 def _execute_with_reflection(
     executor: ToolExecutor,
     tool_name: str,
-    arguments: Dict[str, Any],
-    messages: List[Dict[str, Any]],
+    arguments: dict[str, Any],
+    messages: list[dict[str, Any]],
 ) -> str:
     """
     Executes a tool call. On failure, the error is captured and returned as
@@ -574,14 +420,18 @@ def _execute_with_reflection(
     # run in the same turn it staged it). Return a result that instructs the
     # LLM to present the estimate and wait for explicit confirmation.
     if tool_name == "__blocked_confirm__":
-        return json.dumps({
-            "status": "blocked",
-            "error": ("The batch run was NOT started. start_optimization_run "
-                      "stages the spec; confirm_and_start_optimization_run may "
-                      "only be called in a LATER turn after the user has "
-                      "explicitly approved the candidate count and time "
-                      "estimate. Present the estimate now and stop."),
-        })
+        return json.dumps(
+            {
+                "status": "blocked",
+                "error": (
+                    "The batch run was NOT started. start_optimization_run "
+                    "stages the spec; confirm_and_start_optimization_run may "
+                    "only be called in a LATER turn after the user has "
+                    "explicitly approved the candidate count and time "
+                    "estimate. Present the estimate now and stop."
+                ),
+            }
+        )
 
     while attempt <= MAX_ERROR_RETRIES:
         try:
@@ -627,7 +477,7 @@ def _looks_transient(error_message: str) -> bool:
 # Non-empty reply guarantees (empty-final-message fix)
 # --------------------------------------------------------------------------
 
-MAX_TOOL_RESULT_CHARS = 600  # cap for per-tool result text fed back to the LLM
+# [FIX 03] MAX_TOOL_RESULT_CHARS now comes from config (was a 600 literal here)
 
 # Map tool names to short phrases for the activity-based closing recap.
 TOOL_PHRASE = {
@@ -660,7 +510,6 @@ TOOL_PHRASE = {
     "apply_panel_pressure": "applied the panel pressure",
     "create_solid": "created the solid volume",
     "create_solid_box": "created the solid box volume",
-    "solve_modal": "attempted the modal analysis",
     "export_modal_frequencies": "exported the modal frequencies",
     "export_modal_mode_shapes": "exported the modal mode shape",
     "export_to_excel": "produced an Excel workbook",
@@ -677,7 +526,7 @@ TOOL_PHRASE = {
 }
 
 
-def _compact_history(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _compact_history(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Bounds the LLM payload so the context never overflows.
 
     Every message is kept (preserving the OpenAI tool_call<->tool pairing),
@@ -685,20 +534,14 @@ def _compact_history(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     to a safe length. This stops oversized transcripts from causing empty
     final answers, especially after large Milestone-A models.
     """
-    capped: List[Dict[str, Any]] = []
-    for m in messages:
-        if m.get("role") == "tool" and isinstance(m.get("content"), str):
-            content = m["content"]
-            if len(content) > MAX_TOOL_RESULT_CHARS:
-                m = {**m, "content": content[:MAX_TOOL_RESULT_CHARS] + "...[truncated]"}
-        capped.append(m)
-    return capped
+    # [FIX 12] delegate to agent/history.compact_messages (structured summary)
+    return compact_messages(messages, max_tool_chars=MAX_TOOL_RESULT_CHARS)
 
 
 def _summarize_activity() -> str:
     """Builds a short, non-empty closing recap from the session activity log,
     used as a fallback whenever the LLM replies with no text."""
-    order: List[str] = []
+    order: list[str] = []
     seen: set = set()
     for entry in st.session_state.activity_log:
         if "Calling `" in entry and "` with args" in entry:
@@ -725,26 +568,42 @@ def _summarize_activity() -> str:
 # Streamlit UI
 # --------------------------------------------------------------------------
 
-def render_sidebar() -> Dict[str, Any]:
+
+def render_sidebar() -> dict[str, Any]:
     st.sidebar.title("⚙️ Agent Configuration")
 
     # [.env support] Pre-fill defaults from .env when present (still editable).
     from agent.llm_providers import API_KEY_ENV_VARS
+
     env_provider = os.environ.get("STRUCTURAL_AGENT_PROVIDER", "")
     env_model = os.environ.get("STRUCTURAL_AGENT_MODEL", "")
     provider_index = 0
     if env_provider in PROVIDERS:
         provider_index = list(PROVIDERS.keys()).index(env_provider)
     provider = st.sidebar.selectbox(
-        "LLM Provider", options=list(PROVIDERS.keys()), index=provider_index)
+        "LLM Provider", options=list(PROVIDERS.keys()), index=provider_index
+    )
     default_model = PROVIDERS[provider]["default_model"]
     model_value = env_model if (env_model and provider == env_provider) else default_model
     model = st.sidebar.text_input("Model", value=model_value)
-    # Per-provider API key from .env (e.g. DEEPSEEK_API_KEY for DeepSeek).
+    # Per-provider API key. [FIX 15] resolved via secret_manager (os.environ /
+    # streamlit secrets / .env), never stored in session_state.
+    from agent.secret_manager import get_secret
+
     key_env = API_KEY_ENV_VARS.get(provider, "")
-    env_key = os.environ.get(key_env, "") if key_env else ""
-    api_key = st.sidebar.text_input(f"{provider} API Key", type="password",
-                                    value=env_key)
+    env_key = get_secret(key_env) or "" if key_env else ""
+    key_source = st.sidebar.selectbox(
+        "API key source",
+        options=["Use configured key (.env / secrets)", "Enter custom key"],
+    )
+    if key_source == "Enter custom key":
+        api_key = st.sidebar.text_input(f"{provider} API Key (custom)", type="password")
+    else:
+        api_key = env_key
+        if api_key:
+            st.sidebar.caption("🔑 Using configured key (not shown).")
+        else:
+            st.sidebar.caption("No configured key found — enter a custom key to use this provider.")
     temperature = st.sidebar.slider("Temperature", 0.0, 1.0, 0.2, 0.05)
 
     # [DeepSeek / Custom] "Custom (OpenAI-compatible)" lets the user point the
@@ -764,8 +623,7 @@ def render_sidebar() -> Dict[str, Any]:
     st.sidebar.markdown("---")
     st.sidebar.subheader("📎 Attachments")
     uploaded = st.sidebar.file_uploader(
-        "Sketches / photos / PDFs — used as context for your NEXT message "
-        "(then cleared)",
+        "Sketches / photos / PDFs — used as context for your NEXT message (then cleared)",
         type=["png", "jpg", "jpeg", "pdf"],
         accept_multiple_files=True,
     )
@@ -777,9 +635,9 @@ def render_sidebar() -> Dict[str, Any]:
             st.sidebar.caption(
                 f"{'🖼️' if a['kind'] == 'image' else '📄'} {a['name']} "
                 f"({a['kind']}"
-                + (f", {len(a.get('text') or '')} chars of text"
-                   if a["kind"] == "pdf" else "")
-                + ")")
+                + (f", {len(a.get('text') or '')} chars of text" if a["kind"] == "pdf" else "")
+                + ")"
+            )
         if st.sidebar.button("🗑️ Clear attachments"):
             st.session_state._attachments = []
             st.rerun()
@@ -799,7 +657,8 @@ def render_sidebar() -> Dict[str, Any]:
             f"🟢 Robot.exe PID: **{pid}**\n\n_If this number changes between "
             "turns without you clicking Reset, a NEW Robot process was "
             "launched (close+relaunch). If it stays the same, the SAME "
-            "session is being cleared and rebuilt._")
+            "session is being cleared and rebuilt._"
+        )
     else:
         st.sidebar.caption("⚪ Robot not connected (PID will appear on first use).")
     robot_visible = st.sidebar.checkbox("Show Robot application window", value=True)
@@ -811,7 +670,8 @@ def render_sidebar() -> Dict[str, Any]:
             old_pid = st.session_state.tool_executor.robot.pid
             st.session_state.tool_executor.robot.close()
             st.session_state.activity_log.append(
-                f"🔌 Robot closed by user-triggered Reset (was PID {old_pid}).")
+                f"🔌 Robot closed by user-triggered Reset (was PID {old_pid})."
+            )
         except Exception:
             pass
         st.session_state.tool_executor = ToolExecutor(robot_visible=robot_visible)
@@ -870,12 +730,15 @@ def _mime_for(file_name: str) -> str:
 # [ATTACH] Photo / PDF import helpers
 # --------------------------------------------------------------------------
 
+
 def _extract_pdf_text(data: bytes) -> str:
     """Best-effort PDF text extraction via pypdf. Returns "" on any failure
     (e.g. scanned / image-only PDFs, or pypdf not installed)."""
     try:
         import io as _io
+
         from pypdf import PdfReader
+
         reader = PdfReader(_io.BytesIO(data))
         parts = [(page.extract_text() or "") for page in reader.pages]
         return "\n".join(parts).strip()
@@ -896,11 +759,14 @@ def _ingest_attachments(files) -> None:
         lower = name.lower()
         kind = "pdf" if lower.endswith(".pdf") else "image"
         ext = lower.rsplit(".", 1)[-1]
-        mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                "pdf": "application/pdf"}.get(ext, "application/octet-stream")
+        mime = {
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "pdf": "application/pdf",
+        }.get(ext, "application/octet-stream")
         text = _extract_pdf_text(data) if kind == "pdf" else ""
-        atts.append({"name": name, "kind": kind, "mime": mime,
-                     "bytes": data, "text": text[:6000]})
+        atts.append({"name": name, "kind": kind, "mime": mime, "bytes": data, "text": text[:6000]})
         existing.add(name)
     st.session_state._attachments = atts
 
@@ -943,14 +809,18 @@ def render_chat():
             if pdfs:
                 bits.append(f"{len(pdfs)} PDF(s): {', '.join(a['name'] for a in pdfs)}")
             user_content += "\n\n[User attached: " + "; ".join(bits) + "]"
-            pdf_text = "\n\n".join(
-                f"PDF '{a['name']}':\n{a.get('text', '')}" for a in pdfs)
+            pdf_text = "\n\n".join(f"PDF '{a['name']}':\n{a.get('text', '')}" for a in pdfs)
             if pdf_text.strip():
                 user_content += "\n\n--- Extracted PDF text ---\n" + pdf_text[:6000]
 
-        st.session_state.chat_display.append({
-            "role": "user", "content": user_input, "attachments": pending})
+        st.session_state.chat_display.append(
+            {"role": "user", "content": user_input, "attachments": pending}
+        )
         st.session_state.messages.append({"role": "user", "content": user_content})
+        # [FIX 10] persist the user turn for resume support
+        st.session_state.conversation_store.save_message(
+            st.session_state.conversation_id, "user", user_content
+        )
 
         with st.chat_message("user"):
             st.markdown(user_input)
@@ -958,8 +828,9 @@ def render_chat():
                 if a["kind"] == "image":
                     st.image(a["bytes"], width=320)
                 else:
-                    st.caption(f"📄 {a['name']} — "
-                               f"{len(a.get('text') or '')} chars of text extracted")
+                    st.caption(
+                        f"📄 {a['name']} — {len(a.get('text') or '')} chars of text extracted"
+                    )
 
         with st.chat_message("assistant"):
             config = st.session_state.get("_config", {})
@@ -997,6 +868,10 @@ def render_chat():
                 st.markdown(reply)
 
         st.session_state.chat_display.append({"role": "assistant", "content": reply})
+        # [FIX 10] persist the assistant reply for resume support
+        st.session_state.conversation_store.save_message(
+            st.session_state.conversation_id, "assistant", reply
+        )
         st.rerun()
 
 

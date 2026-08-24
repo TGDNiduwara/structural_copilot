@@ -1,0 +1,32 @@
+[tool.ruff]
+line-length = 100
+extend-exclude = [
+    ".venv",
+    "batch/live_val_results",
+    "generated",
+    ".github",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# JSON schema description strings cannot be wrapped without changing tool-call
+# semantics; kept as single lines to stay greppable.
+"agent/tools/schemas.py" = ["E501"]
+
+# Legacy modules outside this hardening pass: pre-existing style debt that
+# would require risky churn in engineering code to clean up.
+"tools/*.py" = ["B904", "B905", "E501", "E741", "E402", "F841", "SIM105", "SIM108", "UP031"]
+"batch/*.py" = ["B904", "B905", "E501", "E402", "E741", "B007", "F841", "SIM105", "SIM115", "SIM102", "UP031", "B018"]
+"smoke_test.py" = ["E402", "E501", "UP031"]
+"_obs_test.py" = ["B007", "E501"]
+"_t7_behavioral.py" = ["B007", "E501", "UP031"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+# Legacy codebase: implicit Optional defaults (e.g. `x: str = None`) are
+# widespread; keep mypy useful without a mass annotation rewrite.
+implicit_optional = true

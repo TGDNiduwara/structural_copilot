@@ -16,14 +16,16 @@ import sys
 
 sys.path.insert(0, r"c:/Users/dinat/Downloads/structural_multi_app_agent/structural_copilot")
 
-from tools.eurocode_members import worst_of, _CHECK_ORDER
+from tools.eurocode_members import _CHECK_ORDER, worst_of
 
 
 def _per(elastic="PASS", buckling="N/A", ltb="PASS", connection="N/A"):
-    return {"elastic": {"status": elastic},
-            "buckling": {"status": buckling},
-            "ltb": {"status": ltb},
-            "connection": {"status": connection}}
+    return {
+        "elastic": {"status": elastic},
+        "buckling": {"status": buckling},
+        "ltb": {"status": ltb},
+        "connection": {"status": connection},
+    }
 
 
 def test_all_pass():
@@ -58,20 +60,29 @@ def test_tie_breaks_to_earlier_check():
 
 def test_wiring():
     from tools.robot_tool import RobotBridge
+
     bridge = RobotBridge()
     assert hasattr(bridge, "bracing") and hasattr(bridge, "connections")
     from agent.tool_registry import TOOL_SCHEMAS, ToolExecutor
+
     names = {s["name"] for s in TOOL_SCHEMAS}
-    for tool in ("set_bracing", "get_bracing",
-                 "check_lateral_torsional_buckling",
-                 "define_connection", "check_connection_capacity",
-                 "check_eurocode_members"):
+    for tool in (
+        "set_bracing",
+        "get_bracing",
+        "check_lateral_torsional_buckling",
+        "define_connection",
+        "check_connection_capacity",
+        "check_eurocode_members",
+    ):
         assert tool in names, f"{tool} not registered"
-    for handler in ("_tool_set_bracing", "_tool_get_bracing",
-                    "_tool_check_lateral_torsional_buckling",
-                    "_tool_define_connection",
-                    "_tool_check_connection_capacity",
-                    "_tool_check_eurocode_members"):
+    for handler in (
+        "_tool_set_bracing",
+        "_tool_get_bracing",
+        "_tool_check_lateral_torsional_buckling",
+        "_tool_define_connection",
+        "_tool_check_connection_capacity",
+        "_tool_check_eurocode_members",
+    ):
         assert hasattr(ToolExecutor, handler), f"{handler} missing"
     assert _CHECK_ORDER == ["elastic", "buckling", "ltb", "connection"]
     print("  OK: all six Eurocode tools registered with handlers")

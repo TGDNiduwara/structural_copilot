@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import List, Optional
 
 import pandas as pd
 from pptx import Presentation
@@ -50,7 +49,7 @@ class PowerPointReporter:
     """Generates a structural-analysis presentation deck (.pptx)."""
 
     def __init__(self):
-        self.presentation: Optional[Presentation] = None
+        self.presentation: Presentation | None = None
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -64,9 +63,9 @@ class PowerPointReporter:
         summary_text: str,
         member_df: pd.DataFrame,
         reactions_df: pd.DataFrame,
-        diagram_paths: Optional[List[str]] = None,
-        design_standards: Optional[List[str]] = None,
-        assumptions: Optional[List[str]] = None,
+        diagram_paths: list[str] | None = None,
+        design_standards: list[str] | None = None,
+        assumptions: list[str] | None = None,
     ) -> str:
         """Builds and saves the full presentation deck; returns the file path."""
         self.presentation = Presentation()
@@ -75,12 +74,14 @@ class PowerPointReporter:
 
         self._add_title_slide(project_title, engineer_name)
         self._add_bullets_slide("Project Assumptions", assumptions or self._default_assumptions())
-        self._add_bullets_slide("Design Standards & Codes", design_standards or self._default_standards())
+        self._add_bullets_slide(
+            "Design Standards & Codes", design_standards or self._default_standards()
+        )
         self._add_summary_slide(summary_text)
         self._add_table_slide("Governing Member Forces", self._extract_governing_forces(member_df))
         self._add_table_slide("Support Reactions", reactions_df)
 
-        for path in (diagram_paths or []):
+        for path in diagram_paths or []:
             if path and os.path.isfile(path):
                 self._add_image_slide(path)
 
@@ -104,8 +105,10 @@ class PowerPointReporter:
         slide = self._blank_slide()
 
         box = slide.shapes.add_textbox(
-            Inches(MARGIN_L), Inches(TITLE_TOP),
-            Inches(SLIDE_W - 2 * MARGIN_L), Inches(0.85),
+            Inches(MARGIN_L),
+            Inches(TITLE_TOP),
+            Inches(SLIDE_W - 2 * MARGIN_L),
+            Inches(0.85),
         )
         tf = box.text_frame
         tf.word_wrap = True
@@ -119,8 +122,10 @@ class PowerPointReporter:
 
         accent = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
-            Inches(MARGIN_L), Inches(1.32),
-            Inches(SLIDE_W - 2 * MARGIN_L), Inches(0.045),
+            Inches(MARGIN_L),
+            Inches(1.32),
+            Inches(SLIDE_W - 2 * MARGIN_L),
+            Inches(0.045),
         )
         accent.fill.solid()
         accent.fill.fore_color.rgb = STEEL_BLUE
@@ -137,7 +142,10 @@ class PowerPointReporter:
         slide.background.fill.fore_color.rgb = NAVY
 
         box = slide.shapes.add_textbox(
-            Inches(1.0), Inches(2.3), Inches(SLIDE_W - 2.0), Inches(1.6),
+            Inches(1.0),
+            Inches(2.3),
+            Inches(SLIDE_W - 2.0),
+            Inches(1.6),
         )
         tf = box.text_frame
         tf.word_wrap = True
@@ -151,7 +159,10 @@ class PowerPointReporter:
         run.font.color.rgb = WHITE
 
         sub = slide.shapes.add_textbox(
-            Inches(1.0), Inches(4.0), Inches(SLIDE_W - 2.0), Inches(1.2),
+            Inches(1.0),
+            Inches(4.0),
+            Inches(SLIDE_W - 2.0),
+            Inches(1.2),
         )
         stf = sub.text_frame
         stf.word_wrap = True
@@ -166,26 +177,29 @@ class PowerPointReporter:
         sp2 = stf.add_paragraph()
         sp2.alignment = PP_ALIGN.CENTER
         srun2 = sp2.add_run()
-        srun2.text = (
-            f"Prepared by: {engineer_name}  |  "
-            f"{datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
+        srun2.text = f"Prepared by: {engineer_name}  |  {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         srun2.font.size = Pt(14)
         srun2.font.name = "Calibri"
         srun2.font.color.rgb = LIGHT_BLUE
 
         accent = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE, Inches(4.5), Inches(3.95), Inches(4.333), Inches(0.05),
+            MSO_SHAPE.RECTANGLE,
+            Inches(4.5),
+            Inches(3.95),
+            Inches(4.333),
+            Inches(0.05),
         )
         accent.fill.solid()
         accent.fill.fore_color.rgb = STEEL_BLUE
         accent.line.fill.background()
 
-    def _add_bullets_slide(self, title: str, bullets: List[str]) -> None:
+    def _add_bullets_slide(self, title: str, bullets: list[str]) -> None:
         slide = self._content_slide(title)
         box = slide.shapes.add_textbox(
-            Inches(MARGIN_L), Inches(BODY_TOP),
-            Inches(SLIDE_W - 2 * MARGIN_L), Inches(SLIDE_H - BODY_TOP - 0.6),
+            Inches(MARGIN_L),
+            Inches(BODY_TOP),
+            Inches(SLIDE_W - 2 * MARGIN_L),
+            Inches(SLIDE_H - BODY_TOP - 0.6),
         )
         tf = box.text_frame
         tf.word_wrap = True
@@ -203,8 +217,10 @@ class PowerPointReporter:
     def _add_summary_slide(self, summary_text: str) -> None:
         slide = self._content_slide("Executive Summary")
         box = slide.shapes.add_textbox(
-            Inches(MARGIN_L), Inches(BODY_TOP),
-            Inches(SLIDE_W - 2 * MARGIN_L), Inches(SLIDE_H - BODY_TOP - 0.8),
+            Inches(MARGIN_L),
+            Inches(BODY_TOP),
+            Inches(SLIDE_W - 2 * MARGIN_L),
+            Inches(SLIDE_H - BODY_TOP - 0.8),
         )
         tf = box.text_frame
         tf.word_wrap = True
@@ -221,8 +237,10 @@ class PowerPointReporter:
 
         if df is None or df.empty:
             box = slide.shapes.add_textbox(
-                Inches(MARGIN_L), Inches(BODY_TOP),
-                Inches(SLIDE_W - 2 * MARGIN_L), Inches(1.0),
+                Inches(MARGIN_L),
+                Inches(BODY_TOP),
+                Inches(SLIDE_W - 2 * MARGIN_L),
+                Inches(1.0),
             )
             tf = box.text_frame
             run = tf.paragraphs[0].add_run()
@@ -240,9 +258,12 @@ class PowerPointReporter:
         row_h = 0.4 if n_rows <= 10 else 0.32
 
         shape = slide.shapes.add_table(
-            n_rows, n_cols,
-            Inches(MARGIN_L), Inches(BODY_TOP),
-            Inches(table_w), Inches(row_h * n_rows),
+            n_rows,
+            n_cols,
+            Inches(MARGIN_L),
+            Inches(BODY_TOP),
+            Inches(table_w),
+            Inches(row_h * n_rows),
         )
         table = shape.table
         table.first_row = True
@@ -257,8 +278,12 @@ class PowerPointReporter:
         # Header row
         for c, col_name in enumerate(display.columns):
             self._set_cell(
-                table.cell(0, c), str(col_name).replace("_", " "),
-                bold=True, color=WHITE, fill=STEEL_BLUE, size=12,
+                table.cell(0, c),
+                str(col_name).replace("_", " "),
+                bold=True,
+                color=WHITE,
+                fill=STEEL_BLUE,
+                size=12,
             )
 
         # Data rows
@@ -266,15 +291,20 @@ class PowerPointReporter:
             fill = LIGHT_BLUE if r % 2 == 0 else WHITE
             for c, col_name in enumerate(display.columns):
                 self._set_cell(
-                    table.cell(r, c), self._fmt(row[col_name]),
-                    bold=False, color=DARK_TEXT, fill=fill,
+                    table.cell(r, c),
+                    self._fmt(row[col_name]),
+                    bold=False,
+                    color=DARK_TEXT,
+                    fill=fill,
                     size=11 if n_rows <= 10 else 10,
                 )
 
         if len(df) > len(display):
             note = slide.shapes.add_textbox(
-                Inches(MARGIN_L), Inches(BODY_TOP + row_h * n_rows + 0.15),
-                Inches(table_w), Inches(0.4),
+                Inches(MARGIN_L),
+                Inches(BODY_TOP + row_h * n_rows + 0.15),
+                Inches(table_w),
+                Inches(0.4),
             )
             nrun = note.text_frame.paragraphs[0].add_run()
             nrun.text = f"(showing first {len(display)} of {len(df)} rows)"
@@ -297,7 +327,10 @@ class PowerPointReporter:
         max_h = SLIDE_H - BODY_TOP - 0.7
 
         pic = slide.shapes.add_picture(
-            image_path, Inches(MARGIN_L), Inches(BODY_TOP), width=Inches(max_w),
+            image_path,
+            Inches(MARGIN_L),
+            Inches(BODY_TOP),
+            width=Inches(max_w),
         )
         if pic.height > Inches(max_h):
             ratio = Inches(max_h) / pic.height
@@ -312,7 +345,10 @@ class PowerPointReporter:
         slide.background.fill.fore_color.rgb = NAVY
 
         box = slide.shapes.add_textbox(
-            Inches(1.0), Inches(3.0), Inches(SLIDE_W - 2.0), Inches(1.5),
+            Inches(1.0),
+            Inches(3.0),
+            Inches(SLIDE_W - 2.0),
+            Inches(1.5),
         )
         tf = box.text_frame
         tf.word_wrap = True
@@ -375,7 +411,7 @@ class PowerPointReporter:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _default_assumptions() -> List[str]:
+    def _default_assumptions() -> list[str]:
         return [
             "All members are modeled as linear-elastic prismatic beam elements.",
             "Self-weight of structural steel is included via material density unless stated otherwise.",
@@ -385,7 +421,7 @@ class PowerPointReporter:
         ]
 
     @staticmethod
-    def _default_standards() -> List[str]:
+    def _default_standards() -> list[str]:
         return [
             "Eurocode 3 (EN 1993-1-1) — Design of steel structures, General rules.",
             "Eurocode 1 (EN 1991-1-1) — Actions on structures, Densities, self-weight, imposed loads.",
@@ -411,6 +447,3 @@ class PowerPointReporter:
         idx = df.groupby("Bar_ID")["_abs_my"].idxmax()
         governing = df.loc[idx].drop(columns="_abs_my").sort_values("Bar_ID").reset_index(drop=True)
         return governing
-
-
-

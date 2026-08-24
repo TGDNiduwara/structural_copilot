@@ -21,20 +21,22 @@ Phase-0 verified context:
   * One RobotBridge must be created AND used on the same thread (COM
     apartment affinity). Batch runs are single-threaded by design.
 """
+
 from __future__ import annotations
 
 import logging
 import subprocess
 import threading
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
-
-import numpy as np
+from typing import Any
 
 from tools.robot_tool import RobotBridge, RobotEnum
 from tools.win_dialogs import (
-    _enum_windows, _window_text, _click_button,
-    _is_dialog_like, _robot_pids,
+    _click_button,
+    _enum_windows,
+    _is_dialog_like,
+    _robot_pids,
+    _window_text,
 )
 
 logger = logging.getLogger("structural_copilot.batch.headless_driver")
@@ -72,13 +74,12 @@ _MAIN_WINDOW_MARKER = "robot structural analysis professional"
 
 #: Known dialog title substrings -> safe action. Start with the confirmed
 #: instability modal; add more as they are discovered later in the build.
-DEFAULT_DIALOG_PATTERNS: Dict[str, Dict[str, str]] = {
+DEFAULT_DIALOG_PATTERNS: dict[str, dict[str, str]] = {
     "instabilit": {"action": "click", "button_text": "No"},
     # Benign post-solve informational window (found live: appears after a
     # calculation that produced messages/warnings). It is NOT a failure -
     # clicking Close dismisses it and the solve result stands.
-    "calculation messages": {"action": "click", "button_text": "Close",
-                             "benign": True},
+    "calculation messages": {"action": "click", "button_text": "Close", "benign": True},
     # Robot's "Do you want to save changes to Structure?" modal that appears
     # when Project.New()/close discards a project with results (Interactive=1),
     # or when one client's actions collide with another's session. For a batch
@@ -93,11 +94,15 @@ DEFAULT_DIALOG_PATTERNS: Dict[str, Dict[str, str]] = {
 
 
 #: Generic markers that distinguish a modal prompt from benign tool/#: progress windows when no specific pattern matches.
-_DIALOG_MARKERS = ("instabilit", "continue", "warning", "error",
-                  "question", "confirm", "do you want")
-
-
-
+_DIALOG_MARKERS = (
+    "instabilit",
+    "continue",
+    "warning",
+    "error",
+    "question",
+    "confirm",
+    "do you want",
+)
 
 
 class HeadlessSession:
@@ -115,13 +120,13 @@ class HeadlessSession:
     def __init__(self, visible: bool = False, solve_timeout_s: float = 90.0):
         self._visible = bool(visible)
         self.solve_timeout_s = float(solve_timeout_s)
-        self.dialog_patterns: Dict[str, Dict[str, str]] = dict(DEFAULT_DIALOG_PATTERNS)
-        self._bridge: Optional[RobotBridge] = None
+        self.dialog_patterns: dict[str, dict[str, str]] = dict(DEFAULT_DIALOG_PATTERNS)
+        self._bridge: RobotBridge | None = None
         # PIDs of robot.exe processes THIS session launched (for a
         # deterministic close: Quit() is asynchronous, so we poll and, only
         # if a process we own still lingers, taskkill it — never an
         # interactive instance's PID).
-        self._owned_pids: Set[int] = set()
+        self._owned_pids: set[int] = set()
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -154,8 +159,9 @@ class HeadlessSession:
             logger.warning("Could not set Robot Interactive=0: %s", exc)
         self._bridge = bridge
         self._owned_pids = _robot_pids() - pids_before
-        logger.info("HeadlessSession connected (visible=%s, own instance, "
-                    "Interactive=0).", self._visible)
+        logger.info(
+            "HeadlessSession connected (visible=%s, own instance, Interactive=0).", self._visible
+        )
 
     def is_alive(self) -> bool:
         """True if the session's Robot process AND COM bridge are healthy.
@@ -184,8 +190,10 @@ class HeadlessSession:
         Used by the batch runner after a DialogWatcher force-kill
         (UnknownDialogError) or the solve() timeout: the old process is gone,
         so the session must be rebuilt from scratch rather than reused."""
-        logger.warning("HeadlessSession.reconnect() — closing dead session "
-                       "and launching a fresh Robot instance.")
+        logger.warning(
+            "HeadlessSession.reconnect() — closing dead session "
+            "and launching a fresh Robot instance."
+        )
         self.close()
         self.connect()
 
@@ -197,8 +205,7 @@ class HeadlessSession:
     @property
     def bridge(self) -> RobotBridge:
         if self._bridge is None:
-            raise RuntimeError("HeadlessSession is not connected — call "
-                               "connect() first.")
+            raise RuntimeError("HeadlessSession is not connected — call connect() first.")
         return self._bridge
 
     def close(self) -> None:
@@ -235,16 +242,17 @@ class HeadlessSession:
             time.sleep(0.75)
         for pid in owned:  # still alive after the grace window
             try:
-                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=15)
-                logger.warning("Force-killed lingering robot.exe PID %s "
-                               "(owned by this session).", pid)
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=15
+                )
+                logger.warning(
+                    "Force-killed lingering robot.exe PID %s (owned by this session).", pid
+                )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not force-kill robot.exe PID %s: %s",
-                               pid, exc)
+                logger.warning("Could not force-kill robot.exe PID %s: %s", pid, exc)
         logger.info("HeadlessSession closed.")
 
-    def __enter__(self) -> "HeadlessSession":
+    def __enter__(self) -> HeadlessSession:
         self.connect()
         return self
 
@@ -258,7 +266,7 @@ class HeadlessSession:
     def new_2d_frame(self) -> None:
         self.bridge.new_2d_frame()
 
-    def build_from_spec(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+    def build_from_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
         """Thin wrapper around RobotBridge.build_structure_from_spec.
 
         Confirmed spec schema (Phase 0): project ("2D"/"3D"), nodes
@@ -276,25 +284,24 @@ class HeadlessSession:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _support_flags_2d(support_name: str) -> Tuple[int, int, int]:
+    def _support_flags_2d(support_name: str) -> tuple[int, int, int]:
         """(UX, UZ, RY) fixity flags for a support label name. Mirrors
         RobotBridge._SUPPORT_FLAG_SETS; unknown labels are treated as full
         fixity (conservative for mechanism detection)."""
         name = str(support_name or "").upper()
-        for marker, flags in (("PINNED", (1, 1, 0)),
-                              ("ROLLER", (0, 1, 0)),
-                              ("FIXED", (1, 1, 1))):
+        for marker, flags in (("PINNED", (1, 1, 0)), ("ROLLER", (0, 1, 0)), ("FIXED", (1, 1, 1))):
             if marker in name:
                 return flags
         return (1, 1, 1)
 
-    def _section_a_i(self, section_name: str) -> Tuple[float, float]:
+    def _section_a_i(self, section_name: str) -> tuple[float, float]:
         """(A, I) for a section label via the empirical GetValue map
         (0=A, 4/5=I — probed live in Phase 2). Falls back to unit values;
         exact magnitudes don't affect singularity detection."""
         try:
             data = self.bridge.structure.Labels.Get(
-                RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
+                RobotEnum.I_LT_BAR_SECTION, str(section_name)
+            ).Data
             a = float(data.GetValue(0))
             i = min(float(data.GetValue(4)), float(data.GetValue(5)))
             if a > 0.0 and i > 0.0:
@@ -303,7 +310,7 @@ class HeadlessSession:
             pass
         return 1.0, 1.0
 
-    def validate_stability(self) -> Dict[str, Any]:
+    def validate_stability(self) -> dict[str, Any]:
         """
         [STEP 2] Detects likely kinematic mechanisms BEFORE Calculate()
         is ever called. DELEGATES to RobotBridge.validate_stability(),
@@ -337,7 +344,7 @@ class HeadlessSession:
         pids = sorted(owned) if owned else sorted(_robot_pids())
         killed = threading.Event()
         timed_out = threading.Event()
-        dlg: Dict[str, Any] = {"outcome": None, "title": None, "button": None}
+        dlg: dict[str, Any] = {"outcome": None, "title": None, "button": None}
         dlg_lock = threading.Lock()
 
         def _dialog_watcher():
@@ -363,14 +370,16 @@ class HeadlessSession:
                             clicked = _click_button(hwnd, bt)
                             benign = bool(matched.get("benign", False))
                             with dlg_lock:
-                                dlg["outcome"] = ("dismissed_benign" if benign
-                                                   else "clicked")
+                                dlg["outcome"] = "dismissed_benign" if benign else "clicked"
                                 dlg["title"] = title or text[:80]
                                 dlg["button"] = bt
                             logger.warning(
                                 "DialogWatcher %s %r (button=%r, clicked=%s)",
                                 "auto-dismissed benign" if benign else "auto-dismissed",
-                                dlg["title"], bt, clicked)
+                                dlg["title"],
+                                bt,
+                                clicked,
+                            )
                             # Keep watching: Robot may raise more than one
                             # dialog per Calculate().
                             time.sleep(1.0)
@@ -380,13 +389,18 @@ class HeadlessSession:
                         with dlg_lock:
                             dlg["outcome"] = "killed_unknown"
                             dlg["title"] = title or text[:80]
-                        logger.error("DialogWatcher: UNKNOWN dialog %r - "
-                                     "force-terminating owned pids %s",
-                                     dlg["title"], pids)
+                        logger.error(
+                            "DialogWatcher: UNKNOWN dialog %r - force-terminating owned pids %s",
+                            dlg["title"],
+                            pids,
+                        )
                         for pid in owned:
                             try:
-                                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                                               capture_output=True, timeout=15)
+                                subprocess.run(
+                                    ["taskkill", "/F", "/PID", str(pid)],
+                                    capture_output=True,
+                                    timeout=15,
+                                )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning("Could not kill PID %s: %s", pid, exc)
                         return
@@ -399,12 +413,16 @@ class HeadlessSession:
             if killed.is_set():
                 return
             timed_out.set()
-            logger.error("Robot solve exceeded %.1fs - force-terminating "
-                         "owned pids %s", self.solve_timeout_s, pids)
+            logger.error(
+                "Robot solve exceeded %.1fs - force-terminating owned pids %s",
+                self.solve_timeout_s,
+                pids,
+            )
             for pid in owned:
                 try:
-                    subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                                   capture_output=True, timeout=15)
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=15
+                    )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Could not kill PID %s: %s", pid, exc)
 
@@ -414,7 +432,8 @@ class HeadlessSession:
             if outcome == "clicked":
                 raise SolverInstabilityError(
                     f"solver reported instability; dialog {title!r} auto-dismissed "
-                    f"via button {button!r} - candidate FAILED")
+                    f"via button {button!r} - candidate FAILED"
+                )
             if outcome == "dismissed_benign":
                 # Informational post-solve dialog (e.g. Calculation Messages).
                 # The solve is a SUCCESS; only log.
@@ -422,11 +441,13 @@ class HeadlessSession:
             if outcome == "killed_unknown":
                 raise UnknownDialogError(
                     f"unknown dialog encountered: {title!r} - Robot process "
-                    "force-terminated; add a dialog pattern for it")
+                    "force-terminated; add a dialog pattern for it"
+                )
             if timed_out.is_set():
                 raise TimeoutError(
                     f"Robot solve() exceeded {self.solve_timeout_s:.1f}s and "
-                    "the session's Robot process was force-terminated.")
+                    "the session's Robot process was force-terminated."
+                )
 
         td = threading.Thread(target=_dialog_watcher, daemon=True)
         tt = threading.Thread(target=_timeout_watcher, daemon=True)
@@ -436,28 +457,28 @@ class HeadlessSession:
             bridge.solve()
             _raise_classified()
         except Exception as exc:  # noqa: BLE001
-            if isinstance(exc, (SolverInstabilityError, UnknownDialogError,
-                                TimeoutError)):
+            if isinstance(exc, (SolverInstabilityError, UnknownDialogError, TimeoutError)):
                 raise
             _raise_classified()
             raise
         finally:
             killed.set()
 
-    def solve_all(self, analysis_types: List[str]) -> Dict[str, Any]:
+    def solve_all(self, analysis_types: list[str]) -> dict[str, Any]:
         """Runs the requested analyses and returns a per-type results dict.
 
         Supported: "static" (CalcEngine.Calculate, fully verified) and
         "modal" (delegates to the bounded solve_modal, which reports the
         documented RobotOM v27 limitation honestly). Anything else raises.
         """
-        out: Dict[str, Any] = {}
+        out: dict[str, Any] = {}
         for raw in analysis_types:
             at = str(raw).strip().lower()
             if at not in SUPPORTED_ANALYSIS_TYPES:
                 raise ValueError(
                     f"analysis type '{at}' not supported by HeadlessSession; "
-                    f"choose from {SUPPORTED_ANALYSIS_TYPES}.")
+                    f"choose from {SUPPORTED_ANALYSIS_TYPES}."
+                )
             if at == "static":
                 stability = self.validate_stability()
                 if not stability.get("ok", True):
@@ -476,7 +497,7 @@ class HeadlessSession:
     # Results
     # ------------------------------------------------------------------ #
 
-    def get_weight(self) -> Dict[str, Any]:
+    def get_weight(self) -> dict[str, Any]:
         """Total structure weight from the existing BOQ logic (kg)."""
         df = self.bridge.export_bill_of_materials()
         total = 0.0
@@ -486,7 +507,7 @@ class HeadlessSession:
             rows = len(df)
         return {"weight_kg": round(total, 2), "boq_rows": rows}
 
-    def get_utilization_summary(self, case_id: int = 1) -> Dict[str, Any]:
+    def get_utilization_summary(self, case_id: int = 1) -> dict[str, Any]:
         """Reuses get_utilization_ratios (analytical elastic check).
 
         Returns the governing utilization + check name and a per-bar table.
@@ -494,9 +515,9 @@ class HeadlessSession:
         stress check, NOT full code compliance.
         """
         df = self.bridge.get_utilization_ratios(case_id=case_id)
-        per_bar: List[Dict[str, Any]] = []
-        max_util: Optional[float] = None
-        gov_check: Optional[str] = None
+        per_bar: list[dict[str, Any]] = []
+        max_util: float | None = None
+        gov_check: str | None = None
         if df is not None and not df.empty and "Utilization" in df.columns:
             valid = df[df["Utilization"].notna()]
             if not valid.empty:
@@ -504,13 +525,18 @@ class HeadlessSession:
                 max_util = round(float(row["Utilization"]), 4)
                 gov_check = str(row.get("Governing_Check", "N/A"))
             for _, r in df.iterrows():
-                per_bar.append({
-                    "bar_id": int(r["Bar_ID"]),
-                    "utilization": (round(float(r["Utilization"]), 4)
-                                    if r.get("Utilization") is not None else None),
-                    "governing_check": str(r.get("Governing_Check", "N/A")),
-                    "status": str(r.get("Status", "N/A")),
-                })
+                per_bar.append(
+                    {
+                        "bar_id": int(r["Bar_ID"]),
+                        "utilization": (
+                            round(float(r["Utilization"]), 4)
+                            if r.get("Utilization") is not None
+                            else None
+                        ),
+                        "governing_check": str(r.get("Governing_Check", "N/A")),
+                        "status": str(r.get("Status", "N/A")),
+                    }
+                )
         return {
             "max_utilization": max_util,
             "governing_check": gov_check,

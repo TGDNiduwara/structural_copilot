@@ -26,17 +26,18 @@ Author: Principal Structural Software Architecture Team
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from collections.abc import Callable, Sequence
+from typing import Any
 
 # A curve function maps t in [0, 1] to an (x, y, z) point.
-CurveFn = Callable[[float], Tuple[float, float, float]]
+CurveFn = Callable[[float], tuple[float, float, float]]
 
 
 def nodes_along_curve(
     fn: CurveFn,
     n_points: int,
     start_id: int = 1,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Samples ``fn`` at ``n_points`` evenly spaced t values in [0, 1] and
     returns one node dict per sample, with sequential ids from ``start_id``.
 
@@ -56,17 +57,20 @@ def nodes_along_curve(
     start_id : id of the first node
     """
     n = max(2, int(n_points))
-    nodes: List[Dict[str, Any]] = []
+    nodes: list[dict[str, Any]] = []
     for i in range(n):
         t = i / (n - 1) if n > 1 else 0.0
         x, y, z = fn(t)
-        nodes.append({
-            "id": start_id + i,
-            "x": round(float(x), 6),
-            "y": round(float(y), 6),
-            "z": round(float(z), 6),
-        })
+        nodes.append(
+            {
+                "id": start_id + i,
+                "x": round(float(x), 6),
+                "y": round(float(y), 6),
+                "z": round(float(z), 6),
+            }
+        )
     return nodes
+
 
 def connect_chords(
     chain_a_ids: Sequence[int],
@@ -76,7 +80,7 @@ def connect_chords(
     chord_a_section: str = None,
     chord_b_section: str = None,
     start_id: int = 1,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Connects two equal-length node chains into a truss-style web.
 
     Generalizes the top/bottom-chord + vertical + diagonal wiring used by
@@ -108,21 +112,18 @@ def connect_chords(
     a = list(chain_a_ids)
     b = list(chain_b_ids)
     if len(a) != len(b):
-        raise ValueError(
-            f"connect_chords requires equal-length chains, got "
-            f"{len(a)} vs {len(b)}")
+        raise ValueError(f"connect_chords requires equal-length chains, got {len(a)} vs {len(b)}")
     n = len(a) - 1
     if n < 1:
         raise ValueError("connect_chords requires chains of at least 2 nodes")
     pattern = str(pattern).lower()
     if pattern not in ("pratt", "warren"):
-        raise ValueError(
-            f"Unsupported pattern '{pattern}' (supported: pratt, warren)")
+        raise ValueError(f"Unsupported pattern '{pattern}' (supported: pratt, warren)")
 
     sec_a = chord_a_section if chord_a_section is not None else section
     sec_b = chord_b_section if chord_b_section is not None else section
 
-    bars: List[Dict[str, Any]] = []
+    bars: list[dict[str, Any]] = []
     bid = start_id
 
     def B(n1: int, n2: int, sec: str) -> None:
@@ -152,13 +153,14 @@ def connect_chords(
 
     return bars
 
+
 def radial_ring(
-    center_fn: Callable[[float], Tuple[float, float, float]],
+    center_fn: Callable[[float], tuple[float, float, float]],
     radius_fn: Callable[[float], float],
     segments: int,
     levels: int,
     start_id: int = 1,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Builds a faceted ring of ``segments`` nodes at each of ``levels``
     height levels (a generalized cylinder / cone / dome / hyperboloid).
 
@@ -182,24 +184,28 @@ def radial_ring(
     """
     segs = max(3, int(segments))
     lv = max(2, int(levels))
-    nodes: List[Dict[str, Any]] = []
+    nodes: list[dict[str, Any]] = []
     for level in range(lv):
         ratio = level / (lv - 1) if lv > 1 else 0.0
         cx, cy, cz = center_fn(ratio)
         rad = float(radius_fn(ratio))
         for seg in range(segs):
             theta = 2.0 * math.pi * seg / segs
-            nodes.append({
-                "id": start_id + level * segs + seg,
-                "x": round(float(cx) + rad * math.cos(theta), 6),
-                "y": round(float(cy) + rad * math.sin(theta), 6),
-                "z": round(float(cz), 6),
-            })
+            nodes.append(
+                {
+                    "id": start_id + level * segs + seg,
+                    "x": round(float(cx) + rad * math.cos(theta), 6),
+                    "y": round(float(cy) + rad * math.sin(theta), 6),
+                    "z": round(float(cz), 6),
+                }
+            )
     return nodes
+
 
 # --------------------------------------------------------------------------
 # Ready-made curve callables (optional composable helpers)
 # --------------------------------------------------------------------------
+
 
 def straight_line_fn(span: float, elevation: float = 0.0) -> CurveFn:
     """Flat horizontal line from (0, 0, elevation) to (span, 0, elevation).
@@ -209,7 +215,7 @@ def straight_line_fn(span: float, elevation: float = 0.0) -> CurveFn:
     span = float(span)
     elev = float(elevation)
 
-    def fn(t: float) -> Tuple[float, float, float]:
+    def fn(t: float) -> tuple[float, float, float]:
         return (round(t * span, 6), 0.0, elev)
 
     return fn
@@ -233,7 +239,7 @@ def circular_arc_fn(span: float, rise: float) -> CurveFn:
     # The arc center sits `center_offset` below the chord line.
     center_offset = radius - rise
 
-    def fn(t: float) -> Tuple[float, float, float]:
+    def fn(t: float) -> tuple[float, float, float]:
         x = t * span
         dx = x - half
         z = math.sqrt(max(radius * radius - dx * dx, 0.0)) - center_offset
@@ -262,7 +268,7 @@ def circular_arc_fn(span: float, rise: float) -> CurveFn:
 # --------------------------------------------------------------------------
 
 
-def _chain_ids(chain) -> List[int]:
+def _chain_ids(chain) -> list[int]:
     """Node ids in order from a chain dict, a list of node dicts, or a bare
     id list."""
     if isinstance(chain, dict):
@@ -279,7 +285,7 @@ def generate_straight_chord(
     plane: float = 0.0,
     section: str = "IPE 200",
     start_id: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Straight horizontal chain along X at ``(y=plane, z=elevation)``:
     ``n_panels+1`` nodes from x=0 to x=span plus the ``n_panels`` chord
     bars joining them. Returns a chain dict (see module docstring).
@@ -300,13 +306,15 @@ def generate_straight_chord(
     nodes = nodes_along_curve(fn, n + 1, start_id=start_id)
     ids = [int(nd["id"]) for nd in nodes]
     bars = [
-        {"id": start_id + n + i, "n1": ids[i], "n2": ids[i + 1],
-         "section": sec}
-        for i in range(n)
+        {"id": start_id + n + i, "n1": ids[i], "n2": ids[i + 1], "section": sec} for i in range(n)
     ]
     return {
-        "nodes": nodes, "bars": bars, "section": sec,
-        "first": ids[0], "last": ids[-1], "ids": ids,
+        "nodes": nodes,
+        "bars": bars,
+        "section": sec,
+        "first": ids[0],
+        "last": ids[-1],
+        "ids": ids,
     }
 
 
@@ -319,7 +327,7 @@ def generate_arc_chord(
     arch: str = "up",
     section: str = "IPE 200",
     start_id: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Circular-arc chain from x=0 to x=span at ``(y=plane)``. ``arch``:
       "up"   -> z rises from ``elevation`` to ``elevation + rise`` at mid-span
       "down" -> z sags from ``elevation + rise`` at the ends to ``elevation``
@@ -335,7 +343,7 @@ def generate_arc_chord(
     if arch not in ("up", "down"):
         raise ValueError(f"arch must be 'up' or 'down', got {arch!r}")
     sec = str(section or "IPE 200")
-    base = circular_arc_fn(span, rise)   # z in [0, rise] at y=0
+    base = circular_arc_fn(span, rise)  # z in [0, rise] at y=0
 
     def fn(t: float):
         x, _, z = base(t)
@@ -345,13 +353,15 @@ def generate_arc_chord(
     nodes = nodes_along_curve(fn, n + 1, start_id=start_id)
     ids = [int(nd["id"]) for nd in nodes]
     bars = [
-        {"id": start_id + n + i, "n1": ids[i], "n2": ids[i + 1],
-         "section": sec}
-        for i in range(n)
+        {"id": start_id + n + i, "n1": ids[i], "n2": ids[i + 1], "section": sec} for i in range(n)
     ]
     return {
-        "nodes": nodes, "bars": bars, "section": sec,
-        "first": ids[0], "last": ids[-1], "ids": ids,
+        "nodes": nodes,
+        "bars": bars,
+        "section": sec,
+        "first": ids[0],
+        "last": ids[-1],
+        "ids": ids,
     }
 
 
@@ -363,7 +373,7 @@ def connect_web_pattern(
     chord_a_section: str = None,
     chord_b_section: str = None,
     start_id: int = 1,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Web bars (verticals/diagonals) between TWO chains plus the chord bars
     along each chain. This is the compose-layer name for ``connect_chords``:
     it accepts chain dicts (using each chain's own ``section`` for its chord
@@ -388,8 +398,14 @@ def connect_web_pattern(
     else:
         sec_b = web_section or "IPE 200"
     return connect_chords(
-        a, b, str(web_section or "IPE 200"), pattern=pattern,
-        chord_a_section=sec_a, chord_b_section=sec_b, start_id=start_id)
+        a,
+        b,
+        str(web_section or "IPE 200"),
+        pattern=pattern,
+        chord_a_section=sec_a,
+        chord_b_section=sec_b,
+        start_id=start_id,
+    )
 
 
 def connect_bracing(
@@ -398,7 +414,7 @@ def connect_bracing(
     pattern: str = "cross",
     section: str = "IPE 200",
     start_id: int = 1,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Bracing bars BETWEEN two parallel chains (different planes) — the
     twin-arch / twin-truss / double-deck case that ``connect_chords`` cannot
     express (that one braces two chains of the SAME truss).
@@ -415,19 +431,18 @@ def connect_bracing(
     if len(a) != len(b):
         raise ValueError(
             f"connect_bracing requires equal node counts, got {len(a)} "
-            f"vs {len(b)} (different panel counts between the two planes?)")
+            f"vs {len(b)} (different panel counts between the two planes?)"
+        )
     n = len(a) - 1
     if n < 1:
         raise ValueError("connect_bracing requires chains of at least 2 nodes")
     pattern = str(pattern or "cross").lower()
     if pattern not in ("cross", "transverse"):
-        raise ValueError(
-            f"Unsupported bracing pattern '{pattern}' "
-            f"(supported: cross, transverse)")
+        raise ValueError(f"Unsupported bracing pattern '{pattern}' (supported: cross, transverse)")
     sec = str(section or "IPE 200")
     valid = set(a) | set(b)
 
-    bars: List[Dict[str, Any]] = []
+    bars: list[dict[str, Any]] = []
     bid = start_id
 
     def B(n1: int, n2: int) -> None:
@@ -436,7 +451,8 @@ def connect_bracing(
             raise ValueError(
                 f"connect_bracing bar {bid} references unknown node "
                 f"{n1 if n1 not in valid else n2} (endpoints must come from "
-                "one of the two chains)")
+                "one of the two chains)"
+            )
         bars.append({"id": bid, "n1": int(n1), "n2": int(n2), "section": sec})
         bid += 1
 
@@ -453,14 +469,14 @@ def connect_bracing(
 def apply_support_pattern(
     node_ids: Sequence[int],
     support_type: str = "pinned",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Support assignments ``[{node, type}]`` for the given node ids — the
     reusable form of what every template hardcodes inline."""
     st = str(support_type or "pinned").lower()
     return [{"node": int(nid), "type": st} for nid in node_ids]
 
 
-def merge_coincident_nodes(geometry: Dict[str, Any]) -> Dict[str, Any]:
+def merge_coincident_nodes(geometry: dict[str, Any]) -> dict[str, Any]:
     # Merge distinct nodes at IDENTICAL coordinates into one (lowest id wins),
     # rewriting every bar endpoint / support node / nodal-load reference and
     # dropping the duplicate nodes.
@@ -479,13 +495,15 @@ def merge_coincident_nodes(geometry: Dict[str, Any]) -> Dict[str, Any]:
     supports = geometry.get("supports") or []
     loads = geometry.get("loads") or []
 
-    coord_to_id: Dict[Tuple[float, float, float], int] = {}
-    remap: Dict[int, int] = {}
+    coord_to_id: dict[tuple[float, float, float], int] = {}
+    remap: dict[int, int] = {}
     for n in nodes:
         nid = int(n["id"])
-        key = (round(float(n.get("x", 0.0)), 6),
-               round(float(n.get("y", 0.0)), 6),
-               round(float(n.get("z", 0.0)), 6))
+        key = (
+            round(float(n.get("x", 0.0)), 6),
+            round(float(n.get("y", 0.0)), 6),
+            round(float(n.get("z", 0.0)), 6),
+        )
         if key in coord_to_id:
             remap[nid] = coord_to_id[key]
         else:
@@ -505,8 +523,9 @@ def merge_coincident_nodes(geometry: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(supports, list):
         out["supports"] = [dict(s, node=r(s["node"])) for s in supports]
     if isinstance(loads, list):
-        out["loads"] = [dict(ld, node=r(ld["node"]))
-                        if str(ld.get("kind")) == "nodal" else dict(ld)
-                        for ld in loads]
+        out["loads"] = [
+            dict(ld, node=r(ld["node"])) if str(ld.get("kind")) == "nodal" else dict(ld)
+            for ld in loads
+        ]
     out["__merged_coincident_nodes"] = len(remap)
     return out

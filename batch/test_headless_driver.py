@@ -8,6 +8,7 @@ Probes (report findings):
   P3  spec-schema sufficiency for Phase 4 design space (asserts + report).
   P4  5x connect -> build -> solve -> close loop: zero orphaned robot.exe.
 """
+
 import subprocess
 import sys
 import threading
@@ -20,16 +21,17 @@ from tools.robot_tool import RobotBridge  # noqa: E402
 
 BASELINE_SPEC = {
     "project": "2D",
-    "nodes": [{"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
-              {"id": 2, "x": 6.0, "y": 0.0, "z": 0.0}],
+    "nodes": [{"id": 1, "x": 0.0, "y": 0.0, "z": 0.0}, {"id": 2, "x": 6.0, "y": 0.0, "z": 0.0}],
     "bars": [{"id": 1, "n1": 1, "n2": 2, "section": "IPE 300"}],
     "supports": [{"node": 1, "type": "pinned"}, {"node": 2, "type": "pinned"}],
-    "cases": [{"id": 1, "name": "Dead", "nature": "permanent"},
-              {"id": 2, "name": "Live", "nature": "imposed"}],
-    "loads": [{"kind": "bar_uniform", "bar": 1, "case": 1,
-               "direction": "Z", "value": 10.0},
-              {"kind": "bar_uniform", "bar": 1, "case": 2,
-               "direction": "Z", "value": 20.0}],
+    "cases": [
+        {"id": 1, "name": "Dead", "nature": "permanent"},
+        {"id": 2, "name": "Live", "nature": "imposed"},
+    ],
+    "loads": [
+        {"kind": "bar_uniform", "bar": 1, "case": 1, "direction": "Z", "value": 10.0},
+        {"kind": "bar_uniform", "bar": 1, "case": 2, "direction": "Z", "value": 20.0},
+    ],
 }
 
 
@@ -42,7 +44,10 @@ def robot_process_count() -> int:
     try:
         out = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq robot.exe", "/NH"],
-            capture_output=True, text=True, timeout=20).stdout
+            capture_output=True,
+            text=True,
+            timeout=20,
+        ).stdout
         return sum(1 for ln in out.splitlines() if "robot.exe" in ln.lower())
     except Exception as exc:  # noqa: BLE001
         say("ORPHAN", f"tasklist failed: {exc}")
@@ -65,8 +70,7 @@ def run_baseline(visible: bool) -> dict:
         dead, live = midspan_moments(s)
         weight = s.get_weight()
         util = s.get_utilization_summary(case_id=1)
-        return {"dead": dead, "live": live, "weight": weight,
-                "util": util}
+        return {"dead": dead, "live": live, "weight": weight, "util": util}
 
 
 def test_reused_session_timing() -> None:
@@ -90,9 +94,12 @@ def test_reused_session_timing() -> None:
             iters.append(round(time.time() - ts, 2))
     total = round(time.time() - t0, 2)
     avg = round(sum(iters) / len(iters), 2)
-    say("FINDING", f"T1 reused-session: total={total}s, per-iter={iters}, "
-                   f"avg={avg}s vs relaunch avg~20.7s "
-                   f"({round(20.7 / avg, 1)}x faster per candidate)")
+    say(
+        "FINDING",
+        f"T1 reused-session: total={total}s, per-iter={iters}, "
+        f"avg={avg}s vs relaunch avg~20.7s "
+        f"({round(20.7 / avg, 1)}x faster per candidate)",
+    )
 
 
 def test_com_error_interactive0() -> None:
@@ -105,11 +112,13 @@ def test_com_error_interactive0() -> None:
         with HeadlessSession(visible=False) as s:
             t0 = time.time()
             try:
-                s.build_from_spec({"project": "2D",
-                                   "nodes": [{"id": 1, "x": 0.0, "z": 0.0},
-                                             {"id": 2, "x": 1.0, "z": 0.0}],
-                                   "bars": [{"id": 1, "n1": 1, "n2": 2,
-                                             "section": "IPE 9999"}]})
+                s.build_from_spec(
+                    {
+                        "project": "2D",
+                        "nodes": [{"id": 1, "x": 0.0, "z": 0.0}, {"id": 2, "x": 1.0, "z": 0.0}],
+                        "bars": [{"id": 1, "n1": 1, "n2": 2, "section": "IPE 9999"}],
+                    }
+                )
                 result["bad_section"] = "NO ERROR RAISED"
             except Exception as exc:  # noqa: BLE001
                 result["bad_section"] = f"{type(exc).__name__}: {str(exc)[:80]}"
@@ -133,14 +142,13 @@ def test_com_error_interactive0() -> None:
     if t.is_alive():
         say("FINDING", "T2 COM error: HANG (no return within 40s) — FAIL")
         return
-    say("T2", f"  bad_section -> {result.get('bad_section')} "
-              f"({result.get('bad_section_elapsed')}s)")
-    say("T2", f"  bad_node    -> {result.get('bad_node')} "
-              f"({result.get('bad_node_elapsed')}s)")
+    say(
+        "T2", f"  bad_section -> {result.get('bad_section')} ({result.get('bad_section_elapsed')}s)"
+    )
+    say("T2", f"  bad_node    -> {result.get('bad_node')} ({result.get('bad_node_elapsed')}s)")
     for key in ("bad_section", "bad_node"):
         assert "NO ERROR" not in str(result.get(key, "")), key
-    say("FINDING", "T2 COM error under Interactive=0: both cases raise "
-                   "cleanly, no hang.")
+    say("FINDING", "T2 COM error under Interactive=0: both cases raise cleanly, no hang.")
 
 
 def main() -> int:
@@ -150,20 +158,28 @@ def main() -> int:
     # ---- P1a: visible=True baseline ----
     say("P1", "running baseline visible=True ...")
     rv = run_baseline(visible=True)
-    say("P1", f"visible=True -> dead={rv['dead']:.2f} kNm live={rv['live']:.2f} "
-              f"kNm weight={rv['weight']}")
+    say(
+        "P1",
+        f"visible=True -> dead={rv['dead']:.2f} kNm live={rv['live']:.2f} "
+        f"kNm weight={rv['weight']}",
+    )
     assert abs(rv["dead"] - 45.0) < 0.5 and abs(rv["live"] - 90.0) < 0.5, rv
 
     # ---- P1b: visible=False ----
     say("P1", "running baseline visible=False ...")
     rv2 = run_baseline(visible=False)
-    say("P1", f"visible=False -> dead={rv2['dead']:.2f} kNm "
-              f"live={rv2['live']:.2f} kNm weight={rv2['weight']}")
+    say(
+        "P1",
+        f"visible=False -> dead={rv2['dead']:.2f} kNm "
+        f"live={rv2['live']:.2f} kNm weight={rv2['weight']}",
+    )
     assert abs(rv2["dead"] - 45.0) < 0.5 and abs(rv2["live"] - 90.0) < 0.5, rv2
-    assert abs(rv2["dead"] - rv["dead"]) < 1e-9 and \
-        abs(rv2["live"] - rv["live"]) < 1e-9, (rv, rv2)
-    say("FINDING", "P1 visible=False: connect + readiness poll + solve() all "
-                   "work identically to visible=True (45/90 kNm exact).")
+    assert abs(rv2["dead"] - rv["dead"]) < 1e-9 and abs(rv2["live"] - rv["live"]) < 1e-9, (rv, rv2)
+    say(
+        "FINDING",
+        "P1 visible=False: connect + readiness poll + solve() all "
+        "work identically to visible=True (45/90 kNm exact).",
+    )
 
     # ---- T1: reused-session timing ----
     test_reused_session_timing()
@@ -172,11 +188,12 @@ def main() -> int:
     test_com_error_interactive0()
 
     # ---- P3: spec schema sufficiency for Phase 4 ----
-    gaps = ["bars support only 'section' — no per-bar 'material' key "
-            "(materials apply globally via 'materials' list)",
-            "no 'combinations' key (Phase 4 defines them separately)"]
-    say("FINDING", f"P3 spec schema: core geometry/loads sufficient for Phase 4; "
-                   f"gaps: {gaps}")
+    gaps = [
+        "bars support only 'section' — no per-bar 'material' key "
+        "(materials apply globally via 'materials' list)",
+        "no 'combinations' key (Phase 4 defines them separately)",
+    ]
+    say("FINDING", f"P3 spec schema: core geometry/loads sufficient for Phase 4; gaps: {gaps}")
 
     # ---- P4: 5x connect->build->solve->close loop ----
     say("P4", "5x loop connect->build->solve->close ...")
@@ -187,20 +204,27 @@ def main() -> int:
             s.solve_all(["static"])
         say("P4", f"  iteration {i + 1}/5 done ({time.time() - t0:.1f}s cumulative)")
     after = robot_process_count()
-    say("FINDING", f"P4 5x loop: 5 iterations in {time.time() - t0:.1f}s; "
-                   f"robot.exe before={base_count} after={after} -> "
-                   f"{'CLEAN (no orphans)' if after == base_count else 'ORPHANS LEFT'}")
+    say(
+        "FINDING",
+        f"P4 5x loop: 5 iterations in {time.time() - t0:.1f}s; "
+        f"robot.exe before={base_count} after={after} -> "
+        f"{'CLEAN (no orphans)' if after == base_count else 'ORPHANS LEFT'}",
+    )
     assert after == base_count, f"orphaned robot.exe: {after} vs {base_count}"
 
     # ---- P2: one-seat license probe ----
     say("P2", "one-seat probe: ensure an interactive instance is open ...")
     interactive = None
     interactive_pids = set()
+
     # capture actual PID set for precise cleanup
     def _pid_set():
         out = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq robot.exe", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=20).stdout
+            capture_output=True,
+            text=True,
+            timeout=20,
+        ).stdout
         pids = set()
         for line in out.splitlines():
             parts = [p.strip().strip('"') for p in line.split('","')]
@@ -214,11 +238,13 @@ def main() -> int:
     pids_at_probe_start = _pid_set()
     n_before = len(pids_at_probe_start)
     if n_before > 0:
-        say("P2", f"  {n_before} robot.exe already running — using it as the "
-                  "interactive instance.")
+        say("P2", f"  {n_before} robot.exe already running — using it as the interactive instance.")
     else:
-        say("P2", "  no robot.exe — launching the interactive stand-in "
-                  "(visible=True, new_instance=True).")
+        say(
+            "P2",
+            "  no robot.exe — launching the interactive stand-in "
+            "(visible=True, new_instance=True).",
+        )
         interactive = RobotBridge()
         interactive.connect(visible=True, new_instance=True)
         interactive.new_2d_frame()
@@ -272,18 +298,20 @@ def main() -> int:
                 interactive.create_load_case(1, "Dead")
                 interactive.apply_bar_load(1, 1, 10.0, "Z")
                 interactive.solve()
-                rows = interactive.export_all_member_forces(
-                    case_id=1, divisions=10)
-                d = abs(float(next(r.MY_kNm for r in rows.itertuples()
-                                   if abs(r.Position_m - 3.0) < 0.01)))
-                say("P2", f"  interactive post-headless solve: dead midspan = "
-                          f"{d:.2f} kNm (expect 45)")
+                rows = interactive.export_all_member_forces(case_id=1, divisions=10)
+                d = abs(
+                    float(
+                        next(r.MY_kNm for r in rows.itertuples() if abs(r.Position_m - 3.0) < 0.01)
+                    )
+                )
+                say(
+                    "P2",
+                    f"  interactive post-headless solve: dead midspan = {d:.2f} kNm (expect 45)",
+                )
                 assert abs(d - 45.0) < 0.5, d
             except Exception as exc:  # noqa: BLE001
-                raise SystemExit(
-                    f"interactive post-headless solve FAILED: {exc}")
-    say("P2", f"  robot.exe count during probe: {len(_pid_set())} "
-              f"(before={n_before})")
+                raise SystemExit(f"interactive post-headless solve FAILED: {exc}")
+    say("P2", f"  robot.exe count during probe: {len(_pid_set())} (before={n_before})")
 
     # Cleanup the interactive stand-in, PID-safe (its Quit(0) can hit the
     # known "Object is not connected" / cross-thread marshalling quirks and
@@ -301,8 +329,9 @@ def main() -> int:
             time.sleep(1.0)
         for pid in still:
             try:
-                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=15)
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=15
+                )
                 say("P2", f"  force-killed interactive stand-in PID {pid}")
             except Exception as exc:  # noqa: BLE001
                 say("P2", f"  could not kill PID {pid}: {exc}")

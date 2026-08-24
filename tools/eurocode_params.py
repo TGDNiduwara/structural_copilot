@@ -26,42 +26,72 @@ Pure Python — no COM.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Tuple
 
 # ----------------------------------------------------------------------
 # D1 — Partial safety factors (EN recommended values; National-Annex
 # override point)
 # ----------------------------------------------------------------------
-GAMMA_M0: float = 1.0    # cross-section resistance
-GAMMA_M1: float = 1.0    # member buckling resistance
-GAMMA_M2: float = 1.25   # connections (bolts / welds / bearing)
+GAMMA_M0: float = 1.0  # cross-section resistance
+GAMMA_M1: float = 1.0  # member buckling resistance
+GAMMA_M2: float = 1.25  # connections (bolts / welds / bearing)
 
 # ----------------------------------------------------------------------
 # D2 — Steel grades, EN 10025-2 (fy thickness bands in mm, fu nominal)
 # ----------------------------------------------------------------------
 #: (t_min_exclusive, t_max_inclusive_mm, fy_MPa) bands per EN 10025-2 T7.
-GRADE_FY_BANDS: Dict[str, List[Tuple[float, float, float]]] = {
-    "S235": [(0, 16, 235), (16, 40, 225), (40, 63, 215), (63, 80, 215),
-             (80, 100, 215), (100, 150, 195), (150, 200, 185),
-             (200, 250, 175)],
-    "S275": [(0, 16, 275), (16, 40, 265), (40, 63, 255), (63, 80, 245),
-             (80, 100, 235), (100, 150, 225), (150, 200, 215),
-             (200, 250, 205)],
-    "S355": [(0, 16, 355), (16, 40, 345), (40, 63, 335), (63, 80, 325),
-             (80, 100, 315), (100, 150, 295), (150, 200, 285),
-             (200, 250, 275)],
-    "S460": [(0, 16, 460), (16, 40, 440), (40, 63, 430), (63, 80, 410),
-             (80, 100, 400), (100, 150, 380), (150, 200, 360),
-             (200, 250, 340)],
+GRADE_FY_BANDS: dict[str, list[tuple[float, float, float]]] = {
+    "S235": [
+        (0, 16, 235),
+        (16, 40, 225),
+        (40, 63, 215),
+        (63, 80, 215),
+        (80, 100, 215),
+        (100, 150, 195),
+        (150, 200, 185),
+        (200, 250, 175),
+    ],
+    "S275": [
+        (0, 16, 275),
+        (16, 40, 265),
+        (40, 63, 255),
+        (63, 80, 245),
+        (80, 100, 235),
+        (100, 150, 225),
+        (150, 200, 215),
+        (200, 250, 205),
+    ],
+    "S355": [
+        (0, 16, 355),
+        (16, 40, 345),
+        (40, 63, 335),
+        (63, 80, 325),
+        (80, 100, 315),
+        (100, 150, 295),
+        (150, 200, 285),
+        (200, 250, 275),
+    ],
+    "S460": [
+        (0, 16, 460),
+        (16, 40, 440),
+        (40, 63, 430),
+        (63, 80, 410),
+        (80, 100, 400),
+        (100, 150, 380),
+        (150, 200, 360),
+        (200, 250, 340),
+    ],
 }
 #: Nominal ultimate strength fu (EN 10025-2 Table 3.1, t <= 100 mm band).
-GRADE_FU_MPA: Dict[str, float] = {
-    "S235": 360.0, "S275": 430.0, "S355": 470.0, "S460": 550.0,
+GRADE_FU_MPA: dict[str, float] = {
+    "S235": 360.0,
+    "S275": 430.0,
+    "S355": 470.0,
+    "S460": 550.0,
 }
-GRADES: Tuple[str, ...] = ("S235", "S275", "S355", "S460")
+GRADES: tuple[str, ...] = ("S235", "S275", "S355", "S460")
 
 
-def fy_for_grade(grade: str, t_mm: float) -> Optional[float]:
+def fy_for_grade(grade: str, t_mm: float) -> float | None:
     """EN 10025-2 nominal yield strength (MPa) for ``grade`` at thickness
     ``t_mm`` (flange thickness for flanges, web thickness for webs, per the
     standard's location-dependent rule). Returns None for unknown grades."""
@@ -76,7 +106,7 @@ def fy_for_grade(grade: str, t_mm: float) -> Optional[float]:
     return float(bands[-1][2])
 
 
-def fu_for_grade(grade: str) -> Optional[float]:
+def fu_for_grade(grade: str) -> float | None:
     """EN 10025-2 nominal ultimate strength (MPa)."""
     return GRADE_FU_MPA.get(str(grade or "").strip().upper())
 
@@ -84,8 +114,9 @@ def fu_for_grade(grade: str) -> Optional[float]:
 _GRADE_RE = re.compile(r"\bS(235|275|355|460)\b")
 
 
-def effective_yield_strength(re_mpa: Optional[float], material_name: str,
-                             t_mm: float) -> Tuple[Optional[float], str]:
+def effective_yield_strength(
+    re_mpa: float | None, material_name: str, t_mm: float
+) -> tuple[float | None, str]:
     """D2 source-of-truth rule: the design fy for an element.
 
     When the material name declares an EN grade (e.g. "S355", "S355 J2"),
@@ -104,28 +135,33 @@ def effective_yield_strength(re_mpa: Optional[float], material_name: str,
         return (re_mpa, "RE (no declared EN grade)")
     if re_mpa is None:
         return (en_fy, f"EN 10025-2 {grade} @ t={t_mm:g} mm")
-    return (min(re_mpa, en_fy),
-            f"min(RE, EN 10025-2 {grade} @ t={t_mm:g} mm)")
+    return (min(re_mpa, en_fy), f"min(RE, EN 10025-2 {grade} @ t={t_mm:g} mm)")
 
 
 # ----------------------------------------------------------------------
 # D3 — Buckling curves
 # ----------------------------------------------------------------------
 #: EN 1993-1-1 Table 6.1 imperfection factors.
-IMPERFECTION_ALPHA: Dict[str, float] = {
-    "a0": 0.13, "a": 0.21, "b": 0.34, "c": 0.49, "d": 0.76,
+IMPERFECTION_ALPHA: dict[str, float] = {
+    "a0": 0.13,
+    "a": 0.21,
+    "b": 0.34,
+    "c": 0.49,
+    "d": 0.76,
 }
 #: LTB imperfection factors (Table 6.5) keyed by curve name.
-ALPHA_LT: Dict[str, float] = {
-    "a": 0.21, "b": 0.34, "c": 0.49, "d": 0.76,
+ALPHA_LT: dict[str, float] = {
+    "a": 0.21,
+    "b": 0.34,
+    "c": 0.49,
+    "d": 0.76,
 }
 #: EN 1993-1-1 §6.3.2.2 general-method constants.
-LAMBDA_LT_0: float = 0.4    # plateau limit
+LAMBDA_LT_0: float = 0.4  # plateau limit
 BETA_LT: float = 0.75
 
 
-def rolled_i_buckling_curve(h_m: float, b_m: float, tf_m: float,
-                            axis: str) -> str:
+def rolled_i_buckling_curve(h_m: float, b_m: float, tf_m: float, axis: str) -> str:
     """EN 1993-1-1 Table 6.2: buckling curve for a rolled I-section.
 
     ``axis``: "y" (major) or "z" (minor). All dimensions in metres.

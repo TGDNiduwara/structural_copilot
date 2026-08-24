@@ -33,8 +33,13 @@ sys.path.insert(0, r"c:/Users/dinat/Downloads/structural_multi_app_agent/structu
 from tools.robot_tool import RobotBridge, RobotEnum
 
 SECTIONS = [
-    "IPE 200", "IPE 300", "HEA 200", "HEB 300",
-    "L 60x60x6", "UPN 100", "UPE 200",
+    "IPE 200",
+    "IPE 300",
+    "HEA 200",
+    "HEB 300",
+    "L 60x60x6",
+    "UPN 100",
+    "UPE 200",
 ]
 MATERIALS = ["STEEL", "S235", "S275", "S355", "S460"]
 
@@ -42,15 +47,17 @@ MATERIALS = ["STEEL", "S235", "S275", "S355", "S460"]
 def _dump_section(bridge, name: str) -> None:
     print(f"\n--- section '{name}' ---")
     try:
-        data = bridge.structure.Labels.Get(
-            RobotEnum.I_LT_BAR_SECTION, str(name)).Data
+        data = bridge.structure.Labels.Get(RobotEnum.I_LT_BAR_SECTION, str(name)).Data
     except Exception as exc:
         print(f"  <could not load section data: {exc}>")
         return
     members = sorted(
-        m for m in dir(data)
-        if not m.startswith("_") and m not in ("CLSID", "QueryInterface")
-        and "sink" not in m.lower())
+        m
+        for m in dir(data)
+        if not m.startswith("_")
+        and m not in ("CLSID", "QueryInterface")
+        and "sink" not in m.lower()
+    )
     print(f"  Data members ({len(members)}): {members}")
     got = []
     for i in range(0, 60):
@@ -76,14 +83,13 @@ def _dump_section(bridge, name: str) -> None:
 def _dump_material(bridge, name: str) -> None:
     print(f"\n--- material '{name}' ---")
     try:
-        data = bridge.structure.Labels.Get(
-            RobotEnum.I_LT_MATERIAL, str(name)).Data
+        data = bridge.structure.Labels.Get(RobotEnum.I_LT_MATERIAL, str(name)).Data
     except Exception as exc:
         print(f"  <material not available: {exc}>")
         return
     members = sorted(
-        m for m in dir(data)
-        if not m.startswith("_") and m not in ("CLSID", "QueryInterface"))
+        m for m in dir(data) if not m.startswith("_") and m not in ("CLSID", "QueryInterface")
+    )
     print(f"  Data members ({len(members)}): {members}")
     for attr in ("Name", "RE", "RM", "E", "NU", "Type", "IsNonlinear"):
         try:

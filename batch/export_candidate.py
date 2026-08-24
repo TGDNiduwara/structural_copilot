@@ -25,12 +25,14 @@ Design / scope notes
 * RobotBridge.save_project() is reused as-is (it appends .rtd and creates
   parent folders) - wired in, not reimplemented.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from batch.design_space import DesignSpace
 from batch.headless_driver import HeadlessSession, MechanismError
@@ -42,10 +44,10 @@ logger = logging.getLogger("structural_copilot.batch.export_candidate")
 
 def export_candidate(
     design_space: DesignSpace,
-    design_vars: Dict[str, Any],
+    design_vars: dict[str, Any],
     output_path: str,
-    eval_case_id: Optional[int] = None,
-    session_factory: Optional[Callable[[], Any]] = None,
+    eval_case_id: int | None = None,
+    session_factory: Callable[[], Any] | None = None,
     visible: bool = True,
 ) -> str:
     """Build + solve one candidate and save the project to ``output_path``.
@@ -65,7 +67,8 @@ def export_candidate(
             "export_candidate: spec uses project='2D' - on this Robot build "
             "'2D' specs solve to a structurally INVALID frame (columns carry "
             "zero force, beam not in equilibrium - see README 'Known issues', "
-            "2026-08-22). The saved model may be wrong; prefer project='3D'.")
+            "2026-08-22). The saved model may be wrong; prefer project='3D'."
+        )
 
     factory = session_factory or (lambda: HeadlessSession(visible=visible))
     session = factory()
@@ -95,9 +98,9 @@ def export_best_from_run(
     run_id: int,
     output_path: str,
     frontier_index: int = 0,
-    db_path: Optional[str] = None,
-    eval_case_id: Optional[int] = None,
-    session_factory: Optional[Callable[[], Any]] = None,
+    db_path: str | None = None,
+    eval_case_id: int | None = None,
+    session_factory: Callable[[], Any] | None = None,
     visible: bool = True,
 ) -> str:
     """Export one candidate from a completed run's Pareto frontier.
@@ -122,22 +125,30 @@ def export_best_from_run(
     frontier = compute_pareto_frontier(df)
     if frontier.empty:
         raise ValueError(
-            f"run {run_id} has no candidates passing the design constraint "
-            f"- nothing to export.")
+            f"run {run_id} has no candidates passing the design constraint - nothing to export."
+        )
     frontier = frontier.sort_values("weight_kg", kind="mergesort")
     n = len(frontier)
     if frontier_index < 0 or frontier_index >= n:
         raise ValueError(
-            f"frontier_index {frontier_index} out of range - frontier has "
-            f"{n} candidates.")
+            f"frontier_index {frontier_index} out of range - frontier has {n} candidates."
+        )
 
     chosen = frontier.iloc[int(frontier_index)]
     design_vars = json.loads(chosen["design_vars_json"])
     logger.info(
         "Exporting run %s frontier[%d]: weight=%.1f kg, max_utilization=%s.",
-        run_id, frontier_index, float(chosen["weight_kg"]),
-        chosen.get("max_utilization"))
+        run_id,
+        frontier_index,
+        float(chosen["weight_kg"]),
+        chosen.get("max_utilization"),
+    )
     design_space = DesignSpace(spec)
     return export_candidate(
-        design_space, design_vars, output_path, eval_case_id=eval_case_id,
-        session_factory=session_factory, visible=visible)
+        design_space,
+        design_vars,
+        output_path,
+        eval_case_id=eval_case_id,
+        session_factory=session_factory,
+        visible=visible,
+    )

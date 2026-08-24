@@ -34,48 +34,62 @@ import sys
 sys.path.insert(0, r"c:/Users/dinat/Downloads/structural_multi_app_agent/structural_copilot")
 
 from tools.connection_check import (
-    ConnectionRegistry, CONNECTION_DEFAULTS,
-    bolt_shear_resistance, bearing_resistance, block_shear_resistance,
-    weld_resistance, check_simple_shear_connection)
+    CONNECTION_DEFAULTS,
+    ConnectionRegistry,
+    bearing_resistance,
+    block_shear_resistance,
+    bolt_shear_resistance,
+    check_simple_shear_connection,
+    weld_resistance,
+)
 
 GAMMA_M2 = 1.25
 V_ED = 100.0e3  # 100 kN design shear
 
 
 def _fin_plate_2m20():
-    return dict(CONNECTION_DEFAULTS, connection_type="fin_plate",
-                bolt_grade="8.8", bolt_diameter_mm=20, bolt_rows=2,
-                pitch_mm=60.0, edge_dist_mm=30.0, end_dist_mm=30.0,
-                plate_thickness_mm=10.0, plate_grade="S275", weld_leg_mm=None)
+    return dict(
+        CONNECTION_DEFAULTS,
+        connection_type="fin_plate",
+        bolt_grade="8.8",
+        bolt_diameter_mm=20,
+        bolt_rows=2,
+        pitch_mm=60.0,
+        edge_dist_mm=30.0,
+        end_dist_mm=30.0,
+        plate_thickness_mm=10.0,
+        plate_grade="S275",
+        weld_leg_mm=None,
+    )
 
 
 def test_hand_calc_resistances():
     # Independent re-derivation from the EN formulas (all units SI).
     d0 = 22.0
     fv = bolt_shear_resistance("8.8", 20, 2, 1, GAMMA_M2)
-    expected_shear = 2 * 0.6 * 800e6 * (math.pi * 20e-3 ** 2 / 4) / GAMMA_M2
+    expected_shear = 2 * 0.6 * 800e6 * (math.pi * 20e-3**2 / 4) / GAMMA_M2
     assert abs(fv - expected_shear) / expected_shear < 1e-9
-    assert abs(fv / 1e3 - 241.3) < 1.0, f"bolt shear {fv/1e3:.1f} vs 241.3"
+    assert abs(fv / 1e3 - 241.3) < 1.0, f"bolt shear {fv / 1e3:.1f} vs 241.3"
     fb = bearing_resistance(430.0, 20, 10, 30, 30, 60, 60, 2, 800.0, GAMMA_M2)
     alpha_b = min(30 / (3 * d0), 800 / 430, 1.0)
     k1 = min(2.8 * 30 / d0 - 1.7, 2.5)
     expected_bearing = 2 * k1 * alpha_b * 430e6 * 20e-3 * 10e-3 / GAMMA_M2
     assert abs(fb - expected_bearing) / expected_bearing < 1e-9
-    assert abs(fb / 1e3 - 132.5) < 1.0, f"bearing {fb/1e3:.1f} vs 132.5"
+    assert abs(fb / 1e3 - 132.5) < 1.0, f"bearing {fb / 1e3:.1f} vs 132.5"
     bs = block_shear_resistance(275.0, 430.0, 10, 30, 60, 2, 20, GAMMA_M2, 1.0)
     ant = 10 * (30 - d0 / 2)
     anv = 2 * 10 * (2 - 1) * 60 + 2 * 10 * 30 - 2 * 10 * d0
-    expected_bs = 430e6 * ant * 1e-6 / GAMMA_M2 \
-        + 275e6 * anv * 1e-6 / (math.sqrt(3) * 1.0)
+    expected_bs = 430e6 * ant * 1e-6 / GAMMA_M2 + 275e6 * anv * 1e-6 / (math.sqrt(3) * 1.0)
     assert abs(bs - expected_bs) / expected_bs < 1e-9
-    assert abs(bs / 1e3 - 281.3) < 2.0, f"block shear {bs/1e3:.1f} vs 281.3"
+    assert abs(bs / 1e3 - 281.3) < 2.0, f"block shear {bs / 1e3:.1f} vs 281.3"
     w = weld_resistance(430.0, 6, 120, "S275", GAMMA_M2)
     throat = 0.707 * 6
-    expected_w = (430e6 / (math.sqrt(3) * 0.85 * GAMMA_M2)) \
-        * (2 * throat * 120) * 1e-6
+    expected_w = (430e6 / (math.sqrt(3) * 0.85 * GAMMA_M2)) * (2 * throat * 120) * 1e-6
     assert abs(w - expected_w) / expected_w < 1e-9
-    print("  OK: hand-calc resistances match "
-          "(bolt 241.3 / bearing 132.5 / block 281.3 / weld 237.8 kN)")
+    print(
+        "  OK: hand-calc resistances match "
+        "(bolt 241.3 / bearing 132.5 / block 281.3 / weld 237.8 kN)"
+    )
 
 
 def test_member_check_pass_fail_and_governing():
@@ -87,8 +101,11 @@ def test_member_check_pass_fail_and_governing():
     assert res_f["status"] == "FAIL", res_f
     assert res_f["governing"] == "bearing_plate"
     assert res_f["utilization"] > 1.0
-    print(f"  OK: member PASS util={res['utilization']} "
-          f"(bearing governs); FAIL at 150 kN util={res_f['utilization']}")
+    print(
+        f"  OK: member PASS util={res['utilization']} "
+        f"(bearing governs); FAIL at 150 kN util={res_f['utilization']}"
+    )
+
 
 def test_double_angle_doubles_bolt_shear():
     conn = dict(_fin_plate_2m20(), connection_type="double_angle")
@@ -133,11 +150,13 @@ def test_not_checkable_and_registry():
 
 def test_bridge_and_tool_wiring():
     from tools.robot_tool import RobotBridge
+
     bridge = RobotBridge()
     assert isinstance(bridge.connections, ConnectionRegistry)
     bridge.connections.set_connection(7, "end")
     assert bridge.connections.get(7, "end") is not None
     from agent.tool_registry import TOOL_SCHEMAS, ToolExecutor
+
     names = {s["name"] for s in TOOL_SCHEMAS}
     assert "define_connection" in names and "check_connection_capacity" in names
     assert hasattr(ToolExecutor, "_tool_define_connection")
@@ -160,4 +179,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

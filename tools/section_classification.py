@@ -44,10 +44,9 @@ Author: Principal Structural Software Architecture Team
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Tuple
+from typing import Any
 
-from tools.section_data import (flange_outstand, web_clear_height,
-                                has_full_dims)
+from tools.section_data import flange_outstand, has_full_dims, web_clear_height
 
 #: (C1, C2, C3) c/t limits per Table 5.2 (multiply by epsilon).
 _WEB_BENDING = (72.0, 83.0, 124.0)
@@ -55,8 +54,7 @@ _WEB_COMPRESSION = (33.0, 38.0, 42.0)
 _FLANGE_ROLLED = (9.0, 10.0, 14.0)
 
 
-def _class_of(c_over_t: float, limits: Tuple[float, float, float],
-              eps: float) -> int:
+def _class_of(c_over_t: float, limits: tuple[float, float, float], eps: float) -> int:
     """Class 1-4 for an element with the given c/t and Table 5.2 limits."""
     ratio = float(c_over_t)
     if ratio <= limits[0] * eps:
@@ -68,8 +66,9 @@ def _class_of(c_over_t: float, limits: Tuple[float, float, float],
     return 4
 
 
-def classify_section(props: Dict[str, Any], fy_mpa: float,
-                     stress_state: str = "bending") -> Dict[str, Any]:
+def classify_section(
+    props: dict[str, Any], fy_mpa: float, stress_state: str = "bending"
+) -> dict[str, Any]:
     """Classifies a section per Table 5.2.
 
     Parameters
@@ -91,42 +90,58 @@ def classify_section(props: Dict[str, Any], fy_mpa: float,
     state = str(stress_state or "bending").lower()
     if state not in ("bending", "compression", "combined"):
         raise ValueError(
-            f"stress_state must be 'bending'|'compression'|'combined', "
-            f"got '{stress_state}'")
+            f"stress_state must be 'bending'|'compression'|'combined', got '{stress_state}'"
+        )
     if not has_full_dims(props):
-        return {"class": None, "web_class": None, "flange_class": None,
-                "eps": None, "web_c_t": None, "flange_c_t": None,
-                "stress_state": state, "reason":
-                    "section dimensions unavailable (parametric/custom "
-                    "without live GetValue data) — NOT_CHECKABLE"}
+        return {
+            "class": None,
+            "web_class": None,
+            "flange_class": None,
+            "eps": None,
+            "web_c_t": None,
+            "flange_c_t": None,
+            "stress_state": state,
+            "reason": "section dimensions unavailable (parametric/custom "
+            "without live GetValue data) — NOT_CHECKABLE",
+        }
 
     eps = math.sqrt(235.0 / fy)
     kind = props.get("shape_kind")
-    h, b, tw, tf, r = (props["h_m"], props["b_m"], props["tw_m"],
-                       props["tf_m"], props["r_m"])
+    h, b, tw, tf, r = (props["h_m"], props["b_m"], props["tw_m"], props["tf_m"], props["r_m"])
 
     if kind == "circular_hollow":
         # EN 1993-1-1 Table 5.2 sheet 3 (circular hollow sections). The
         # single D/t series applies to BOTH compression and bending:
         #   Class 1: D/t <= 50e2   Class 2: D/t <= 70e2   Class 3: D/t <= 90e2
-        D = max(h, b)          # h == b == outer diameter for CHS
-        t = tw                 # wall thickness
+        D = max(h, b)  # h == b == outer diameter for CHS
+        t = tw  # wall thickness
         d_over_t = D / t if t > 0.0 else float("inf")
         e2 = eps * eps
-        cls = 1 if d_over_t <= 50.0 * e2 else               (2 if d_over_t <= 70.0 * e2 else
-               (3 if d_over_t <= 90.0 * e2 else 4))
-        reason = (f"circular hollow (Table 5.2 sheet 3): D/t={d_over_t:.2f} "
-                  f"vs 50e2={50.0*e2:.2f}/70e2={70.0*e2:.2f}/90e2={90.0*e2:.2f}")
+        cls = (
+            1
+            if d_over_t <= 50.0 * e2
+            else (2 if d_over_t <= 70.0 * e2 else (3 if d_over_t <= 90.0 * e2 else 4))
+        )
+        reason = (
+            f"circular hollow (Table 5.2 sheet 3): D/t={d_over_t:.2f} "
+            f"vs 50e2={50.0 * e2:.2f}/70e2={70.0 * e2:.2f}/90e2={90.0 * e2:.2f}"
+        )
         if cls >= 4:
-            reason += ("; Class 4 - effective width per EN 1993-1-5 is out "
-                       "of v1 scope, so the section is NOT_CHECKABLE (D7).")
+            reason += (
+                "; Class 4 - effective width per EN 1993-1-5 is out "
+                "of v1 scope, so the section is NOT_CHECKABLE (D7)."
+            )
         return {
-            "class": cls, "web_class": cls, "flange_class": cls,
-            "eps": round(eps, 4), "web_c_t": round(d_over_t, 3),
+            "class": cls,
+            "web_class": cls,
+            "flange_class": cls,
+            "eps": round(eps, 4),
+            "web_c_t": round(d_over_t, 3),
             "flange_c_t": round(d_over_t, 3),
             "web_clear_mm": round(D * 1000.0, 2),
             "flange_outstand_mm": round(t * 1000.0, 2),
-            "stress_state": state, "reason": reason,
+            "stress_state": state,
+            "reason": reason,
         }
 
     if kind == "rect_hollow":
@@ -137,22 +152,30 @@ def classify_section(props: Dict[str, Any], fy_mpa: float,
         fl_c = max(b - 3.0 * tf, 0.0)
         web_c_t = web_c / tw if tw > 0.0 else float("inf")
         fl_c_t = fl_c / tf if tf > 0.0 else float("inf")
-        limits = _WEB_COMPRESSION if state in ("compression", "combined")             else _WEB_BENDING
+        limits = _WEB_COMPRESSION if state in ("compression", "combined") else _WEB_BENDING
         web_cls = _class_of(web_c_t, limits, eps)
         fl_cls = _class_of(fl_c_t, limits, eps)
         overall = max(web_cls, fl_cls)
-        reason = (f"rectangular hollow (Table 5.2 sheet 1, internal parts): "
-                  f"web (h-3t)/t={web_c_t:.2f}, flange (b-3t)/t={fl_c_t:.2f}")
+        reason = (
+            f"rectangular hollow (Table 5.2 sheet 1, internal parts): "
+            f"web (h-3t)/t={web_c_t:.2f}, flange (b-3t)/t={fl_c_t:.2f}"
+        )
         if overall >= 4:
-            reason += ("; Class 4 - effective width per EN 1993-1-5 is out "
-                       "of v1 scope, so the section is NOT_CHECKABLE (D7).")
+            reason += (
+                "; Class 4 - effective width per EN 1993-1-5 is out "
+                "of v1 scope, so the section is NOT_CHECKABLE (D7)."
+            )
         return {
-            "class": overall, "web_class": web_cls, "flange_class": fl_cls,
-            "eps": round(eps, 4), "web_c_t": round(web_c_t, 3),
+            "class": overall,
+            "web_class": web_cls,
+            "flange_class": fl_cls,
+            "eps": round(eps, 4),
+            "web_c_t": round(web_c_t, 3),
             "flange_c_t": round(fl_c_t, 3),
             "web_clear_mm": round(web_c * 1000.0, 2),
             "flange_outstand_mm": round(fl_c * 1000.0, 2),
-            "stress_state": state, "reason": reason,
+            "stress_state": state,
+            "reason": reason,
         }
 
     web_c = web_clear_height(h, tf, r)
@@ -160,16 +183,17 @@ def classify_section(props: Dict[str, Any], fy_mpa: float,
     web_c_t = web_c / tw if tw > 0.0 else float("inf")
     fl_c_t = fl_c / tf if tf > 0.0 else float("inf")
 
-    web_limits = _WEB_COMPRESSION if state in ("compression", "combined") \
-        else _WEB_BENDING
+    web_limits = _WEB_COMPRESSION if state in ("compression", "combined") else _WEB_BENDING
     web_cls = _class_of(web_c_t, web_limits, eps)
     fl_cls = _class_of(fl_c_t, _FLANGE_ROLLED, eps)
 
     overall = max(web_cls, fl_cls)
     if overall >= 4:
-        reason = ("Class 4 (slender) — web and/or flange exceed the Class 3 "
-                  "limit; effective width per EN 1993-1-5 is out of v1 "
-                  "scope, so the section is NOT_CHECKABLE (D7).")
+        reason = (
+            "Class 4 (slender) — web and/or flange exceed the Class 3 "
+            "limit; effective width per EN 1993-1-5 is out of v1 "
+            "scope, so the section is NOT_CHECKABLE (D7)."
+        )
     elif web_cls > fl_cls:
         reason = f"web governs (Class {web_cls}): c/tw={web_c_t:.2f}"
     else:

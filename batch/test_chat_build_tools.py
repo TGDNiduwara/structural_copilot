@@ -14,6 +14,7 @@ verified when a Robot seat is free.
 
 Run:  python batch/test_chat_build_tools.py
 """
+
 from __future__ import annotations
 
 import os
@@ -43,13 +44,18 @@ class _FakeBridge:
             "bars": [{"id": 1, "n1": 1, "n2": 2, "section": "IPE 300"}],
             "supports": [{"node": 1, "type": "pinned"}],
             "cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
-            "loads": [{"kind": "bar_uniform", "bar": 1, "case": 1,
-                       "direction": "Z", "value": -10.0}],
+            "loads": [
+                {"kind": "bar_uniform", "bar": 1, "case": 1, "direction": "Z", "value": -10.0}
+            ],
         }
         self._geometry = geometry or {
             "project": "3D",
-            "nodes": {1: [0.0, 0.0, 0.0], 2: [6.0, 0.0, 0.0],
-                      3: [6.0, 0.0, 3.0], 4: [0.0, 0.0, 3.0]},
+            "nodes": {
+                1: [0.0, 0.0, 0.0],
+                2: [6.0, 0.0, 0.0],
+                3: [6.0, 0.0, 3.0],
+                4: [0.0, 0.0, 3.0],
+            },
             "bars": {1: [1, 2], 2: [2, 3], 3: [3, 4], 4: [4, 1]},
         }
         self.supports_calls = []
@@ -65,8 +71,13 @@ class _FakeBridge:
         return self._geometry
 
     def validate_stability(self):
-        return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
-                "message": "no mechanism detected (rank 4/4)"}
+        return {
+            "ok": True,
+            "mechanism": False,
+            "nodes": [],
+            "dofs": [],
+            "message": "no mechanism detected (rank 4/4)",
+        }
 
     def _iter_all_cases(self):
         objs = getattr(self, "case_objects", [])
@@ -85,11 +96,15 @@ class _FakeBridge:
 
     def apply_self_weight(self, case_id, density=7850.0):
         self.self_weight_calls.append((case_id, density))
-        return {"case_id": case_id, "bars": 2, "total_self_weight_kn": 0.83,
-                "density_kg_m3": density, "per_bar": []}
+        return {
+            "case_id": case_id,
+            "bars": 2,
+            "total_self_weight_kn": 0.83,
+            "density_kg_m3": density,
+            "per_bar": [],
+        }
 
-    def set_support(self, node_id, support_type="fixed",
-                    spring_stiffness=None):
+    def set_support(self, node_id, support_type="fixed", spring_stiffness=None):
         self.supports_calls.append((node_id, support_type, spring_stiffness))
 
 
@@ -115,14 +130,16 @@ def test_export_structure_spec():
     assert geom["loads"][0]["kind"] == "bar_uniform"
     assert r["counts"]["nodes"] == 2 and r["counts"]["bars"] == 1
     _validate_tool_arguments("export_structure_spec", {})
-    print("EXPORT SPEC: live-model -> geometry JSON shape (reverse of "
-          "build_from_spec), no required params")
+    print(
+        "EXPORT SPEC: live-model -> geometry JSON shape (reverse of "
+        "build_from_spec), no required params"
+    )
 
 
 def test_list_available_sections():
     ipe = available_sections("IPE")
     assert "IPE 300" in ipe and "IPE 500" in ipe, ipe[:3]
-    hea = available_sections("hea")   # case-insensitive
+    hea = available_sections("hea")  # case-insensitive
     assert "HEA 200" in hea
     assert section_families() == sorted(section_families())
     all_names = available_sections()
@@ -133,16 +150,17 @@ def test_list_available_sections():
     except ValueError:
         pass
     ex = ToolExecutor()
-    r = ex._tool_list_available_sections("IPE")   # no Robot needed
+    r = ex._tool_list_available_sections("IPE")  # no Robot needed
     assert r["status"] == "ok" and r["count"] == len(ipe)
     assert r["sections"] == ipe
-    print("SECTIONS: IPE/HEA series from the suggest_section catalog; "
-          "family filter + error handling OK")
+    print(
+        "SECTIONS: IPE/HEA series from the suggest_section catalog; "
+        "family filter + error handling OK"
+    )
 
 
 def test_apply_self_weight():
-    assert abs(RobotBridge._self_weight_kn_m(42.3) - 42.3 * 9.81 / 1000.0) \
-        < 1e-9
+    assert abs(RobotBridge._self_weight_kn_m(42.3) - 42.3 * 9.81 / 1000.0) < 1e-9
     fake = _FakeBridge()
     ex = _executor_with_fake(fake)
     r = ex._tool_apply_self_weight(1, density=7850.0)
@@ -150,8 +168,10 @@ def test_apply_self_weight():
     assert fake.self_weight_calls == [(1, 7850.0)], fake.self_weight_calls
     ex._tool_apply_self_weight(3)
     assert fake.self_weight_calls[-1] == (3, 7850.0)
-    print("SELF-WEIGHT: gravity conversion correct, handler forwards "
-          "case_id + density to the bridge")
+    print(
+        "SELF-WEIGHT: gravity conversion correct, handler forwards case_id + density to the bridge"
+    )
+
 
 def test_set_support_spring():
     fake = _FakeBridge()
@@ -168,11 +188,14 @@ def test_set_support_spring():
     # Non-spring types still pass through with stiffness ignored.
     ex._tool_set_support(2, "pinned")
     assert fake.supports_calls[-1] == (2, "pinned", None)
-    _validate_tool_arguments("set_support",
-                             {"node_id": 1, "support_type": "spring",
-                              "spring_stiffness": {"UZ": 100000.0}})
-    print("SPRING: stiffness passes through; spring-without-stiffness "
-          "rejected; fixed/pinned path unchanged")
+    _validate_tool_arguments(
+        "set_support",
+        {"node_id": 1, "support_type": "spring", "spring_stiffness": {"UZ": 100000.0}},
+    )
+    print(
+        "SPRING: stiffness passes through; spring-without-stiffness "
+        "rejected; fixed/pinned path unchanged"
+    )
 
 
 def test_preview_structure_geometry():
@@ -181,7 +204,9 @@ def test_preview_structure_geometry():
     out = os.path.join(tmp, "wire.png")
     plot_structure_wireframe(
         {1: [0, 0, 0], 2: [6, 0, 0], 3: [6, 0, 3], 4: [0, 0, 3]},
-        {1: [1, 2], 2: [2, 3], 3: [3, 4], 4: [4, 1]}, out)
+        {1: [1, 2], 2: [2, 3], 3: [3, 4], 4: [4, 1]},
+        out,
+    )
     assert os.path.exists(out) and os.path.getsize(out) > 0
 
     # Handler: fake geometry -> saved path under generated/.
@@ -199,16 +224,17 @@ def test_preview_structure_geometry():
         raise AssertionError("empty geometry must raise")
     except ToolExecutionError as exc:
         assert "No geometry to preview" in str(exc), exc
-    print("PREVIEW: wireframe PNG generated (planar + 3D), handler "
-          "returns saved path, empty model rejected")
+    print(
+        "PREVIEW: wireframe PNG generated (planar + 3D), handler "
+        "returns saved path, empty model rejected"
+    )
 
 
 def test_check_model_stability():
-    from types import SimpleNamespace
+
     mc = RobotBridge._mechanism_check
     # Stable: 2-node pinned beam (translations fixed, rotations free).
-    stable = mc({1: (0.0, 0.0), 2: (6.0, 0.0)},
-                [(1, 2, 1e-3, 1e-6)], {1: (1, 1, 0), 2: (1, 1, 0)})
+    stable = mc({1: (0.0, 0.0), 2: (6.0, 0.0)}, [(1, 2, 1e-3, 1e-6)], {1: (1, 1, 0), 2: (1, 1, 0)})
     assert stable["ok"] is True and stable["mechanism"] is False, stable
     assert "no mechanism detected" in stable["message"], stable
     # Mechanism: an unsupported node with no bar -> rank-deficient.
@@ -225,12 +251,15 @@ def test_check_model_stability():
     r = ex._tool_check_model_stability()
     assert r["status"] == "ok" and r["ok"] is True and r["mechanism"] is False
     _validate_tool_arguments("check_model_stability", {})
-    print("STABILITY: pure rank check flags a floating-node mechanism, "
-          "passes a pinned beam; handler returns ok/rank/message")
+    print(
+        "STABILITY: pure rank check flags a floating-node mechanism, "
+        "passes a pinned beam; handler returns ok/rank/message"
+    )
 
 
 def test_generate_code_combinations():
     from types import SimpleNamespace
+
     cf = RobotBridge.eurocode_combination_factors
     # 1 permanent + 1 imposed -> ULS 1.35/1.5 + SLS 1.0/1.0.
     plans = cf([(1, "permanent"), (2, "imposed")], "ULS_SLS_basic")
@@ -249,8 +278,11 @@ def test_generate_code_combinations():
     assert only_perm[0]["case_factors"] == {1: 1.35}
     assert len(cf([(1, "permanent"), (2, "imposed")], "ULS_only")) == 1
     assert len(cf([(1, "permanent"), (2, "imposed")], "SLS_only")) == 1
-    for bad in (([], "ULS_SLS_basic"), ([(1, "wind")], "ULS_SLS_basic"),
-                ([(1, "permanent")], "nope")):
+    for bad in (
+        ([], "ULS_SLS_basic"),
+        ([(1, "wind")], "ULS_SLS_basic"),
+        ([(1, "permanent")], "nope"),
+    ):
         try:
             cf(*bad)
             raise AssertionError(f"expected ValueError for {bad}")
@@ -267,8 +299,10 @@ def test_generate_code_combinations():
         ("ULS_2", {1: 1.35, 2: 1.5}, "ULS"),
         ("SLS_char", {1: 1.0, 2: 1.0}, "SLS"),
     ], fake.combo_calls
-    print("COMBINATIONS: EN 1990 factors (1.35/1.5, multi-variable 1.05, "
-          "SLS 1.0), handler drives define_combination per plan")
+    print(
+        "COMBINATIONS: EN 1990 factors (1.35/1.5, multi-variable 1.05, "
+        "SLS 1.0), handler drives define_combination per plan"
+    )
 
 
 def main():
@@ -288,4 +322,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

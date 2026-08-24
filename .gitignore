@@ -30,3 +30,13 @@ _smoke_*.py
 # OS
 Thumbs.db
 .DS_Store
+
+# Step 10 conversation persistence (user transcripts - never commit)
+conversations.db
+
+# Coverage data
+.coverage
+htmlcov/
+
+# Runtime state (Robot seat tracking etc.)
+runtime/

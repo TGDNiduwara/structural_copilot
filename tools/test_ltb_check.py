@@ -36,17 +36,31 @@ import sys
 sys.path.insert(0, r"c:/Users/dinat/Downloads/structural_multi_app_agent/structural_copilot")
 
 from tools.eurocode_params import effective_yield_strength, fy_for_grade
-from tools.section_data import it_from_dims, iw_from_dims
 from tools.ltb_check import (
-    c1_from_moment_shape, mcr_closed_form, lt_slenderness,
-    chi_lt_reduction, mb_rd, check_ltb_member)
+    c1_from_moment_shape,
+    check_ltb_member,
+    chi_lt_reduction,
+    lt_slenderness,
+    mb_rd,
+    mcr_closed_form,
+)
+from tools.section_data import it_from_dims, iw_from_dims
 
 # Published IPE 300 properties (m / m2 / m3 / m4 / m6).
 IPE300 = {
-    "shape_type": 20, "shape_kind": "i", "complete": True,
-    "area_m2": 0.005381, "iy_m4": 8.356e-5, "iz_m4": 6.04e-6,
-    "h_m": 0.3, "b_m": 0.15, "tw_m": 0.0071, "tf_m": 0.0107,
-    "r_m": 0.015, "wy_m3": 5.571e-4, "wpl_y_m3": 6.284e-4,
+    "shape_type": 20,
+    "shape_kind": "i",
+    "complete": True,
+    "area_m2": 0.005381,
+    "iy_m4": 8.356e-5,
+    "iz_m4": 6.04e-6,
+    "h_m": 0.3,
+    "b_m": 0.15,
+    "tw_m": 0.0071,
+    "tf_m": 0.0107,
+    "r_m": 0.015,
+    "wy_m3": 5.571e-4,
+    "wpl_y_m3": 6.284e-4,
 }
 E_PA, G_PA = 210e9, 81e9
 FY_S275 = 275e6
@@ -64,52 +78,67 @@ def _udl_moments(m_max, stations: int = 9):
 
 def test_hand_calc_mcr_chi_mb():
     # Uses PUBLISHED It/Iw so the oracle is independent of our closed forms.
-    mcr = mcr_closed_form(E_PA, G_PA, IPE300["iz_m4"], 2.01e-7, 1.259e-7,
-                          L, c1=1.13)
-    assert abs(mcr / 1e3 - 102.2) < 1.0, f"Mcr {mcr/1e3:.1f} kNm vs 102.2"
+    mcr = mcr_closed_form(E_PA, G_PA, IPE300["iz_m4"], 2.01e-7, 1.259e-7, L, c1=1.13)
+    assert abs(mcr / 1e3 - 102.2) < 1.0, f"Mcr {mcr / 1e3:.1f} kNm vs 102.2"
     lam = lt_slenderness(IPE300["wy_m3"], FY_S275, mcr)
     assert abs(lam - 1.224) < 0.02, f"lam_LT {lam:.3f} vs 1.224"
     chi = chi_lt_reduction(0.21, lam)
     assert abs(chi - 0.629) < 0.01, f"chi_LT {chi:.3f} vs 0.629"
     mb = mb_rd(chi, IPE300["wy_m3"], FY_S275) / 1e3
     assert abs(mb - 96.3) < 1.0, f"Mb,Rd {mb:.1f} kNm vs 96.3"
-    print(f"  OK: Mcr={mcr/1e3:.2f} kNm, lam_LT={lam:.3f}, "
-          f"chi_LT={chi:.3f}, Mb,Rd={mb:.2f} kNm  (hand calc)")
+    print(
+        f"  OK: Mcr={mcr / 1e3:.2f} kNm, lam_LT={lam:.3f}, "
+        f"chi_LT={chi:.3f}, Mb,Rd={mb:.2f} kNm  (hand calc)"
+    )
     return mcr, lam, chi, mb
 
 
 def test_full_member_check_pass_and_fail():
-    res = check_ltb_member(IPE300, FY_S275, L, _udl_moments(80e3),
-                           lcr_lt=6.0, lcr_lt_source="explicit")
+    res = check_ltb_member(
+        IPE300, FY_S275, L, _udl_moments(80e3), lcr_lt=6.0, lcr_lt_source="explicit"
+    )
     assert res["status"] == "PASS", res
     assert res["c1_case"] == "distributed load (UDL)"
     assert abs(res["c1"] - 1.13) < 1e-6
     assert 0.80 < res["utilization"] < 0.85, res["utilization"]
     assert res["lcr_lt_source"] == "explicit"
-    res_f = check_ltb_member(IPE300, FY_S275, L, _udl_moments(120e3),
-                             lcr_lt=6.0, lcr_lt_source="explicit")
+    res_f = check_ltb_member(
+        IPE300, FY_S275, L, _udl_moments(120e3), lcr_lt=6.0, lcr_lt_source="explicit"
+    )
     assert res_f["status"] == "FAIL", res_f
     assert res_f["governing"] == "ltb"
-    print(f"  OK: member PASS util={res['utilization']:.3f}; "
-          f"FAIL util={res_f['utilization']:.3f} (>1.0)")
+    print(
+        f"  OK: member PASS util={res['utilization']:.3f}; "
+        f"FAIL util={res_f['utilization']:.3f} (>1.0)"
+    )
 
 
 def test_beam_column_interaction_governs():
     # Compression + UDL moment: eq(6.61)/(6.62) must govern over pure LTB.
     # Realistic case: 200 kN compression, minor axis braced at mid-height
     # (lcr_z = 3.0 m) -> still PASSES, but eq62 > util_ltb.
-    res = check_ltb_member(IPE300, FY_S275, L, _udl_moments(40e3),
-                           axial_n=-200e3,
-                           lcr_lt=6.0, lcr_lt_source="explicit",
-                           lcr_y=6.0, lcr_z=3.0, lcr_z_source="explicit")
+    res = check_ltb_member(
+        IPE300,
+        FY_S275,
+        L,
+        _udl_moments(40e3),
+        axial_n=-200e3,
+        lcr_lt=6.0,
+        lcr_lt_source="explicit",
+        lcr_y=6.0,
+        lcr_z=3.0,
+        lcr_z_source="explicit",
+    )
     assert res["status"] == "PASS", res
     assert "eq61" in res and "eq62" in res
-    assert res["utilization"] >= res["util_ltb"], \
-        "interaction must not reduce utilization"
+    assert res["utilization"] >= res["util_ltb"], "interaction must not reduce utilization"
     assert res["governing"] in ("eq61", "eq62")
     assert res["utilization"] == res["eq62"], "eq62 (weak-axis) governs here"
-    print(f"  OK: beam-column interaction governs ({res['governing']}= "
-          f"{res['utilization']}) over LTB util {res['util_ltb']}")
+    print(
+        f"  OK: beam-column interaction governs ({res['governing']}= "
+        f"{res['utilization']}) over LTB util {res['util_ltb']}"
+    )
+
 
 def test_c1_from_moment_shape():
     uni = [(0.0, 50e3), (0.5, 50e3), (1.0, 50e3)]
@@ -122,8 +151,7 @@ def test_c1_from_moment_shape():
     assert abs(c1 - 1.35) < 1e-9 and "concentrated" in case
     c1, case = c1_from_moment_shape([(0.0, 100e3), (0.5, 50e3), (1.0, 0.0)])
     assert abs(c1 - 1.77) < 1e-6 and "end moments" in case
-    print("  OK: C1 classification (uniform=1.0, UDL=1.13, point=1.35, "
-          "end psi=0 -> 1.77)")
+    print("  OK: C1 classification (uniform=1.0, UDL=1.13, point=1.35, end psi=0 -> 1.77)")
 
 
 def test_chi_plateau_and_closed_forms():
@@ -132,8 +160,7 @@ def test_chi_plateau_and_closed_forms():
     iw = iw_from_dims(6.04e-6, 0.3, 0.0107)
     assert 0.85 < it / 2.01e-7 < 0.95, f"It {it} vs 2.01e-7 (10% low ok)"
     assert 0.99 < iw / 1.259e-7 < 1.01, f"Iw {iw} vs 1.259e-7"
-    print(f"  OK: chi plateau; It={it:.3e} (vs 2.01e-7), Iw={iw:.3e} "
-          f"(vs 1.259e-7)")
+    print(f"  OK: chi plateau; It={it:.3e} (vs 2.01e-7), Iw={iw:.3e} (vs 1.259e-7)")
 
 
 def test_not_checkable_gates():
@@ -151,10 +178,14 @@ def test_not_checkable_gates():
 
 
 def test_defaulted_bracing_warning():
-    res = check_ltb_member(IPE300, FY_S275, L, _udl_moments(80e3),
-                           lcr_lt_source="defaulted",
-                           warnings=["bar 1: no explicit lcr_lt set "
-                                     "- defaulted (conservative)."])
+    res = check_ltb_member(
+        IPE300,
+        FY_S275,
+        L,
+        _udl_moments(80e3),
+        lcr_lt_source="defaulted",
+        warnings=["bar 1: no explicit lcr_lt set - defaulted (conservative)."],
+    )
     assert res["lcr_lt_source"] == "defaulted"
     assert any("defaulted" in w.lower() for w in res["warnings"])
     print("  OK: defaulted Lcr_LT carried with its warning")
@@ -186,4 +217,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

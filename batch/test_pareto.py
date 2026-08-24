@@ -1,4 +1,4 @@
-﻿"""
+"""
 batch/test_pareto.py
 ====================
 [PHASE 6] Synthetic-data validation of the Pareto frontier computation.
@@ -9,6 +9,7 @@ results. Then a real-data check against the leftover Phase-5 result DBs.
 
 Run: python batch/test_pareto.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -18,10 +19,10 @@ sys.path.insert(0, r"c:\Users\dinat\Downloads\structural_multi_app_agent\structu
 import pandas as pd
 
 from batch.pareto import (
+    buckling_margin_from_status,
     compute_pareto_frontier,
     pareto_summary,
     strength_margin_of,
-    buckling_margin_from_status,
 )
 
 
@@ -47,20 +48,62 @@ def _mk_df(rows):
 EXPECTED_SET_1 = {90, 95, 120, 105}  # weights of B, D, E, F
 
 DF1 = [
-    {"candidate_id": 1, "candidate_status": "evaluated", "weight_kg": 100.0,
-     "max_utilization": 0.70, "pass_fail": "PASS", "buckling_status": "PASS (no compression members)"},
-    {"candidate_id": 2, "candidate_status": "evaluated", "weight_kg": 90.0,
-     "max_utilization": 0.65, "pass_fail": "PASS", "buckling_status": "PASS (no compression members)"},
-    {"candidate_id": 3, "candidate_status": "evaluated", "weight_kg": 110.0,
-     "max_utilization": 0.55, "pass_fail": "PASS", "buckling_status": "PASS (no compression members)"},
-    {"candidate_id": 4, "candidate_status": "evaluated", "weight_kg": 95.0,
-     "max_utilization": 0.60, "pass_fail": "PASS", "buckling_status": "PASS (no compression members)"},
-    {"candidate_id": 5, "candidate_status": "evaluated", "weight_kg": 120.0,
-     "max_utilization": 0.40, "pass_fail": "PASS", "buckling_status": "PASS (no compression members)"},
-    {"candidate_id": 6, "candidate_status": "evaluated", "weight_kg": 105.0,
-     "max_utilization": 0.45, "pass_fail": "PASS", "buckling_status": "PASS (no compression members)"},
-    {"candidate_id": 7, "candidate_status": "evaluated", "weight_kg": 80.0,
-     "max_utilization": 1.30, "pass_fail": "FAIL", "buckling_status": "FAIL: bar 2 (IPE 270): N=30.0 kN vs Pcr=25.0 kN"},
+    {
+        "candidate_id": 1,
+        "candidate_status": "evaluated",
+        "weight_kg": 100.0,
+        "max_utilization": 0.70,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS (no compression members)",
+    },
+    {
+        "candidate_id": 2,
+        "candidate_status": "evaluated",
+        "weight_kg": 90.0,
+        "max_utilization": 0.65,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS (no compression members)",
+    },
+    {
+        "candidate_id": 3,
+        "candidate_status": "evaluated",
+        "weight_kg": 110.0,
+        "max_utilization": 0.55,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS (no compression members)",
+    },
+    {
+        "candidate_id": 4,
+        "candidate_status": "evaluated",
+        "weight_kg": 95.0,
+        "max_utilization": 0.60,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS (no compression members)",
+    },
+    {
+        "candidate_id": 5,
+        "candidate_status": "evaluated",
+        "weight_kg": 120.0,
+        "max_utilization": 0.40,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS (no compression members)",
+    },
+    {
+        "candidate_id": 6,
+        "candidate_status": "evaluated",
+        "weight_kg": 105.0,
+        "max_utilization": 0.45,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS (no compression members)",
+    },
+    {
+        "candidate_id": 7,
+        "candidate_status": "evaluated",
+        "weight_kg": 80.0,
+        "max_utilization": 1.30,
+        "pass_fail": "FAIL",
+        "buckling_status": "FAIL: bar 2 (IPE 270): N=30.0 kN vs Pcr=25.0 kN",
+    },
 ]
 
 
@@ -86,12 +129,22 @@ def test_synthetic_set1():
 # Synthetic set 2: buckling margin participates in strength_margin
 # --------------------------------------------------------------------------- #
 DF2 = [
-    {"candidate_id": 1, "candidate_status": "evaluated", "weight_kg": 100.0,
-     "max_utilization": 0.50, "pass_fail": "PASS",
-     "buckling_status": "PASS: worst bar 2 (IPE 270): N=20.0 kN vs Pcr=100.0 kN"},  # bm=0.8
-    {"candidate_id": 2, "candidate_status": "evaluated", "weight_kg": 105.0,
-     "max_utilization": 0.10, "pass_fail": "PASS",
-     "buckling_status": "PASS (no compression members)"},  # m = 0.90
+    {
+        "candidate_id": 1,
+        "candidate_status": "evaluated",
+        "weight_kg": 100.0,
+        "max_utilization": 0.50,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS: worst bar 2 (IPE 270): N=20.0 kN vs Pcr=100.0 kN",
+    },  # bm=0.8
+    {
+        "candidate_id": 2,
+        "candidate_status": "evaluated",
+        "weight_kg": 105.0,
+        "max_utilization": 0.10,
+        "pass_fail": "PASS",
+        "buckling_status": "PASS (no compression members)",
+    },  # m = 0.90
 ]
 
 
@@ -100,7 +153,7 @@ def test_synthetic_set2_buckling_margin():
     bm = buckling_margin_from_status("PASS: worst bar 2: N=20.0 kN vs Pcr=100.0 kN")
     assert abs(bm - 0.8) < 1e-9, bm
     m1 = strength_margin_of(0.50, "PASS: N=20.0 kN vs Pcr=100.0 kN")
-    assert abs(m1 - 0.5) < 1e-9, m1   # min(0.50, 0.80) = 0.50
+    assert abs(m1 - 0.5) < 1e-9, m1  # min(0.50, 0.80) = 0.50
     df = _mk_df(DF2)
     front = compute_pareto_frontier(df)
     # Candidate 1: w=100, m=0.50. Candidate 2: w=105, m=0.90.
@@ -118,12 +171,26 @@ def test_synthetic_set2_buckling_margin():
 # --------------------------------------------------------------------------- #
 def test_synthetic_set3_all_fail():
     print("=== Synthetic set 3: all candidates FAIL constraint -> empty ===")
-    df = _mk_df([
-        {"candidate_id": 1, "candidate_status": "evaluated", "weight_kg": 100.0,
-         "max_utilization": 1.5, "pass_fail": "FAIL", "buckling_status": "PASS (no compression members)"},
-        {"candidate_id": 2, "candidate_status": "evaluated", "weight_kg": 90.0,
-         "max_utilization": 0.9, "pass_fail": "FAIL", "buckling_status": "PASS (no compression members)"},
-    ])
+    df = _mk_df(
+        [
+            {
+                "candidate_id": 1,
+                "candidate_status": "evaluated",
+                "weight_kg": 100.0,
+                "max_utilization": 1.5,
+                "pass_fail": "FAIL",
+                "buckling_status": "PASS (no compression members)",
+            },
+            {
+                "candidate_id": 2,
+                "candidate_status": "evaluated",
+                "weight_kg": 90.0,
+                "max_utilization": 0.9,
+                "pass_fail": "FAIL",
+                "buckling_status": "PASS (no compression members)",
+            },
+        ]
+    )
     front = compute_pareto_frontier(df)
     assert front.empty
     assert front.attrs["passed"] == 0

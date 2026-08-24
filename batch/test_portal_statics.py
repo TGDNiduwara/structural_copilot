@@ -24,19 +24,19 @@ investigation (documented in the README note).
 
 Run:  python batch/test_portal_statics.py
 """
+
 from __future__ import annotations
 
-import math
 import sys
 
 sys.path.insert(0, r"c:\Users\dinat\Downloads\structural_multi_app_agent\structural_copilot")
 
 from batch.headless_driver import HeadlessSession
 
-W = 10.0          # kN/m UDL
-L = 6.0           # m beam span
-H = 3.0           # m column height
-P_TOTAL = W * L   # 60 kN
+W = 10.0  # kN/m UDL
+L = 6.0  # m beam span
+H = 3.0  # m column height
+P_TOTAL = W * L  # 60 kN
 
 
 def _portal_spec(column_section: str, beam_section: str) -> dict:
@@ -54,11 +54,11 @@ def _portal_spec(column_section: str, beam_section: str) -> dict:
             {"id": 3, "n1": 3, "n2": 4, "section": column_section},
         ],
         "supports": [
-            {"node": 1, "type": "pinned"}, {"node": 4, "type": "pinned"},
+            {"node": 1, "type": "pinned"},
+            {"node": 4, "type": "pinned"},
         ],
         "cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
-        "loads": [{"kind": "bar_uniform", "bar": 2, "case": 1,
-                   "direction": "Z", "value": -W}],
+        "loads": [{"kind": "bar_uniform", "bar": 2, "case": 1, "direction": "Z", "value": -W}],
     }
 
 
@@ -71,8 +71,7 @@ def _beam_moments_kNm(forces, bar_id: int) -> tuple:
     sub = forces[forces["Bar_ID"] == bar_id]
     # Sagging midspan (Position_m == L/2) vs hogging end moments.
     mid = sub[(sub["Position_m"] - L / 2).abs() < 0.01]
-    ends = sub[(sub["Position_m"].abs() < 0.01) |
-               ((sub["Position_m"] - L).abs() < 0.01)]
+    ends = sub[(sub["Position_m"].abs() < 0.01) | ((sub["Position_m"] - L).abs() < 0.01)]
     m_mid = float(mid["MY_kNm"].abs().max())
     m_end = float(ends["MY_kNm"].abs().max())
     return m_mid, m_end
@@ -108,21 +107,25 @@ def _run(column_section: str, beam_section: str) -> None:
             f"{label} axial {ax:.2f} kN != wL/2={P_TOTAL / 2:.1f} kN "
             f"(rel err {err:.3f}) - incoherent frame (see README known "
             f"issue). column_section={column_section} "
-            f"beam_section={beam_section}")
+            f"beam_section={beam_section}"
+        )
     # 2. vertical equilibrium: ax1 + ax3 = wL.
     assert abs(ax1 + ax3 - P_TOTAL) < 0.05 * P_TOTAL, (
-        f"columns do not equilibrate the load: {ax1:.2f}+{ax3:.2f} "
-        f"!= {P_TOTAL:.1f} kN")
+        f"columns do not equilibrate the load: {ax1:.2f}+{ax3:.2f} != {P_TOTAL:.1f} kN"
+    )
     # 3. beam moment balance: M_end + M_mid = wL^2/8 (portal-frame theory).
     m_ref = W * L * L / 8.0
     err_m = abs(m_end + m_mid - m_ref) / m_ref
     assert err_m < 0.10, (
         f"M_end({m_end:.2f}) + M_mid({m_mid:.2f}) = {m_end + m_mid:.2f} "
-        f"!= wL^2/8 ({m_ref:.2f}) rel err {err_m:.3f}")
-    print(f"  {column_section}/{beam_section}: col axial "
-          f"{ax1:.1f}/{ax3:.1f} kN (wL/2=30), M_end={m_end:.1f} "
-          f"M_mid={m_mid:.1f} (sum {m_end + m_mid:.1f} vs {m_ref:.1f}), "
-          f"util={r['max_utilization']}")
+        f"!= wL^2/8 ({m_ref:.2f}) rel err {err_m:.3f}"
+    )
+    print(
+        f"  {column_section}/{beam_section}: col axial "
+        f"{ax1:.1f}/{ax3:.1f} kN (wL/2=30), M_end={m_end:.1f} "
+        f"M_mid={m_mid:.1f} (sum {m_end + m_mid:.1f} vs {m_ref:.1f}), "
+        f"util={r['max_utilization']}"
+    )
 
 
 def main():

@@ -36,6 +36,7 @@ Test list
 
 Run:  python batch/test_surrogate_search.py
 """
+
 from __future__ import annotations
 
 import itertools
@@ -50,18 +51,14 @@ import pandas as pd
 sys.path.insert(0, r"c:\Users\dinat\Downloads\structural_multi_app_agent\structural_copilot")
 
 from batch.design_space import DesignSpace
-from batch.pareto import add_strength_margin, compute_pareto_frontier
+from batch.pareto import compute_pareto_frontier
 from batch.storage import Storage
 from batch.surrogate_search import (
-    ACQUISITION_MODES,
-    DEFAULT_BUDGET,
-    GRID_FALLBACK_THRESHOLD,
     SurrogateSearchError,
-    _GPSurrogate,
-    _ObjectiveNormalizer,
     _ehvi_scores,
+    _GPSurrogate,
     _hypervolume2d,
-    _maximin_doe,
+    _ObjectiveNormalizer,
     compatibility_key,
     encode_design_vars,
     load_training_data,
@@ -76,18 +73,52 @@ from batch.surrogate_search import (
 # --------------------------------------------------------------------------- #
 
 UNIT_MASS = {
-    "HEA 160": 30.4, "HEA 180": 35.5, "HEA 200": 42.3, "HEA 220": 50.5,
-    "HEA 240": 60.3, "HEB 160": 42.6, "HEB 180": 51.2, "HEB 200": 61.3,
-    "HEB 220": 71.5, "HEB 240": 83.2,
-    "IPE 200": 22.4, "IPE 220": 26.2, "IPE 240": 30.7, "IPE 270": 36.1,
-    "IPE 300": 42.2, "IPE 330": 49.1, "IPE 360": 57.1, "IPE 400": 66.3,
-    "IPE 450": 77.6, "IPE 500": 90.7,
+    "HEA 160": 30.4,
+    "HEA 180": 35.5,
+    "HEA 200": 42.3,
+    "HEA 220": 50.5,
+    "HEA 240": 60.3,
+    "HEB 160": 42.6,
+    "HEB 180": 51.2,
+    "HEB 200": 61.3,
+    "HEB 220": 71.5,
+    "HEB 240": 83.2,
+    "IPE 200": 22.4,
+    "IPE 220": 26.2,
+    "IPE 240": 30.7,
+    "IPE 270": 36.1,
+    "IPE 300": 42.2,
+    "IPE 330": 49.1,
+    "IPE 360": 57.1,
+    "IPE 400": 66.3,
+    "IPE 450": 77.6,
+    "IPE 500": 90.7,
 }
 
-COLUMNS_10 = ["HEA 160", "HEA 180", "HEA 200", "HEA 220", "HEA 240",
-              "HEB 160", "HEB 180", "HEB 200", "HEB 220", "HEB 240"]
-BEAMS_10 = ["IPE 200", "IPE 220", "IPE 240", "IPE 270", "IPE 300",
-            "IPE 330", "IPE 360", "IPE 400", "IPE 450", "IPE 500"]
+COLUMNS_10 = [
+    "HEA 160",
+    "HEA 180",
+    "HEA 200",
+    "HEA 220",
+    "HEA 240",
+    "HEB 160",
+    "HEB 180",
+    "HEB 200",
+    "HEB 220",
+    "HEB 240",
+]
+BEAMS_10 = [
+    "IPE 200",
+    "IPE 220",
+    "IPE 240",
+    "IPE 270",
+    "IPE 300",
+    "IPE 330",
+    "IPE 360",
+    "IPE 400",
+    "IPE 450",
+    "IPE 500",
+]
 
 
 def _geometry():
@@ -97,8 +128,10 @@ def _geometry():
     return {
         "project": "2D",
         "nodes": [
-            {"id": 1, "x": 0, "z": 0}, {"id": 2, "x": 0, "z": 3},
-            {"id": 3, "x": 6, "z": 3}, {"id": 4, "x": 6, "z": 0},
+            {"id": 1, "x": 0, "z": 0},
+            {"id": 2, "x": 0, "z": 3},
+            {"id": 3, "x": 6, "z": 3},
+            {"id": 4, "x": 6, "z": 0},
         ],
         "bars": [
             {"id": 1, "n1": 1, "n2": 2, "section": "HEA 200"},
@@ -106,16 +139,15 @@ def _geometry():
             {"id": 3, "n1": 3, "n2": 4, "section": "HEA 200"},
         ],
         "supports": [
-            {"node": 1, "type": "pinned"}, {"node": 4, "type": "pinned"},
+            {"node": 1, "type": "pinned"},
+            {"node": 4, "type": "pinned"},
         ],
         "cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
-        "loads": [{"kind": "bar_uniform", "bar": 2, "case": 1,
-                   "direction": "Z", "value": -10.0}],
+        "loads": [{"kind": "bar_uniform", "bar": 2, "case": 1, "direction": "Z", "value": -10.0}],
     }
 
 
-def synthetic_response(column_section: str, beam_section: str,
-                       columns: list, beams: list):
+def synthetic_response(column_section: str, beam_section: str, columns: list, beams: list):
     """(weight_kg, max_utilization, passes) for a section pair - the fake
     Robot. Utilization falls with stiffer sections (smooth, interacting)."""
     w = 6.0 * UNIT_MASS[column_section] + 6.0 * UNIT_MASS[beam_section]
@@ -129,16 +161,15 @@ def _spec(columns, beams):
     return {
         "geometry": _geometry(),
         "variable_groups": [
-            {"group_name": "columns", "bar_ids": [1, 3],
-             "candidate_sections": list(columns)},
-            {"group_name": "beam", "bar_ids": [2],
-             "candidate_sections": list(beams)},
+            {"group_name": "columns", "bar_ids": [1, 3], "candidate_sections": list(columns)},
+            {"group_name": "beam", "bar_ids": [2], "candidate_sections": list(beams)},
         ],
         "load_cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
         "analysis_types": ["static"],
-        "objective": {"minimize": "weight",
-                      "constraint": "max_utilization <= 1.0 AND "
-                                    "buckling_pass == True"},
+        "objective": {
+            "minimize": "weight",
+            "constraint": "max_utilization <= 1.0 AND buckling_pass == True",
+        },
     }
 
 
@@ -174,8 +205,7 @@ class _FakeSession:
 
     def build_from_spec(self, geometry):
         self.calls["build"] += 1
-        self._sections = {int(b["id"]): str(b["section"])
-                          for b in geometry.get("bars", [])}
+        self._sections = {int(b["id"]): str(b["section"]) for b in geometry.get("bars", [])}
         return {"status": "ok"}
 
     def validate_stability(self):
@@ -194,25 +224,35 @@ class _FakeSession:
         return {
             "max_utilization": round(u, 4),
             "governing_check": "fake_bending",
-            "per_bar": [{"bar_id": i, "utilization": round(u, 4),
-                         "governing_check": "fake_bending",
-                         "status": "OK" if ok else "FAIL"}
-                        for i in (1, 2, 3)],
+            "per_bar": [
+                {
+                    "bar_id": i,
+                    "utilization": round(u, 4),
+                    "governing_check": "fake_bending",
+                    "status": "OK" if ok else "FAIL",
+                }
+                for i in (1, 2, 3)
+            ],
             "note": "synthetic offline response",
         }
 
     # -- bridge surface used by the buckling gate -------------------------- #
     def export_all_member_forces(self, case_id=1, divisions=2):
-        return pd.DataFrame([
-            {"Bar_ID": bid, "Position_m": k * 1.0 / max(divisions - 1, 1),
-             "FX_kN": 50.0}   # tension: buckling check not applicable
-            for bid in (1, 2, 3) for k in range(max(divisions, 1))
-        ])
+        return pd.DataFrame(
+            [
+                {
+                    "Bar_ID": bid,
+                    "Position_m": k * 1.0 / max(divisions - 1, 1),
+                    "FX_kN": 50.0,
+                }  # tension: buckling check not applicable
+                for bid in (1, 2, 3)
+                for k in range(max(divisions, 1))
+            ]
+        )
 
     # -- internals --------------------------------------------------------- #
     def _response(self):
-        return synthetic_response(self._sections[1], self._sections[2],
-                                  self.columns, self.beams)
+        return synthetic_response(self._sections[1], self._sections[2], self.columns, self.beams)
 
 
 def _brute_force(columns, beams):
@@ -220,24 +260,33 @@ def _brute_force(columns, beams):
     rows = []
     for cs, bs in itertools.product(columns, beams):
         w, u, ok = synthetic_response(cs, bs, columns, beams)
-        rows.append({"columns": cs, "beam": bs, "weight_kg": w,
-                     "max_utilization": u,
-                     "pass_fail": "PASS" if ok else "FAIL"})
+        rows.append(
+            {
+                "columns": cs,
+                "beam": bs,
+                "weight_kg": w,
+                "max_utilization": u,
+                "pass_fail": "PASS" if ok else "FAIL",
+            }
+        )
     df = pd.DataFrame(rows)
     return df, compute_pareto_frontier(df)
+
 
 # --------------------------------------------------------------------------- #
 # 1-2. fallback + config errors
 # --------------------------------------------------------------------------- #
 
+
 def test_grid_fallback():
-    small = DesignSpace(_spec(["HEA 200", "HEA 220", "HEA 240"],
-                              ["IPE 270", "IPE 300", "IPE 330"]))   # 9 grid
+    small = DesignSpace(
+        _spec(["HEA 200", "HEA 220", "HEA 240"], ["IPE 270", "IPE 300", "IPE 330"])
+    )  # 9 grid
     use, why = should_use_grid(small)
     assert use, why
     assert "9 candidates" in why, why
 
-    big = DesignSpace(_spec(COLUMNS_10, BEAMS_10))                  # 100 grid
+    big = DesignSpace(_spec(COLUMNS_10, BEAMS_10))  # 100 grid
     use2, why2 = should_use_grid(big)
     assert not use2, why2
 
@@ -251,13 +300,16 @@ def test_grid_fallback():
     tmpdir = tempfile.mkdtemp(prefix="sur_fallback_")
     db = os.path.join(tmpdir, "runs.db")
     summary = run_surrogate_search(
-        small, db_path=db, log_path=os.path.join(tmpdir, "log.txt"),
+        small,
+        db_path=db,
+        log_path=os.path.join(tmpdir, "log.txt"),
         session_factory=lambda: (_ for _ in ()).throw(
-            AssertionError("no session may be created on fallback")))
+            AssertionError("no session may be created on fallback")
+        ),
+    )
     assert summary["status"] == "grid_fallback", summary
     assert summary["robot_calls"] == 0 and summary["run_id"] is None
-    print("FALLBACK: 9-candidate grid short-circuits to grid search, "
-          "zero Robot calls, no session")
+    print("FALLBACK: 9-candidate grid short-circuits to grid search, zero Robot calls, no session")
 
 
 def test_config_errors():
@@ -275,9 +327,11 @@ def test_config_errors():
 # 3. encoding + compatibility key
 # --------------------------------------------------------------------------- #
 
+
 def test_encoding_and_key():
     ds = DesignSpace(_spec(COLUMNS_10, BEAMS_10))
     from batch.surrogate_search import _section_index_map
+
     simap = _section_index_map(ds)
 
     cand = ds.generate_candidates()[0]
@@ -305,20 +359,25 @@ def test_encoding_and_key():
     s4["variable_groups"][0]["candidate_sections"] = list(COLUMNS_10[:9])
     assert compatibility_key(s1) != compatibility_key(s4)
     s5 = _spec(COLUMNS_10, BEAMS_10)
-    s5["geometry"]["loads"] = [{"kind": "bar_uniform", "bar": 2,
-                                "case": 1, "direction": "Z", "value": -20.0}]
+    s5["geometry"]["loads"] = [
+        {"kind": "bar_uniform", "bar": 2, "case": 1, "direction": "Z", "value": -20.0}
+    ]
     assert compatibility_key(s1) != compatibility_key(s5)
     # Group order / bar order do not matter (normalized).
     s6 = _spec(COLUMNS_10, BEAMS_10)
     s6["variable_groups"] = list(reversed(s6["variable_groups"]))
     s6["geometry"]["bars"] = list(reversed(s6["geometry"]["bars"]))
     assert compatibility_key(s1) == compatibility_key(s6)
-    print("ENCODING/KEY: features round-trip; key ignores sections, "
-          "catches geometry/group/load changes, order-insensitive")
+    print(
+        "ENCODING/KEY: features round-trip; key ignores sections, "
+        "catches geometry/group/load changes, order-insensitive"
+    )
+
 
 # --------------------------------------------------------------------------- #
 # 4. cross-run training loader (the runs.db read)
 # --------------------------------------------------------------------------- #
+
 
 def test_training_loader():
     tmpdir = tempfile.mkdtemp(prefix="sur_train_")
@@ -331,31 +390,37 @@ def test_training_loader():
     cands = ds.generate_candidates()[:7]
     ids = [storage.add_candidate(run_a, c) for c in cands]
     for cid, c in zip(ids, cands):
-        w, u, ok = synthetic_response(c["group_choices"]["columns"],
-                                      c["group_choices"]["beam"],
-                                      COLUMNS_10, BEAMS_10)
+        w, u, ok = synthetic_response(
+            c["group_choices"]["columns"], c["group_choices"]["beam"], COLUMNS_10, BEAMS_10
+        )
         if c["candidate_index"] == 3:
             storage.mark_candidate_failed(cid, "mechanism_detected: test")
         elif c["candidate_index"] == 7:
             pass  # stays pending
         else:
-            storage.record_result(cid, weight_kg=w, max_utilization=u,
-                                  pass_fail="PASS" if ok else "FAIL",
-                                  buckling_status="PASS (no compression "
-                                                  "members)")
+            storage.record_result(
+                cid,
+                weight_kg=w,
+                max_utilization=u,
+                pass_fail="PASS" if ok else "FAIL",
+                buckling_status="PASS (no compression members)",
+            )
     storage.mark_run_status(run_a, "completed")
 
     # Seed run B (same spec): 3 more evaluated rows (a second past run).
     run_b = storage.create_run(ds.to_dict(), objective="")
     for c in ds.generate_candidates()[7:10]:
         cid = storage.add_candidate(run_b, c)
-        w, u, ok = synthetic_response(c["group_choices"]["columns"],
-                                      c["group_choices"]["beam"],
-                                      COLUMNS_10, BEAMS_10)
-        storage.record_result(cid, weight_kg=w, max_utilization=u,
-                              pass_fail="PASS" if ok else "FAIL",
-                              buckling_status="PASS (no compression "
-                                              "members)")
+        w, u, ok = synthetic_response(
+            c["group_choices"]["columns"], c["group_choices"]["beam"], COLUMNS_10, BEAMS_10
+        )
+        storage.record_result(
+            cid,
+            weight_kg=w,
+            max_utilization=u,
+            pass_fail="PASS" if ok else "FAIL",
+            buckling_status="PASS (no compression members)",
+        )
     storage.mark_run_status(run_b, "completed")
 
     # Seed run C (DIFFERENT geometry): must be excluded entirely.
@@ -365,8 +430,7 @@ def test_training_loader():
     run_c = storage.create_run(ds_other.to_dict(), objective="")
     for c in ds_other.generate_candidates()[:4]:
         cid = storage.add_candidate(run_c, c)
-        storage.record_result(cid, weight_kg=1.0, max_utilization=0.5,
-                              pass_fail="PASS")
+        storage.record_result(cid, weight_kg=1.0, max_utilization=0.5, pass_fail="PASS")
     storage.mark_run_status(run_c, "completed")
     storage.close()
 
@@ -378,34 +442,43 @@ def test_training_loader():
     assert set(per_run.keys()) == {str(run_a), str(run_b)}, per_run
     assert per_run[str(run_a)] == 5 and per_run[str(run_b)] == 3, per_run
     expected = sorted(
-        [synthetic_response(c["group_choices"]["columns"],
-                            c["group_choices"]["beam"],
-                            COLUMNS_10, BEAMS_10)[0]
-         for c in cands if c["candidate_index"] not in (3, 7)]
-        + [synthetic_response(c["group_choices"]["columns"],
-                              c["group_choices"]["beam"],
-                              COLUMNS_10, BEAMS_10)[0]
-           for c in ds.generate_candidates()[7:10]])
+        [
+            synthetic_response(
+                c["group_choices"]["columns"], c["group_choices"]["beam"], COLUMNS_10, BEAMS_10
+            )[0]
+            for c in cands
+            if c["candidate_index"] not in (3, 7)
+        ]
+        + [
+            synthetic_response(
+                c["group_choices"]["columns"], c["group_choices"]["beam"], COLUMNS_10, BEAMS_10
+            )[0]
+            for c in ds.generate_candidates()[7:10]
+        ]
+    )
     assert np.allclose(sorted(yw.tolist()), expected), (yw, expected)
     assert X.min() >= 0.0 and X.max() <= 1.0
     assert len({tuple(np.round(r, 9)) for r in X}) == 8
-    print(f"TRAINING LOADER: 8 compatible rows loaded (run A: 5, run B: 3); "
-          f"different-geometry run C excluded; failed/pending skipped")
+    print(
+        "TRAINING LOADER: 8 compatible rows loaded (run A: 5, run B: 3); "
+        "different-geometry run C excluded; failed/pending skipped"
+    )
+
 
 # --------------------------------------------------------------------------- #
 # 5-7. GP accuracy, hypervolume brute force, EHVI sanity
 # --------------------------------------------------------------------------- #
 
+
 def test_gp_accuracy():
     rng = np.random.default_rng(7)
     X = np.sort(rng.uniform(0.0, 1.0, size=(10, 1)), axis=0)
-    f = lambda t: np.sin(3.0 * t[:, 0])          # noqa: E731
+    f = lambda t: np.sin(3.0 * t[:, 0])  # noqa: E731
     y = f(X)
     gp = _GPSurrogate().fit(X, y)
 
     mean_tr, std_tr = gp.predict(X)
-    assert np.max(np.abs(mean_tr - y)) < 0.05 * (y.max() - y.min()), \
-        np.max(np.abs(mean_tr - y))
+    assert np.max(np.abs(mean_tr - y)) < 0.05 * (y.max() - y.min()), np.max(np.abs(mean_tr - y))
 
     Xs = np.array([[0.15], [0.45], [0.85]])
     mean_te, std_te = gp.predict(Xs)
@@ -425,8 +498,10 @@ def test_gp_accuracy():
             raise AssertionError("expected shape error")
         except ValueError:
             pass
-    print(f"GP: train-point error {np.max(np.abs(mean_tr - y)):.4f}, "
-          f"test relative error {np.max(err):.3f}, variance grows off-data")
+    print(
+        f"GP: train-point error {np.max(np.abs(mean_tr - y)):.4f}, "
+        f"test relative error {np.max(err):.3f}, variance grows off-data"
+    )
 
 
 def _hv_brute_force(f1, f2, ref):
@@ -464,51 +539,68 @@ def test_hypervolume():
         want = _hv_brute_force(f1, f2, ref)
         assert abs(got - want) < 1e-9, (trial, got, want, f1, f2)
     # Single dominating point: HV = full rectangle.
-    assert abs(_hypervolume2d([0.2], [0.3], ref)
-               - (1.05 - 0.2) * (1.05 - 0.3)) < 1e-12
+    assert abs(_hypervolume2d([0.2], [0.3], ref) - (1.05 - 0.2) * (1.05 - 0.3)) < 1e-12
     # Dominated points add nothing.
     hv_one = _hypervolume2d([0.2], [0.3], ref)
     hv_two = _hypervolume2d([0.2, 0.5, 0.9], [0.3, 0.6, 0.95], ref)
     assert abs(hv_one - hv_two) < 1e-12, (hv_one, hv_two)
-    print("HYPERVOLUME: 30 random sets match exact slab-union brute force; "
-          "dominated/ref-dominated points contribute nothing")
+    print(
+        "HYPERVOLUME: 30 random sets match exact slab-union brute force; "
+        "dominated/ref-dominated points contribute nothing"
+    )
 
 
 def test_ehvi_sanity():
     # Fitted normalizer (raw units: kg, margin) - fit() flips the margin
     # axis into minimize form exactly like the production path does.
-    norm = _ObjectiveNormalizer().fit(np.array([600.0, 900.0]),
-                                      np.array([0.5, 0.1]))
-    frontier_nw, frontier_nm = norm.norm(np.array([600.0]),
-                                         np.array([0.5]))
+    norm = _ObjectiveNormalizer().fit(np.array([600.0, 900.0]), np.array([0.5, 0.1]))
+    frontier_nw, frontier_nm = norm.norm(np.array([600.0]), np.array([0.5]))
     # Candidate A: predicted to EXTEND the frontier (clearly lighter at
     # slightly less margin -> new hypervolume). Candidate B: heavier AND
     # less margin -> strictly dominated. Both near-certain (tiny sigma).
     pw = np.array([580.0, 850.0])
     pw_s = np.array([1e-3, 1e-3])
-    pu = np.array([0.55, 0.90])     # u<=1 feasible; margin 1-u
+    pu = np.array([0.55, 0.90])  # u<=1 feasible; margin 1-u
     pu_s = np.array([1e-6, 1e-6])
-    scores = _ehvi_scores(pw, pw_s, pu, pu_s, frontier_nw, frontier_nm,
-                          norm, n_samples=64,
-                          rng=np.random.default_rng(3))
+    scores = _ehvi_scores(
+        pw,
+        pw_s,
+        pu,
+        pu_s,
+        frontier_nw,
+        frontier_nm,
+        norm,
+        n_samples=64,
+        rng=np.random.default_rng(3),
+    )
     assert scores[0] > 0.0, scores
     assert scores[0] > scores[1] + 1e-6, scores
     assert scores[1] < 1e-6, scores
     # Near-certainly INFEASIBLE prediction (u >> 1) scores ~0.
-    s2 = _ehvi_scores(np.array([550.0]), np.array([1e-3]),
-                      np.array([2.0]), np.array([1e-6]),
-                      frontier_nw, frontier_nm,
-                      norm, 64, np.random.default_rng(3))
+    s2 = _ehvi_scores(
+        np.array([550.0]),
+        np.array([1e-3]),
+        np.array([2.0]),
+        np.array([1e-6]),
+        frontier_nw,
+        frontier_nm,
+        norm,
+        64,
+        np.random.default_rng(3),
+    )
     assert s2[0] < 1e-6, s2
-    print(f"EHVI: frontier-extending candidate scores {scores[0]:.4f} > "
-          f"dominated {scores[1]:.6f}; infeasible scores ~0")
+    print(
+        f"EHVI: frontier-extending candidate scores {scores[0]:.4f} > "
+        f"dominated {scores[1]:.6f}; infeasible scores ~0"
+    )
+
 
 # --------------------------------------------------------------------------- #
 # 8-10. end-to-end (fake session), resume, stop rules
 # --------------------------------------------------------------------------- #
 
-def _run_fake(columns, beams, budget, patience, tmpdir, run_id=None,
-              **kwargs):
+
+def _run_fake(columns, beams, budget, patience, tmpdir, run_id=None, **kwargs):
     ds = DesignSpace(_spec(columns, beams))
     session_holder = {"session": None}
 
@@ -517,25 +609,28 @@ def _run_fake(columns, beams, budget, patience, tmpdir, run_id=None,
         return session_holder["session"]
 
     summary = run_surrogate_search(
-        ds, budget=budget, patience=patience,
+        ds,
+        budget=budget,
+        patience=patience,
         db_path=os.path.join(tmpdir, "runs.db"),
         log_path=os.path.join(tmpdir, "surrogate.log"),
-        session_factory=factory, run_id=run_id, **kwargs)
+        session_factory=factory,
+        run_id=run_id,
+        **kwargs,
+    )
     return ds, session_holder["session"], summary
 
 
 def test_end_to_end():
     tmpdir = tempfile.mkdtemp(prefix="sur_e2e_")
-    ds, fake, summary = _run_fake(COLUMNS_10, BEAMS_10, budget=45,
-                                  patience=15, tmpdir=tmpdir)
+    ds, fake, summary = _run_fake(COLUMNS_10, BEAMS_10, budget=45, patience=15, tmpdir=tmpdir)
 
     assert summary["status"] == "completed", summary
-    assert summary["robot_calls"] == summary["evaluated"] \
-        + summary["failed"], summary
+    assert summary["robot_calls"] == summary["evaluated"] + summary["failed"], summary
     assert summary["robot_calls"] <= 45, summary
     assert summary["total"] == 100, summary
     assert summary["evaluated"] < 100, summary
-    assert summary["training_rows"] == 0, summary   # cold start, fresh db
+    assert summary["training_rows"] == 0, summary  # cold start, fresh db
     assert fake.calls["solve"] == summary["robot_calls"], fake.calls
 
     # Results recorded through the real Storage, one row per candidate.
@@ -549,9 +644,9 @@ def test_end_to_end():
     # Every evaluated row matches the synthetic world exactly.
     for _, row in ev.iterrows():
         dv = json.loads(row["design_vars_json"])
-        w, u, ok = synthetic_response(dv["group_choices"]["columns"],
-                                      dv["group_choices"]["beam"],
-                                      COLUMNS_10, BEAMS_10)
+        w, u, ok = synthetic_response(
+            dv["group_choices"]["columns"], dv["group_choices"]["beam"], COLUMNS_10, BEAMS_10
+        )
         assert abs(float(row["weight_kg"]) - w) < 0.01
         assert abs(float(row["max_utilization"]) - u) < 1e-3
         assert row["pass_fail"] == ("PASS" if ok else "FAIL")
@@ -565,10 +660,8 @@ def test_end_to_end():
     _, bf_front = _brute_force(COLUMNS_10, BEAMS_10)
     front = compute_pareto_frontier(df)
     ev_front = compute_pareto_frontier(ev)
-    got_set = {(round(r.weight_kg, 3), round(r.max_utilization, 4))
-               for r in front.itertuples()}
-    ev_set = {(round(r.weight_kg, 3), round(r.max_utilization, 4))
-              for r in ev_front.itertuples()}
+    got_set = {(round(r.weight_kg, 3), round(r.max_utilization, 4)) for r in front.itertuples()}
+    ev_set = {(round(r.weight_kg, 3), round(r.max_utilization, 4)) for r in ev_front.itertuples()}
     assert got_set == ev_set, (got_set, ev_set)
 
     lightest_pass = min(bf_front["weight_kg"])
@@ -576,21 +669,21 @@ def test_end_to_end():
     bf_w = np.asarray(bf_front["weight_kg"], dtype=float)
     bf_u = np.asarray(bf_front["max_utilization"], dtype=float)
     norm = _ObjectiveNormalizer().fit(bf_w, 1.0 - bf_u)
-    hv_target = _hypervolume2d(*norm.norm(bf_w, 1.0 - bf_u),
-                               (norm.ref_w, norm.ref_m))
+    hv_target = _hypervolume2d(*norm.norm(bf_w, 1.0 - bf_u), (norm.ref_w, norm.ref_m))
     fw = np.asarray(front["weight_kg"], dtype=float)
     fu = np.asarray(front["max_utilization"], dtype=float)
-    hv_found = _hypervolume2d(*norm.norm(fw, 1.0 - fu),
-                              (norm.ref_w, norm.ref_m))
+    hv_found = _hypervolume2d(*norm.norm(fw, 1.0 - fu), (norm.ref_w, norm.ref_m))
     ratio = hv_found / hv_target if hv_target else 1.0
     assert ratio >= 0.80, (ratio, hv_found, hv_target)
-    bf_set = {(round(r.weight_kg, 3), round(r.max_utilization, 4))
-              for r in bf_front.itertuples()}
-    print(f"END-TO-END: {summary['evaluated']}/100 evaluated "
-          f"({summary['robot_calls']} calls, stop={summary['stop_reason']}), "
-          f"frontier {len(got_set)} pts (full-grid brute force: "
-          f"{len(bf_set)}), HV ratio {ratio:.3f}, "
-          f"lightest PASS found: {found_lightest}")
+    bf_set = {(round(r.weight_kg, 3), round(r.max_utilization, 4)) for r in bf_front.itertuples()}
+    print(
+        f"END-TO-END: {summary['evaluated']}/100 evaluated "
+        f"({summary['robot_calls']} calls, stop={summary['stop_reason']}), "
+        f"frontier {len(got_set)} pts (full-grid brute force: "
+        f"{len(bf_set)}), HV ratio {ratio:.3f}, "
+        f"lightest PASS found: {found_lightest}"
+    )
+
 
 def test_resume_no_duplicates():
     tmpdir = tempfile.mkdtemp(prefix="sur_resume_")
@@ -608,9 +701,13 @@ def test_resume_no_duplicates():
 
     log1: list = []
     s1 = run_surrogate_search(
-        ds, budget=12, patience=50, db_path=db,
+        ds,
+        budget=12,
+        patience=50,
+        db_path=db,
         log_path=os.path.join(tmpdir, "surrogate.log"),
-        session_factory=lambda: _RecordingFake(log1))
+        session_factory=lambda: _RecordingFake(log1),
+    )
     assert s1["robot_calls"] == 12 == len(log1), s1
 
     # Resume the SAME run with a fresh per-invocation budget: continues
@@ -618,9 +715,14 @@ def test_resume_no_duplicates():
     # first invocation's rows via the cross-run loader.
     log2: list = []
     s2 = run_surrogate_search(
-        ds, budget=20, patience=50, db_path=db,
-        log_path=os.path.join(tmpdir, "surrogate.log"), run_id=s1["run_id"],
-        session_factory=lambda: _RecordingFake(log2))
+        ds,
+        budget=20,
+        patience=50,
+        db_path=db,
+        log_path=os.path.join(tmpdir, "surrogate.log"),
+        run_id=s1["run_id"],
+        session_factory=lambda: _RecordingFake(log2),
+    )
     assert s2["robot_calls"] == len(log2) and s2["robot_calls"] > 0, s2
     combined = log1 + log2
     assert len(combined) == len(set(combined)), "a design was re-evaluated"
@@ -630,11 +732,12 @@ def test_resume_no_duplicates():
     storage = Storage(db_path=db)
     df = storage.get_all_results(s1["run_id"])
     assert len(df) == 100
-    assert len(df[df["candidate_status"] == "evaluated"]) \
-        == s1["evaluated"] + s2["evaluated"]
-    print(f"RESUME: continued run spent {s2['robot_calls']} more calls, "
-          f"0 duplicate designs across {len(combined)} evaluations, "
-          f"trained on {s2['training_rows']} cross-run rows")
+    assert len(df[df["candidate_status"] == "evaluated"]) == s1["evaluated"] + s2["evaluated"]
+    print(
+        f"RESUME: continued run spent {s2['robot_calls']} more calls, "
+        f"0 duplicate designs across {len(combined)} evaluations, "
+        f"trained on {s2['training_rows']} cross-run rows"
+    )
 
 
 class _AllFailFake(_FakeSession):
@@ -645,17 +748,24 @@ class _AllFailFake(_FakeSession):
         return {
             "max_utilization": 2.0,
             "governing_check": "fake_bending",
-            "per_bar": [{"bar_id": i, "utilization": 2.0,
-                         "governing_check": "fake_bending",
-                         "status": "FAIL"} for i in (1, 2, 3)],
+            "per_bar": [
+                {
+                    "bar_id": i,
+                    "utilization": 2.0,
+                    "governing_check": "fake_bending",
+                    "status": "FAIL",
+                }
+                for i in (1, 2, 3)
+            ],
             "note": "synthetic offline response (all FAIL)",
         }
 
 
 def test_stop_rules():
     tmpdir = tempfile.mkdtemp(prefix="sur_stop_")
-    ds, _, s = _run_fake(COLUMNS_10[:8], BEAMS_10[:9], budget=5, patience=50,
-                         tmpdir=tmpdir)                    # 72-grid
+    ds, _, s = _run_fake(
+        COLUMNS_10[:8], BEAMS_10[:9], budget=5, patience=50, tmpdir=tmpdir
+    )  # 72-grid
     assert s["stop_reason"] == "budget_exhausted", s
     assert s["robot_calls"] == 5, s
 
@@ -664,16 +774,21 @@ def test_stop_rules():
     tmpdir2 = tempfile.mkdtemp(prefix="sur_stop2_")
     ds2 = DesignSpace(_spec(COLUMNS_10, BEAMS_10))
     s2 = run_surrogate_search(
-        ds2, budget=200, patience=3,
+        ds2,
+        budget=200,
+        patience=3,
         db_path=os.path.join(tmpdir2, "runs.db"),
         log_path=os.path.join(tmpdir2, "surrogate.log"),
-        session_factory=lambda: _AllFailFake(COLUMNS_10, BEAMS_10))
+        session_factory=lambda: _AllFailFake(COLUMNS_10, BEAMS_10),
+    )
     assert s2["stop_reason"] == "patience_exhausted", s2
-    assert s2["robot_calls"] <= 4 + 3 + 3, s2    # DOE + patience + slack
+    assert s2["robot_calls"] <= 4 + 3 + 3, s2  # DOE + patience + slack
     assert s2["frontier"] == 0, s2
-    print(f"STOP RULES: budget stop at {s['robot_calls']} calls; "
-          f"patience stop after {s2['robot_calls']} calls in an "
-          f"all-FAIL world (frontier stays empty)")
+    print(
+        f"STOP RULES: budget stop at {s['robot_calls']} calls; "
+        f"patience stop after {s2['robot_calls']} calls in an "
+        f"all-FAIL world (frontier stays empty)"
+    )
 
 
 def main():
@@ -696,9 +811,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-

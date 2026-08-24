@@ -1,4 +1,4 @@
-﻿"""
+"""
 tools/test_zero_results_regression.py
 =======================================
 LIVE regression test for the zero-results bug.
@@ -20,10 +20,10 @@ While this is failing, watch the console for the H2DIAG lines added to
 create_load_case(): they tell you whether the case was renumbered or the
 FIX-R4 fallback hit a T2 auto-created proxy case.
 """
+
 from __future__ import annotations
 
 import sys
-import time
 
 sys.path.insert(0, r"c:/Users/dinat/Downloads/structural_multi_app_agent/structural_copilot")
 
@@ -90,11 +90,11 @@ def main() -> int:
         b1 = forces[forces["Bar_ID"] == 1]
         check("bar 1 has force rows", not b1.empty)
         if not b1.empty:
-            any_nonzero = bool((b1[["FX_kN", "FY_kN", "FZ_kN",
-                                      "MX_kNm", "MY_kNm", "MZ_kNm"]]
-                                .abs().max(axis=None) > 1e-6))
-            check("bar 1 forces non-zero", any_nonzero,
-                  "(all-zero is the bug)")
+            any_nonzero = bool(
+                b1[["FX_kN", "FY_kN", "FZ_kN", "MX_kNm", "MY_kNm", "MZ_kNm"]].abs().max(axis=None)
+                > 1e-6
+            )
+            check("bar 1 forces non-zero", any_nonzero, "(all-zero is the bug)")
 
     bridge.close()
     print("\nZERO-RESULTS REGRESSION TEST PASSED", flush=True)

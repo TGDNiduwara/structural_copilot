@@ -1,4 +1,4 @@
-﻿"""
+"""
 batch/design_space.py
 =====================
 Design-space schema + full grid-search candidate generator (Phase 4).
@@ -47,13 +47,14 @@ Only grid search for now - the genetic-algorithm / pymoo path is
 DELIBERATELY not implemented (Phase 6 of the build track) and only
 becomes relevant if group counts make grid search impractical in practice.
 """
+
 from __future__ import annotations
 
 import copy
 import itertools
 import logging
 import math
-from typing import Any, Dict, List
+from typing import Any
 
 logger = logging.getLogger("structural_copilot.batch.design_space")
 
@@ -68,19 +69,17 @@ class DesignSpaceError(ValueError):
 class DesignSpace:
     """Validated design space whose candidates are a full grid search."""
 
-    def __init__(self, spec: Dict[str, Any]) -> None:
+    def __init__(self, spec: dict[str, Any]) -> None:
         self._spec = dict(spec or {})
 
         geometry = self._spec.get("geometry")
         if not isinstance(geometry, dict) or not geometry:
-            raise DesignSpaceError(
-                "DesignSpace requires a non-empty 'geometry' dict")
+            raise DesignSpaceError("DesignSpace requires a non-empty 'geometry' dict")
         self.geometry = geometry
 
         groups = self._spec.get("variable_groups")
         if not isinstance(groups, list) or not groups:
-            raise DesignSpaceError(
-                "DesignSpace requires a non-empty 'variable_groups' list")
+            raise DesignSpaceError("DesignSpace requires a non-empty 'variable_groups' list")
 
         self.objective = self._spec.get("objective") or {
             "minimize": "weight",
@@ -95,60 +94,57 @@ class DesignSpace:
         for a in self.analysis_types:
             if a not in ("static", "modal"):
                 raise DesignSpaceError(
-                    f"Unsupported analysis_type '{a}' (supported: static, modal)")
-        self.max_candidates = int(
-            self._spec.get("max_candidates", DEFAULT_MAX_CANDIDATES))
+                    f"Unsupported analysis_type '{a}' (supported: static, modal)"
+                )
+        self.max_candidates = int(self._spec.get("max_candidates", DEFAULT_MAX_CANDIDATES))
 
-        bar_ids_in_geometry = {
-            int(b["id"]) for b in (geometry.get("bars") or [])}
+        bar_ids_in_geometry = {int(b["id"]) for b in (geometry.get("bars") or [])}
         seen_groups: set = set()
         seen_bar_ids: set = set()
-        self.variable_groups: List[Dict[str, Any]] = []
+        self.variable_groups: list[dict[str, Any]] = []
 
         for g in groups:
             name = str(g.get("group_name") or "")
             if not name:
-                raise DesignSpaceError(
-                    "Each variable_group requires a 'group_name'")
+                raise DesignSpaceError("Each variable_group requires a 'group_name'")
             if name in seen_groups:
                 raise DesignSpaceError(f"Duplicate variable group name '{name}'")
 
             bar_ids = [int(b) for b in (g.get("bar_ids") or [])]
             if not bar_ids:
-                raise DesignSpaceError(
-                    f"Group '{name}' has empty bar_ids")
+                raise DesignSpaceError(f"Group '{name}' has empty bar_ids")
             overlap = seen_bar_ids.intersection(bar_ids)
             if overlap:
                 raise DesignSpaceError(
-                    f"Group '{name}' bar_ids overlap another group: "
-                    f"{sorted(overlap)}")
+                    f"Group '{name}' bar_ids overlap another group: {sorted(overlap)}"
+                )
 
             sections = [str(s) for s in (g.get("candidate_sections") or [])]
             if not sections:
-                raise DesignSpaceError(
-                    f"Group '{name}' has empty candidate_sections")
+                raise DesignSpaceError(f"Group '{name}' has empty candidate_sections")
             sections = list(dict.fromkeys(sections))  # dedupe, keep order
 
             missing = sorted(set(bar_ids) - bar_ids_in_geometry)
             if missing:
                 raise DesignSpaceError(
-                    f"Group '{name}' references bar_ids not present in "
-                    f"geometry.bars: {missing}")
+                    f"Group '{name}' references bar_ids not present in geometry.bars: {missing}"
+                )
 
-            self.variable_groups.append({
-                "group_name": name,
-                "bar_ids": bar_ids,
-                "candidate_sections": sections,
-            })
+            self.variable_groups.append(
+                {
+                    "group_name": name,
+                    "bar_ids": bar_ids,
+                    "candidate_sections": sections,
+                }
+            )
             seen_groups.add(name)
             seen_bar_ids.update(bar_ids)
 
     def candidate_count(self) -> int:
         """Cartesian product of each group's candidate_section count."""
-        return math.prod(
-            len(g["candidate_sections"]) for g in self.variable_groups)
+        return math.prod(len(g["candidate_sections"]) for g in self.variable_groups)
 
-    def generate_candidates(self) -> List[Dict[str, Any]]:
+    def generate_candidates(self) -> list[dict[str, Any]]:
         """Full grid search over every group's candidate sections.
 
         Each returned candidate is a dict:
@@ -168,29 +164,29 @@ class DesignSpace:
             raise DesignSpaceError(
                 f"Grid search would generate {total} candidates "
                 f"(cap {self.max_candidates}). Reduce candidate_sections "
-                "per group or raise max_candidates explicitly.")
+                "per group or raise max_candidates explicitly."
+            )
         if total == 0:
             return []
 
         option_lists = [g["candidate_sections"] for g in self.variable_groups]
-        candidates: List[Dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
         for idx, combo in enumerate(itertools.product(*option_lists), start=1):
-            group_choices = {
-                g["group_name"]: sec
-                for g, sec in zip(self.variable_groups, combo)
-            }
-            section_map: Dict[int, str] = {}
+            group_choices = {g["group_name"]: sec for g, sec in zip(self.variable_groups, combo)}
+            section_map: dict[int, str] = {}
             for g, sec in zip(self.variable_groups, combo):
                 for bar_id in g["bar_ids"]:
                     section_map[bar_id] = sec
-            candidates.append({
-                "candidate_index": idx,
-                "group_choices": group_choices,
-                "sections": section_map,
-            })
+            candidates.append(
+                {
+                    "candidate_index": idx,
+                    "group_choices": group_choices,
+                    "sections": section_map,
+                }
+            )
         return candidates
 
-    def apply_to_geometry(self, design_vars: Dict[str, Any]) -> Dict[str, Any]:
+    def apply_to_geometry(self, design_vars: dict[str, Any]) -> dict[str, Any]:
         """Deep-copy ``geometry`` with each bar's ``section`` overwritten by
         ``design_vars['sections']`` (bar_ids not in the map are untouched).
 
@@ -230,12 +226,13 @@ class DesignSpace:
             lines.append(
                 f"  {g['group_name']}: bars {g['bar_ids']} in "
                 f"{len(g['candidate_sections'])} options "
-                f"{g['candidate_sections']}")
+                f"{g['candidate_sections']}"
+            )
         if self.objective:
             lines.append(f"  objective: {self.objective}")
         return "\n".join(lines)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Return the normalized design-space spec (for persistence)."""
         return {
             "geometry": self.geometry,
@@ -246,4 +243,3 @@ class DesignSpace:
             "objective": self.objective,
             "max_candidates": self.max_candidates,
         }
-

@@ -41,6 +41,7 @@ Artifacts in batch/live_val_results/<stage>.json (+ .log/.db files).
 A stage refuses to run twice (delete its .json to re-run) so an
 accidental re-invocation cannot silently burn Robot calls.
 """
+
 from __future__ import annotations
 
 import json
@@ -59,8 +60,8 @@ from batch.design_space import DesignSpace
 from batch.pareto import add_strength_margin, compute_pareto_frontier
 from batch.storage import Storage
 from batch.surrogate_search import (
-    _ObjectiveNormalizer,
     _hypervolume2d,
+    _ObjectiveNormalizer,
     run_surrogate_search,
 )
 
@@ -73,14 +74,35 @@ RESUME_DB = os.path.join(VAL_DIR, "resume_runs.db")
 RECONNECT_DB = os.path.join(VAL_DIR, "reconnect_runs.db")
 
 #: 10 x 10 = 100 candidates - exhaustive ground truth is affordable.
-COLUMNS = ["HEA 160", "HEA 180", "HEA 200", "HEA 220", "HEA 240",
-           "HEB 160", "HEB 180", "HEB 200", "HEB 220", "HEB 240"]
-BEAMS = ["IPE 200", "IPE 220", "IPE 240", "IPE 270", "IPE 300",
-         "IPE 330", "IPE 360", "IPE 400", "IPE 450", "IPE 500"]
+COLUMNS = [
+    "HEA 160",
+    "HEA 180",
+    "HEA 200",
+    "HEA 220",
+    "HEA 240",
+    "HEB 160",
+    "HEB 180",
+    "HEB 200",
+    "HEB 220",
+    "HEB 240",
+]
+BEAMS = [
+    "IPE 200",
+    "IPE 220",
+    "IPE 240",
+    "IPE 270",
+    "IPE 300",
+    "IPE 330",
+    "IPE 360",
+    "IPE 400",
+    "IPE 450",
+    "IPE 500",
+]
 
 #: Surrogate budget = 40% of the grid (step 3: "well under" the grid).
 BUDGET = 40
 PATIENCE = 15
+
 
 def make_spec():
     """test_runner.py's portal geometry as project "3D" (2D mode is broken
@@ -91,8 +113,10 @@ def make_spec():
         "geometry": {
             "project": "3D",
             "nodes": [
-                {"id": 1, "x": 0, "z": 0}, {"id": 2, "x": 0, "z": 3},
-                {"id": 3, "x": 6, "z": 3}, {"id": 4, "x": 6, "z": 0},
+                {"id": 1, "x": 0, "z": 0},
+                {"id": 2, "x": 0, "z": 3},
+                {"id": 3, "x": 6, "z": 3},
+                {"id": 4, "x": 6, "z": 0},
             ],
             "bars": [
                 {"id": 1, "n1": 1, "n2": 2, "section": "HEA 200"},
@@ -100,23 +124,24 @@ def make_spec():
                 {"id": 3, "n1": 3, "n2": 4, "section": "HEA 200"},
             ],
             "supports": [
-                {"node": 1, "type": "pinned"}, {"node": 4, "type": "pinned"},
+                {"node": 1, "type": "pinned"},
+                {"node": 4, "type": "pinned"},
             ],
             "cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
-            "loads": [{"kind": "bar_uniform", "bar": 2, "case": 1,
-                       "direction": "Z", "value": -25.0}],
+            "loads": [
+                {"kind": "bar_uniform", "bar": 2, "case": 1, "direction": "Z", "value": -25.0}
+            ],
         },
         "variable_groups": [
-            {"group_name": "columns", "bar_ids": [1, 3],
-             "candidate_sections": list(COLUMNS)},
-            {"group_name": "beam", "bar_ids": [2],
-             "candidate_sections": list(BEAMS)},
+            {"group_name": "columns", "bar_ids": [1, 3], "candidate_sections": list(COLUMNS)},
+            {"group_name": "beam", "bar_ids": [2], "candidate_sections": list(BEAMS)},
         ],
         "load_cases": [{"id": 1, "name": "DL", "nature": "permanent"}],
         "analysis_types": ["static"],
-        "objective": {"minimize": "weight",
-                      "constraint": "max_utilization <= 1.0 AND "
-                                    "buckling_pass == True"},
+        "objective": {
+            "minimize": "weight",
+            "constraint": "max_utilization <= 1.0 AND buckling_pass == True",
+        },
     }
 
 
@@ -124,21 +149,27 @@ def make_spec():
 # helpers
 # --------------------------------------------------------------------------- #
 
+
 def _robot_pids() -> set:
     try:
         out = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq robot.exe", "/NH"],
-            capture_output=True, text=True, timeout=20).stdout
-        return {int(ln.split()[1]) for ln in out.splitlines()
-                if "robot.exe" in ln.lower() and len(ln.split()) > 1}
+            capture_output=True,
+            text=True,
+            timeout=20,
+        ).stdout
+        return {
+            int(ln.split()[1])
+            for ln in out.splitlines()
+            if "robot.exe" in ln.lower() and len(ln.split()) > 1
+        }
     except Exception:
         return set()
 
 
 def _taskkill(pid: int) -> None:
     try:
-        subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                       capture_output=True, timeout=15)
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=15)
     except Exception:
         pass
 
@@ -146,8 +177,7 @@ def _taskkill(pid: int) -> None:
 def _baseline_pids() -> set:
     """Robot PIDs recorded by the preflight stage (untouchable)."""
     try:
-        with open(os.path.join(VAL_DIR, "preflight.json"),
-                  encoding="utf-8") as fh:
+        with open(os.path.join(VAL_DIR, "preflight.json"), encoding="utf-8") as fh:
             return set(json.load(fh).get("baseline_robot_pids") or [])
     except Exception:
         return set()
@@ -176,7 +206,8 @@ def _refuse_if_done(stage: str) -> None:
     if os.path.exists(_stage_path(stage)):
         raise RuntimeError(
             f"{_stage_path(stage)} already exists - delete it to re-run "
-            f"(guard against burning Robot calls twice).")
+            f"(guard against burning Robot calls twice)."
+        )
 
 
 def _single_run(storage: Storage) -> int:
@@ -184,6 +215,7 @@ def _single_run(storage: Storage) -> int:
     if df.empty:
         raise RuntimeError("no runs in db")
     return int(df["run_id"].iloc[0])
+
 
 def _frontier_of(storage: Storage, run_id: int):
     df = storage.get_all_results(run_id)
@@ -196,7 +228,8 @@ def _hv_of(frontier, norm: _ObjectiveNormalizer) -> float:
         return 0.0
     nw, nm = norm.norm(
         np.asarray(frontier["weight_kg"], dtype=float),
-        np.asarray(frontier["strength_margin"], dtype=float))
+        np.asarray(frontier["strength_margin"], dtype=float),
+    )
     return _hypervolume2d(nw, nm, (norm.ref_w, norm.ref_m))
 
 
@@ -207,20 +240,21 @@ def _grid_normalizer():
     run_id = _single_run(storage)
     f = _frontier_of(storage, run_id)
     norm = _ObjectiveNormalizer().fit(
-        np.asarray(f["weight_kg"], dtype=float),
-        np.asarray(f["strength_margin"], dtype=float))
+        np.asarray(f["weight_kg"], dtype=float), np.asarray(f["strength_margin"], dtype=float)
+    )
     return norm, f, run_id
 
 
 def _pairs(frontier) -> list:
     if frontier is None or len(frontier) == 0:
         return []
-    return [[round(float(w), 2), round(float(m), 4)]
-            for w, m in zip(frontier["weight_kg"], frontier["strength_margin"])]
+    return [
+        [round(float(w), 2), round(float(m), 4)]
+        for w, m in zip(frontier["weight_kg"], frontier["strength_margin"])
+    ]
 
 
-_TRACE_RX = re.compile(
-    r"frontier (?:baseline|improved) at call (\d+): pts \[([^\]]*)\]")
+_TRACE_RX = re.compile(r"frontier (?:baseline|improved) at call (\d+): pts \[([^\]]*)\]")
 
 
 def _trace(log_path: str) -> list:
@@ -247,8 +281,7 @@ def _trace(log_path: str) -> list:
 def _hv_pairs(pairs, norm) -> float:
     if not pairs:
         return 0.0
-    nw, nm = norm.norm(np.array([p[0] for p in pairs]),
-                       np.array([p[1] for p in pairs]))
+    nw, nm = norm.norm(np.array([p[0] for p in pairs]), np.array([p[1] for p in pairs]))
     return _hypervolume2d(nw, nm, (norm.ref_w, norm.ref_m))
 
 
@@ -260,9 +293,11 @@ def _calls_to_quality(trace: list, target_hv: float, norm) -> int:
             return call
     return -1
 
+
 # --------------------------------------------------------------------------- #
 # stages
 # --------------------------------------------------------------------------- #
+
 
 def stage_preflight():
     _refuse_if_done("preflight")
@@ -292,37 +327,47 @@ def stage_preflight():
                 "elapsed_s": round(time.time() - t0, 1),
             }
     leftovers = _kill_orphans()
-    _finish("preflight", {
-        "baseline_robot_pids": baseline,
-        "orphan_pids_killed": leftovers,
-        "grid_candidates": 100,
-        "budget": BUDGET,
-        "probes": probes,
-        "util_variety_expected": probes["light"]["max_utilization"]
-                                 != probes["heavy"]["max_utilization"],
-    })
+    _finish(
+        "preflight",
+        {
+            "baseline_robot_pids": baseline,
+            "orphan_pids_killed": leftovers,
+            "grid_candidates": 100,
+            "budget": BUDGET,
+            "probes": probes,
+            "util_variety_expected": probes["light"]["max_utilization"]
+            != probes["heavy"]["max_utilization"],
+        },
+    )
 
 
 def stage_grid():
     _refuse_if_done("grid")
     from batch.runner import run_batch
+
     _kill_orphans()
     if os.path.exists(GRID_DB):
         raise RuntimeError(f"{GRID_DB} already exists - delete to re-run.")
     log = os.path.join(VAL_DIR, "grid.log")
     t0 = time.time()
-    summary = run_batch(DesignSpace(make_spec()), db_path=GRID_DB,
-                        log_path=log)
+    summary = run_batch(DesignSpace(make_spec()), db_path=GRID_DB, log_path=log)
     dt = round(time.time() - t0, 1)
     storage = Storage(db_path=GRID_DB)
     run_id = _single_run(storage)
     f = _frontier_of(storage, run_id)
-    _finish("grid", {
-        "summary": summary, "wall_s": dt, "run_id": run_id,
-        "calls": summary["evaluated"] + summary["failed"],
-        "evaluated": summary["evaluated"], "failed": summary["failed"],
-        "frontier_pts": _pairs(f), "frontier_n": len(f),
-    })
+    _finish(
+        "grid",
+        {
+            "summary": summary,
+            "wall_s": dt,
+            "run_id": run_id,
+            "calls": summary["evaluated"] + summary["failed"],
+            "evaluated": summary["evaluated"],
+            "failed": summary["failed"],
+            "frontier_pts": _pairs(f),
+            "frontier_n": len(f),
+        },
+    )
 
 
 def stage_surrogate():
@@ -332,22 +377,36 @@ def stage_surrogate():
     log = os.path.join(VAL_DIR, "surrogate.log")
     t0 = time.time()
     s = run_surrogate_search(
-        DesignSpace(make_spec()), budget=BUDGET, patience=PATIENCE,
-        acquisition="ucb", db_path=SUR_DB, log_path=log)
+        DesignSpace(make_spec()),
+        budget=BUDGET,
+        patience=PATIENCE,
+        acquisition="ucb",
+        db_path=SUR_DB,
+        log_path=log,
+    )
     dt = round(time.time() - t0, 1)
     norm, grid_f, _ = _grid_normalizer()
     storage = Storage(db_path=SUR_DB)
     f = _frontier_of(storage, s["run_id"])
     hv_grid = _hv_of(grid_f, norm)
-    _finish("surrogate", {
-        "summary": s, "wall_s": dt, "log": log,
-        "calls": s["robot_calls"], "frontier_pts": _pairs(f),
-        "frontier_n": len(f), "hv": _hv_of(f, norm),
-        "hv_grid": hv_grid, "hv_ratio": _hv_of(f, norm) / hv_grid,
-        "call_fraction": s["robot_calls"] / 100.0,
-    })
+    _finish(
+        "surrogate",
+        {
+            "summary": s,
+            "wall_s": dt,
+            "log": log,
+            "calls": s["robot_calls"],
+            "frontier_pts": _pairs(f),
+            "frontier_n": len(f),
+            "hv": _hv_of(f, norm),
+            "hv_grid": hv_grid,
+            "hv_ratio": _hv_of(f, norm) / hv_grid,
+            "call_fraction": s["robot_calls"] / 100.0,
+        },
+    )
 
-_DRIVER = '''
+
+_DRIVER = """
 import sys, json
 sys.path.insert(0, r"{root}")
 from batch.design_space import DesignSpace
@@ -361,7 +420,7 @@ s = run_surrogate_search(DesignSpace(make_spec()), run_id=run_id,
 with open(sys.argv[5], "w") as fh:
     json.dump(s, fh, indent=2, default=str)
 print("DRIVER DONE", s["status"], s["robot_calls"], flush=True)
-'''
+"""
 
 
 def stage_resume():
@@ -378,9 +437,20 @@ def stage_resume():
     # Phase 1: subprocess, hard-killed after >=6 candidates recorded.
     robots_before = _robot_pids()
     proc = subprocess.Popen(
-        [sys.executable, "-u", driver, "0", "12", RESUME_DB, log,
-         os.path.join(VAL_DIR, "resume_phase1.json")],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        [
+            sys.executable,
+            "-u",
+            driver,
+            "0",
+            "12",
+            RESUME_DB,
+            log,
+            os.path.join(VAL_DIR, "resume_phase1.json"),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
     t_kill = None
     deadline = time.time() + 900
     while time.time() < deadline:
@@ -390,8 +460,7 @@ def stage_resume():
         st = Storage(db_path=RESUME_DB)
         try:
             df = st.get_all_results_all_runs()
-            done = 0 if df.empty else int((df["candidate_status"]
-                                           == "evaluated").sum())
+            done = 0 if df.empty else int((df["candidate_status"] == "evaluated").sum())
         finally:
             st.close()
         if done >= 6:
@@ -414,8 +483,14 @@ def stage_resume():
     st.close()
     t0 = time.time()
     s2 = run_surrogate_search(
-        DesignSpace(make_spec()), run_id=run_id, budget=12, patience=15,
-        acquisition="ucb", db_path=RESUME_DB, log_path=log)
+        DesignSpace(make_spec()),
+        run_id=run_id,
+        budget=12,
+        patience=15,
+        acquisition="ucb",
+        db_path=RESUME_DB,
+        log_path=log,
+    )
     dt = round(time.time() - t0, 1)
 
     # Duplicate check: every 'candidate N of 100' line across BOTH phases.
@@ -430,18 +505,23 @@ def stage_resume():
     df = st.get_all_results(run_id)
     final_eval = int((df["candidate_status"] == "evaluated").sum())
     st.close()
-    _finish("resume", {
-        "run_id": run_id, "killed_after_evaluated": t_kill,
-        "orphan_robots_killed": orphans,
-        "phase2_summary": s2, "phase2_wall_s": dt,
-        "candidates_sent_total": len(sent),
-        "candidates_sent_unique": len(set(sent)),
-        "duplicate_candidates": dupes,
-        "note": "duplicates allowed ONLY for the one candidate in flight "
-                "at kill time (never recorded -> re-sent on resume)",
-        "final_evaluated": final_eval,
-        "ok": len(dupes) <= 1 and final_eval == len(set(sent)),
-    })
+    _finish(
+        "resume",
+        {
+            "run_id": run_id,
+            "killed_after_evaluated": t_kill,
+            "orphan_robots_killed": orphans,
+            "phase2_summary": s2,
+            "phase2_wall_s": dt,
+            "candidates_sent_total": len(sent),
+            "candidates_sent_unique": len(set(sent)),
+            "duplicate_candidates": dupes,
+            "note": "duplicates allowed ONLY for the one candidate in flight "
+            "at kill time (never recorded -> re-sent on resume)",
+            "final_evaluated": final_eval,
+            "ok": len(dupes) <= 1 and final_eval == len(set(sent)),
+        },
+    )
 
 
 def stage_reconnect():
@@ -465,8 +545,7 @@ def stage_reconnect():
                 for pid in list(self._owned_pids):
                     _taskkill(pid)
                 time.sleep(1.0)
-                raise SolverInstabilityError(
-                    "live validation: simulated DialogWatcher force-kill")
+                raise SolverInstabilityError("live validation: simulated DialogWatcher force-kill")
             return super().solve_all(analysis_types)
 
     launches = {"n": 0}
@@ -478,26 +557,41 @@ def stage_reconnect():
         def counting():
             launches["n"] += 1
             return orig()
+
         s.connect = counting
         return s
 
     log = os.path.join(VAL_DIR, "reconnect.log")
     t0 = time.time()
     s = run_surrogate_search(
-        DesignSpace(make_spec()), budget=9, patience=15,
-        acquisition="ucb", db_path=RECONNECT_DB, log_path=log,
-        session_factory=factory)
+        DesignSpace(make_spec()),
+        budget=9,
+        patience=15,
+        acquisition="ucb",
+        db_path=RECONNECT_DB,
+        log_path=log,
+        session_factory=factory,
+    )
     dt = round(time.time() - t0, 1)
     log_text = open(log, encoding="utf-8").read()
-    _finish("reconnect", {
-        "summary": s, "wall_s": dt,
-        "robot_launches": launches["n"],
-        "reconnect_logged": "session dead - reconnecting" in log_text,
-        "failed": s["failed"], "evaluated": s["evaluated"],
-        "ok": (launches["n"] >= 2 and s["failed"] == 1
-               and "session dead - reconnecting" in log_text
-               and s["robot_calls"] == 9),
-    })
+    _finish(
+        "reconnect",
+        {
+            "summary": s,
+            "wall_s": dt,
+            "robot_launches": launches["n"],
+            "reconnect_logged": "session dead - reconnecting" in log_text,
+            "failed": s["failed"],
+            "evaluated": s["evaluated"],
+            "ok": (
+                launches["n"] >= 2
+                and s["failed"] == 1
+                and "session dead - reconnecting" in log_text
+                and s["robot_calls"] == 9
+            ),
+        },
+    )
+
 
 def stage_crossrun():
     _refuse_if_done("crossrun")
@@ -506,8 +600,13 @@ def stage_crossrun():
     log = os.path.join(VAL_DIR, "crossrun.log")
     t0 = time.time()
     s = run_surrogate_search(
-        DesignSpace(make_spec()), budget=BUDGET, patience=PATIENCE,
-        acquisition="ucb", db_path=SUR_DB, log_path=log)  # NEW run, same db
+        DesignSpace(make_spec()),
+        budget=BUDGET,
+        patience=PATIENCE,
+        acquisition="ucb",
+        db_path=SUR_DB,
+        log_path=log,
+    )  # NEW run, same db
     dt = round(time.time() - t0, 1)
     norm, grid_f, _ = _grid_normalizer()
     st = Storage(db_path=SUR_DB)
@@ -520,18 +619,27 @@ def stage_crossrun():
     tr2 = _trace(log)
     k_cold = _calls_to_quality(tr1, f1_hv, norm)
     k_warm = _calls_to_quality(tr2, f1_hv, norm)
-    _finish("crossrun", {
-        "summary": s, "wall_s": dt, "log": log,
-        "calls": s["robot_calls"],
-        "training_rows": s["training_rows"],
-        "training_runs": s["training_runs"],
-        "frontier_pts": _pairs(f2), "frontier_n": len(f2),
-        "hv": _hv_of(f2, norm), "hv_ratio": _hv_of(f2, norm) / run1["hv_grid"],
-        "cold_run1": {"calls": run1["calls"], "final_hv": f1_hv,
-                      "calls_to_own_final_hv": k_cold},
-        "warm_run2": {"calls": s["robot_calls"],
-                      "calls_to_run1_final_hv": k_warm},
-    })
+    _finish(
+        "crossrun",
+        {
+            "summary": s,
+            "wall_s": dt,
+            "log": log,
+            "calls": s["robot_calls"],
+            "training_rows": s["training_rows"],
+            "training_runs": s["training_runs"],
+            "frontier_pts": _pairs(f2),
+            "frontier_n": len(f2),
+            "hv": _hv_of(f2, norm),
+            "hv_ratio": _hv_of(f2, norm) / run1["hv_grid"],
+            "cold_run1": {
+                "calls": run1["calls"],
+                "final_hv": f1_hv,
+                "calls_to_own_final_hv": k_cold,
+            },
+            "warm_run2": {"calls": s["robot_calls"], "calls_to_run1_final_hv": k_warm},
+        },
+    )
 
 
 def stage_ehvi():
@@ -541,33 +649,43 @@ def stage_ehvi():
     log = os.path.join(VAL_DIR, "ehvi.log")
     t0 = time.time()
     s = run_surrogate_search(
-        DesignSpace(make_spec()), budget=BUDGET, patience=PATIENCE,
-        acquisition="ehvi", db_path=EHVI_DB, log_path=log)
+        DesignSpace(make_spec()),
+        budget=BUDGET,
+        patience=PATIENCE,
+        acquisition="ehvi",
+        db_path=EHVI_DB,
+        log_path=log,
+    )
     dt = round(time.time() - t0, 1)
     norm, grid_f, _ = _grid_normalizer()
     st = Storage(db_path=EHVI_DB)
     f = _frontier_of(st, s["run_id"])
-    _finish("ehvi", {
-        "summary": s, "wall_s": dt, "log": log,
-        "calls": s["robot_calls"], "frontier_pts": _pairs(f),
-        "frontier_n": len(f), "hv": _hv_of(f, norm),
-        "hv_ratio": _hv_of(f, norm) / _hv_of(grid_f, norm),
-        "call_fraction": s["robot_calls"] / 100.0,
-    })
+    _finish(
+        "ehvi",
+        {
+            "summary": s,
+            "wall_s": dt,
+            "log": log,
+            "calls": s["robot_calls"],
+            "frontier_pts": _pairs(f),
+            "frontier_n": len(f),
+            "hv": _hv_of(f, norm),
+            "hv_ratio": _hv_of(f, norm) / _hv_of(grid_f, norm),
+            "call_fraction": s["robot_calls"] / 100.0,
+        },
+    )
 
 
 def stage_report():
     """Aggregates every stage json into the final live-validation table."""
     out = {}
-    for stage in ("preflight", "grid", "surrogate", "resume", "reconnect",
-                  "crossrun", "ehvi"):
+    for stage in ("preflight", "grid", "surrogate", "resume", "reconnect", "crossrun", "ehvi"):
         p = _stage_path(stage)
         if os.path.exists(p):
             with open(p, encoding="utf-8") as fh:
                 out[stage] = json.load(fh)
     print(json.dumps(out, indent=2, default=str))
-    with open(os.path.join(VAL_DIR, "report.json"), "w",
-              encoding="utf-8") as fh:
+    with open(os.path.join(VAL_DIR, "report.json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=2, default=str)
 
 
@@ -603,8 +721,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-

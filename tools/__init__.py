@@ -10,9 +10,9 @@ Agent's tool surface:
     - word_tool.WordReporter      -> Word calculation report generation
 """
 
-from .robot_tool import RobotBridge, get_robot_bridge
-from .excel_tool import ExcelReporter
 from .diagram_tool import DiagramGenerator
+from .excel_tool import ExcelReporter
+from .robot_tool import RobotBridge, get_robot_bridge
 from .word_tool import WordReporter
 
 __all__ = [

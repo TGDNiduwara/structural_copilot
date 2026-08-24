@@ -18,12 +18,13 @@ variant — run_batch's own session satisfies the "build fresh / clear
 between variants" semantics). runner.py's existing functions are
 untouched.
 """
+
 from __future__ import annotations
 
 import copy
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from batch.design_space import DesignSpace
 from batch.pareto import compute_pareto_frontier
@@ -60,15 +61,14 @@ _DEFAULT_OBJECTIVE = {
 }
 
 
-def _group_bars_by_orientation(geometry: Dict[str, Any]) -> Dict[str, List[int]]:
+def _group_bars_by_orientation(geometry: dict[str, Any]) -> dict[str, list[int]]:
     """Columns = vertical bars (dx~dy~0), beams = horizontal bars (span in
     the x/y plane, z unchanged), everything else = brace."""
     nodes = {
-        int(n["id"]): (float(n.get("x", 0.0)), float(n.get("y", 0.0)),
-                       float(n.get("z", 0.0)))
+        int(n["id"]): (float(n.get("x", 0.0)), float(n.get("y", 0.0)), float(n.get("z", 0.0)))
         for n in geometry.get("nodes", [])
     }
-    groups: Dict[str, List[int]] = {"column": [], "beam": [], "brace": []}
+    groups: dict[str, list[int]] = {"column": [], "beam": [], "brace": []}
     for b in geometry.get("bars", []):
         n1, n2 = int(b["n1"]), int(b["n2"])
         if n1 not in nodes or n2 not in nodes:
@@ -98,34 +98,38 @@ def _variant_design_space(base_geometry, load_spec, objective, sizing):
         if not bar_ids:
             continue
         sections = (sizing or {}).get(kind) or DEFAULT_SIZING[kind]
-        variable_groups.append({
-            "group_name": kind, "bar_ids": bar_ids,
-            "candidate_sections": list(sections),
-        })
+        variable_groups.append(
+            {
+                "group_name": kind,
+                "bar_ids": bar_ids,
+                "candidate_sections": list(sections),
+            }
+        )
     if not variable_groups:
         raise ValueError("variant has no bars to size")
     cases = load_spec.get("cases") or []
-    return DesignSpace({
-        "geometry": geom,
-        "variable_groups": variable_groups,
-        "load_cases": load_spec.get("load_cases")
-                      or [c for c in cases if isinstance(c, dict)],
-        "combinations": load_spec.get("combinations") or [],
-        "analysis_types": ["static"],
-        "objective": objective or dict(_DEFAULT_OBJECTIVE),
-    })
+    return DesignSpace(
+        {
+            "geometry": geom,
+            "variable_groups": variable_groups,
+            "load_cases": load_spec.get("load_cases") or [c for c in cases if isinstance(c, dict)],
+            "combinations": load_spec.get("combinations") or [],
+            "analysis_types": ["static"],
+            "objective": objective or dict(_DEFAULT_OBJECTIVE),
+        }
+    )
 
 
 def compare_topologies(
-    variants: List[Dict[str, Any]],
-    load_spec: Dict[str, Any],
-    objective: Optional[Dict[str, Any]] = None,
-    sizing: Optional[Dict[str, List[str]]] = None,
-    budget: Optional[int] = None,
-    db_path: Optional[str] = None,
-    log_path: Optional[str] = None,
+    variants: list[dict[str, Any]],
+    load_spec: dict[str, Any],
+    objective: dict[str, Any] | None = None,
+    sizing: dict[str, list[str]] | None = None,
+    budget: int | None = None,
+    db_path: str | None = None,
+    log_path: str | None = None,
     session_factory=None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Sizes each variant with the SAME load spec and ranks by lightest
     passing design.
 
@@ -139,25 +143,31 @@ def compare_topologies(
     weight_kg, max_utilization, sections}]} sorted by weight ascending
     (all-fail variants at the end with weight_kg None).
     """
-    ranked: List[Dict[str, Any]] = []
+    ranked: list[dict[str, Any]] = []
     for i, variant in enumerate(variants):
         name = str(variant.get("name") or f"variant_{i + 1}")
         gen = SPEC_GENERATORS.get(str(variant.get("generator") or ""))
         if gen is None:
             raise ValueError(
                 f"unknown generator '{variant.get('generator')}'; options: "
-                f"{sorted(SPEC_GENERATORS)}")
+                f"{sorted(SPEC_GENERATORS)}"
+            )
         base = gen(**dict(variant.get("generator_args") or {}))
         ds = _variant_design_space(base, load_spec, objective, sizing)
 
         if should_use_grid(ds, int(budget or 300))[0]:
-            summary = run_batch(ds, db_path=db_path, log_path=log_path,
-                                session_factory=session_factory)
+            summary = run_batch(
+                ds, db_path=db_path, log_path=log_path, session_factory=session_factory
+            )
             run_id = summary["run_id"]
         else:
             s = run_surrogate_search(
-                ds, budget=int(budget or 200), db_path=db_path,
-                log_path=log_path, session_factory=session_factory)
+                ds,
+                budget=int(budget or 200),
+                db_path=db_path,
+                log_path=log_path,
+                session_factory=session_factory,
+            )
             run_id = s["run_id"]
 
         st = Storage(db_path=db_path)
@@ -166,11 +176,13 @@ def compare_topologies(
         finally:
             st.close()
 
-        entry: Dict[str, Any] = {"name": name, "run_id": run_id,
-                                 "grid_candidates": ds.candidate_count()}
+        entry: dict[str, Any] = {
+            "name": name,
+            "run_id": run_id,
+            "grid_candidates": ds.candidate_count(),
+        }
         if frontier.empty:
-            entry.update({"weight_kg": None, "max_utilization": None,
-                          "sections": None})
+            entry.update({"weight_kg": None, "max_utilization": None, "sections": None})
         else:
             best = frontier.sort_values("weight_kg").iloc[0]
             sections = {}
@@ -179,18 +191,22 @@ def compare_topologies(
                 sections = dv.get("group_choices") or {}
             except (TypeError, ValueError):
                 sections = {}
-            entry.update({
-                "weight_kg": round(float(best["weight_kg"]), 2),
-                "max_utilization": round(float(best["max_utilization"]), 4),
-                "sections": sections,
-            })
+            entry.update(
+                {
+                    "weight_kg": round(float(best["weight_kg"]), 2),
+                    "max_utilization": round(float(best["max_utilization"]), 4),
+                    "sections": sections,
+                }
+            )
         ranked.append(entry)
-        logger.info("Topology '%s': best weight %s kg (run %s).",
-                    name, entry.get("weight_kg"), run_id)
+        logger.info(
+            "Topology '%s': best weight %s kg (run %s).", name, entry.get("weight_kg"), run_id
+        )
 
-    ranked.sort(key=lambda e: (e["weight_kg"] is None,
-                               e["weight_kg"] if e["weight_kg"] is not None
-                               else float("inf")))
-    return {"status": "ok", "variants": ranked,
-            "objective": objective or dict(_DEFAULT_OBJECTIVE)}
-
+    ranked.sort(
+        key=lambda e: (
+            e["weight_kg"] is None,
+            e["weight_kg"] if e["weight_kg"] is not None else float("inf"),
+        )
+    )
+    return {"status": "ok", "variants": ranked, "objective": objective or dict(_DEFAULT_OBJECTIVE)}

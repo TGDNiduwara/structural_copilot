@@ -37,7 +37,8 @@ Author: Principal Structural Software Architecture Team
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 logger = logging.getLogger("structural_copilot.bracing_registry")
 
@@ -51,7 +52,7 @@ class BracingRegistry:
     """Per-bar unbraced-length / bracing-point side-table (pure dict)."""
 
     def __init__(self) -> None:
-        self._entries: Dict[int, Dict[str, Any]] = {}
+        self._entries: dict[int, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ #
     # Entry lifecycle
@@ -60,12 +61,12 @@ class BracingRegistry:
     def set_bracing(
         self,
         bar_id: int,
-        lcr_y: Optional[float] = None,
-        lcr_z: Optional[float] = None,
-        lcr_lt: Optional[float] = None,
-        brace_points: Optional[Sequence[float]] = None,
-        bar_length: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        lcr_y: float | None = None,
+        lcr_z: float | None = None,
+        lcr_lt: float | None = None,
+        brace_points: Sequence[float] | None = None,
+        bar_length: float | None = None,
+    ) -> dict[str, Any]:
         """Stores/updates the bracing data for ``bar_id``.
 
         ``None`` leaves the previous value untouched (first call creates a
@@ -84,37 +85,42 @@ class BracingRegistry:
             validate the suspicious-K warning at store time)
         """
         bar_id = int(bar_id)
-        entry = self._entries.setdefault(bar_id, {
-            "lcr_y": None, "lcr_z": None, "lcr_lt": None,
-            "brace_points": None,
-        })
-        for key, val in (("lcr_y", lcr_y), ("lcr_z", lcr_z),
-                         ("lcr_lt", lcr_lt)):
+        entry = self._entries.setdefault(
+            bar_id,
+            {
+                "lcr_y": None,
+                "lcr_z": None,
+                "lcr_lt": None,
+                "brace_points": None,
+            },
+        )
+        for key, val in (("lcr_y", lcr_y), ("lcr_z", lcr_z), ("lcr_lt", lcr_lt)):
             if val is not None:
                 value = float(val)
                 if value < 0.0:
-                    raise ValueError(
-                        f"bracing {key} for bar {bar_id} must be >= 0, got "
-                        f"{value}")
+                    raise ValueError(f"bracing {key} for bar {bar_id} must be >= 0, got {value}")
                 entry[key] = value
         if brace_points is not None:
             pts = sorted(float(p) for p in brace_points)
             for p in pts:
                 if not (0.0 <= p <= 1.0):
                     raise ValueError(
-                        f"brace_points for bar {bar_id} must be fractions in "
-                        f"[0, 1], got {p}")
+                        f"brace_points for bar {bar_id} must be fractions in [0, 1], got {p}"
+                    )
             # Drop redundant no-op end points (0.0 / 1.0) for cleanliness.
             entry["brace_points"] = [p for p in pts if 0.0 < p < 1.0]
         if bar_length is not None and float(bar_length) > 0.0:
             for key in ("lcr_y", "lcr_z", "lcr_lt"):
-                if entry[key] is not None and \
-                        entry[key] > SUSPICIOUS_K_FACTOR * float(bar_length):
+                if entry[key] is not None and entry[key] > SUSPICIOUS_K_FACTOR * float(bar_length):
                     logger.warning(
                         "bracing %s for bar %s (%.3f m) is %.3f m — a "
                         "K-factor of %.1f is suspicious; verify the input.",
-                        key, bar_id, float(bar_length), entry[key],
-                        entry[key] / float(bar_length))
+                        key,
+                        bar_id,
+                        float(bar_length),
+                        entry[key],
+                        entry[key] / float(bar_length),
+                    )
         logger.info("bracing set for bar %s: %s", bar_id, entry)
         return dict(entry)
 
@@ -128,11 +134,11 @@ class BracingRegistry:
         self._entries.clear()
         return n
 
-    def get(self, bar_id: int) -> Dict[str, Any]:
+    def get(self, bar_id: int) -> dict[str, Any]:
         """Raw stored entry for ``bar_id`` (empty dict if none)."""
         return dict(self._entries.get(int(bar_id), {}))
 
-    def all_bars(self) -> List[int]:
+    def all_bars(self) -> list[int]:
         """Sorted bar ids with a stored entry."""
         return sorted(self._entries)
 
@@ -143,10 +149,14 @@ class BracingRegistry:
     # Resolution (default-and-warn contract)
     # ------------------------------------------------------------------ #
 
-    def _resolve_lcr(self, bar_id: int, key: str, length_m: float,
-                     derived: Optional[float] = None,
-                     derived_source: str = "brace_points") \
-            -> Tuple[float, str, List[str]]:
+    def _resolve_lcr(
+        self,
+        bar_id: int,
+        key: str,
+        length_m: float,
+        derived: float | None = None,
+        derived_source: str = "brace_points",
+    ) -> tuple[float, str, list[str]]:
         """Returns (value, source, warnings) for one unbraced-length key.
 
         ``derived`` is the value to use when the key itself was not given
@@ -154,7 +164,7 @@ class BracingRegistry:
         (e.g. lcr_lt from brace_points).
         """
         length = float(length_m)
-        warnings: List[str] = []
+        warnings: list[str] = []
         entry = self._entries.get(int(bar_id), {})
         explicit = entry.get(key)
         if explicit is not None:
@@ -162,28 +172,27 @@ class BracingRegistry:
                 warnings.append(
                     f"bar {bar_id} {key}={explicit:.3f} m is > "
                     f"{SUSPICIOUS_K_FACTOR} x bar length ({length:.3f} m) — "
-                    "suspicious K-factor; verify the input.")
+                    "suspicious K-factor; verify the input."
+                )
             return explicit, "explicit", warnings
         if derived is not None:
             return derived, derived_source, warnings
         warnings.append(
             f"bar {bar_id}: no explicit {key} set — defaulting to the full "
             f"bar length ({length:.3f} m). This is a CONSERVATIVE "
-            "assumption, not a verified bracing condition.")
+            "assumption, not a verified bracing condition."
+        )
         return length, "defaulted", warnings
 
-    def lcr_y_for(self, bar_id: int, length_m: float) \
-            -> Tuple[float, str, List[str]]:
+    def lcr_y_for(self, bar_id: int, length_m: float) -> tuple[float, str, list[str]]:
         """Major-axis buckling length -> (value_m, source, warnings)."""
         return self._resolve_lcr(int(bar_id), "lcr_y", length_m)
 
-    def lcr_z_for(self, bar_id: int, length_m: float) \
-            -> Tuple[float, str, List[str]]:
+    def lcr_z_for(self, bar_id: int, length_m: float) -> tuple[float, str, list[str]]:
         """Minor-axis buckling length -> (value_m, source, warnings)."""
         return self._resolve_lcr(int(bar_id), "lcr_z", length_m)
 
-    def lcr_lt_for(self, bar_id: int, length_m: float) \
-            -> Tuple[float, str, List[str]]:
+    def lcr_lt_for(self, bar_id: int, length_m: float) -> tuple[float, str, list[str]]:
         """Lateral-torsional unbraced length -> (value_m, source, warnings).
 
         Resolution order:
@@ -201,10 +210,9 @@ class BracingRegistry:
             longest = max(spans)
             if longest < 1.0:
                 derived = round(longest * float(length_m), 6)
-        return self._resolve_lcr(int(bar_id), "lcr_lt", length_m,
-                                 derived=derived)
+        return self._resolve_lcr(int(bar_id), "lcr_lt", length_m, derived=derived)
 
-    def resolve(self, bar_id: int, length_m: float) -> Dict[str, Any]:
+    def resolve(self, bar_id: int, length_m: float) -> dict[str, Any]:
         """Full resolved summary for one bar (values + sources + warnings).
 
         This is the row shape consumers (LTB / buckling / tool handlers)
@@ -227,5 +235,3 @@ class BracingRegistry:
             "brace_points": list(entry.get("brace_points") or []),
             "warnings": warn_y + warn_z + warn_lt,
         }
-
-

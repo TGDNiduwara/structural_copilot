@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+*.log
+.env
+.git
+.gitignore
+generated/
+batch/live_val_results/
+conversations.db
+.DS_Store

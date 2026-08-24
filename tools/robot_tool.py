@@ -27,22 +27,25 @@ import os
 import re
 import threading
 import time
-import numpy as np
 from dataclasses import dataclass
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Any
 
-from tools.geometry_primitives import (
-    nodes_along_curve, connect_chords, radial_ring, circular_arc_fn,
-    generate_straight_chord, generate_arc_chord, connect_web_pattern,
-    connect_bracing, apply_support_pattern)
-from tools.section_sizing import suggest_section, check_section_proportions
-from tools.bracing_registry import BracingRegistry
-from tools.connection_check import (ConnectionRegistry,
-                                    check_simple_shear_connection)
-from tools.section_data import read_section_props
-from tools.eurocode_params import fu_for_grade
-
+import numpy as np
 import pandas as pd
+
+from tools.bracing_registry import BracingRegistry
+from tools.connection_check import ConnectionRegistry, check_simple_shear_connection
+from tools.eurocode_params import fu_for_grade
+from tools.geometry_primitives import (
+    apply_support_pattern,
+    connect_web_pattern,
+    generate_arc_chord,
+    generate_straight_chord,
+    nodes_along_curve,
+    radial_ring,
+)
+from tools.section_data import read_section_props
+from tools.section_sizing import check_section_proportions, suggest_section
 
 try:
     import pythoncom
@@ -67,11 +70,12 @@ from tools.win_dialogs import _robot_pids
 # gencache has been built for the first time.
 # --------------------------------------------------------------------------
 
+
 class RobotEnum:
     # IRobotProjectType
     I_PT_SHELL = 0
-    I_PT_BAR_2D = 3           # Frame2D
-    I_PT_BAR_3D = 4           # Frame3D
+    I_PT_BAR_2D = 3  # Frame2D
+    I_PT_BAR_3D = 4  # Frame3D
 
     # IRobotObjectType
     I_OT_BAR = 1
@@ -84,11 +88,11 @@ class RobotEnum:
     #     8 -> IRobotMaterialData
     # The previous values (section=5, support=8) silently created bar-offset
     # and material labels, so no real sections or supports were ever applied.
-    I_LT_SUPPORT = 0             # I_LT_NODE_SUPPORT
+    I_LT_SUPPORT = 0  # I_LT_NODE_SUPPORT
     I_LT_BAR_SECTION = 3
     I_LT_BAR_RELEASE = 4
-    I_LT_MATERIAL = 8            # [WP4] verified live (IRobotMaterialData)
-    I_LT_THICKNESS = 11          # [WP4] verified live (IRobotThicknessData)
+    I_LT_MATERIAL = 8  # [WP4] verified live (IRobotMaterialData)
+    I_LT_THICKNESS = 11  # [WP4] verified live (IRobotThicknessData)
 
     # Section catalog identifiers — SHORT codes as they appear in Robot's
     # project Preferences SectionsActive/SectionsFound lists (verified live;
@@ -98,7 +102,14 @@ class RobotEnum:
     # AISI, ARBU, NDS, RUSER, SJI), so EURO must be activated explicitly
     # (see _ensure_section_catalog_active).
     SECTION_DATABASES = [
-        "EURO", "AISC", "DIN", "ARCLR", "UKST", "CISC", "CHINA", "JAPAN",
+        "EURO",
+        "AISC",
+        "DIN",
+        "ARCLR",
+        "UKST",
+        "CISC",
+        "CHINA",
+        "JAPAN",
     ]
 
     # IRobotNodeSupportFixed flags (DOF): UX, UZ, RY for 2D frame
@@ -110,15 +121,15 @@ class RobotEnum:
     I_CN_PERMANENT = 0
     I_CN_IMPOSED = 1
     I_CAT_STATIC_LINEAR = 1
-    I_CAT_DYNAMIC_MODAL = 11      # [WP7] verified live (IRobotCaseAnalizeType)
-    I_CAT_COMB = 0                # [P5] verified live: combinations need
-                                  # analize=I_CAT_COMB(0), NOT STATIC_LINEAR(1)
+    I_CAT_DYNAMIC_MODAL = 11  # [WP7] verified live (IRobotCaseAnalizeType)
+    I_CAT_COMB = 0  # [P5] verified live: combinations need
+    # analize=I_CAT_COMB(0), NOT STATIC_LINEAR(1)
 
     # IRobotCombinationType — [P5] verified live via CreateCombination
-    I_CBT_ULS = 0                 # ultimate / "effort"
-    I_CBT_SLS = 1                 # serviceability
-    I_CBT_ALS = 2                 # accidental
-    I_CBT_SPC = 3                 # special
+    I_CBT_ULS = 0  # ultimate / "effort"
+    I_CBT_SLS = 1  # serviceability
+    I_CBT_ALS = 2  # accidental
+    I_CBT_SPC = 3  # special
     CBT_NAMES = {"ULS": 0, "SLS": 1, "ALS": 2, "ACC": 2, "SPC": 3}
 
     # IRobotBarLoadDistributionType
@@ -234,15 +245,15 @@ class RobotBridge:
         # [FIX R3] Launch circuit-breaker bookkeeping: timestamps of recent
         # robot.exe launches, used to cap how many fresh instances may be
         # started in a sliding window (prevents endless relaunch loops).
-        self._launch_timestamps: List[float] = []
-        self._section_assignments: Dict[int, str] = {}   # bar_id -> section label name
-        self._node_coords: Dict[int, Tuple[float, float, float]] = {}
-        self._bar_endpoints: Dict[int, Tuple[int, int]] = {}
+        self._launch_timestamps: list[float] = []
+        self._section_assignments: dict[int, str] = {}  # bar_id -> section label name
+        self._node_coords: dict[int, tuple[float, float, float]] = {}
+        self._bar_endpoints: dict[int, tuple[int, int]] = {}
         # In-memory project type ('2D' | '3D'); set by new_2d_frame /
         # new_3d_frame / clear_structure, consumed by export_structure_spec.
         self._project_type: str = "3D"
         # [WP4] Bookkeeping for grillage panels (node grid + bar ids).
-        self._panel_meta: Dict[int, Dict[str, Any]] = {}
+        self._panel_meta: dict[int, dict[str, Any]] = {}
         # [EUROCODE Phase A] Engineer-specified bracing / unbraced lengths
         # side-table (Robot has no such property). Session-scoped; the
         # batch runner reaches it via bridge.bracing.
@@ -252,23 +263,23 @@ class RobotBridge:
         self.connections: ConnectionRegistry = ConnectionRegistry()
         # [OBS] PID of the robot.exe process this bridge is connected to
         # (None when not connected). Captured at connect() for observability.
-        self.connected_pid: Optional[int] = None
+        self.connected_pid: int | None = None
         # [SEAT] Cross-process seat ownership (see tools/robot_seat.py). The
         # pid that claimed the seat on this process's behalf, and its kind.
-        self._seat_owner_pid: Optional[int] = None
+        self._seat_owner_pid: int | None = None
         self._seat_kind: str = "app"
         # [INSTABILITY] Set by _guarded_calculate when the solver reported
         # an instability and the dialog was auto-answered 'Yes' (continue).
         # Surfaced in the solve tool result so the LLM/user is FORCED to see
         # that the model has a suspected mechanism - never silently ignored.
-        self._last_instability_warning: Optional[str] = None
+        self._last_instability_warning: str | None = None
 
     # ------------------------------------------------------------------ #
     # Observability helpers
     # ------------------------------------------------------------------ #
 
     @property
-    def pid(self) -> Optional[int]:
+    def pid(self) -> int | None:
         """PID of the connected robot.exe (or None)."""
         if not self._connected:
             return None
@@ -304,8 +315,9 @@ class RobotBridge:
                 "Robot COM proxy raised AttributeError on the liveness probe "
                 "(%s). This usually means a stale win32com gen_py cache. Fix: "
                 "stop the app and delete the gen_py folder (locate it with: "
-                "python -c \"import win32com; print(win32com.__gen_path__)\"), "
-                "then restart.", exc,
+                'python -c "import win32com; print(win32com.__gen_path__)"), '
+                "then restart.",
+                exc,
             )
             return True  # The COM server object itself is still alive.
         except Exception as exc:
@@ -330,8 +342,7 @@ class RobotBridge:
         """
         now = time.time()
         self._launch_timestamps = [
-            ts for ts in self._launch_timestamps
-            if now - ts < self._LAUNCH_WINDOW_S
+            ts for ts in self._launch_timestamps if now - ts < self._LAUNCH_WINDOW_S
         ]
         if len(self._launch_timestamps) >= self._MAX_LAUNCHES_PER_WINDOW:
             raise RuntimeError(
@@ -359,10 +370,10 @@ class RobotBridge:
         # (tools/robot_seat.py) is the single cross-process authority.
         kind = "batch" if new_instance else "app"
         try:
-            from tools.robot_seat import claim_seat, seat_status, SeatBusyError
+            from tools.robot_seat import SeatBusyError, claim_seat, seat_status
+
             st = seat_status()
-            if st["present"] and not st["seat_available"] \
-                    and st["owner_pid"] != os.getpid():
+            if st["present"] and not st["seat_available"] and st["owner_pid"] != os.getpid():
                 if new_instance:
                     # [SEAT] BATCH path: the previous chain stage's OWN
                     # process may still be exiting while its seat looks live
@@ -375,13 +386,18 @@ class RobotBridge:
                         time.sleep(5.0)
                         waited += 5.0
                         st = seat_status()
-                        if not st["present"] or st["seat_available"] \
-                                or st["owner_pid"] == os.getpid():
+                        if (
+                            not st["present"]
+                            or st["seat_available"]
+                            or st["owner_pid"] == os.getpid()
+                        ):
                             break
                         logger.info(
-                            "robot seat held by batch pid %s - waiting "
-                            "(%.0fs so far, robot=%s)",
-                            st["owner_pid"], waited, st.get("robot_pids"))
+                            "robot seat held by batch pid %s - waiting (%.0fs so far, robot=%s)",
+                            st["owner_pid"],
+                            waited,
+                            st.get("robot_pids"),
+                        )
                     else:
                         raise SeatBusyError(
                             "Robot seat stayed busy for 60s in batch "
@@ -390,7 +406,8 @@ class RobotBridge:
                             f"kind={st['owner_kind']}, "
                             f"robot pid(s)={sorted(st['robot_pids'] or [])}) "
                             "did not release. Check for a stuck/duplicate "
-                            "batch run with tools.robot_seat.seat_status().")
+                            "batch run with tools.robot_seat.seat_status()."
+                        )
                 else:
                     raise SeatBusyError(
                         "Robot seat is held by another live process "
@@ -400,7 +417,8 @@ class RobotBridge:
                         "This process REFUSES to attach a second Robot session"
                         " - doing so corrupts both. If a batch run owns the "
                         "seat, wait for CHAIN_DONE; if the owner is dead, its "
-                        "seat is auto-stale and the next connect takes over.")
+                        "seat is auto-stale and the next connect takes over."
+                    )
         except SeatBusyError:
             raise
         except Exception as exc:  # noqa: BLE001 - seat layer must never block
@@ -498,8 +516,7 @@ class RobotBridge:
                 if attached:
                     self.connected_pid = next(iter(new_pids), None)
                 else:
-                    self.connected_pid = next(
-                        iter(new_pids - pids_before), None)
+                    self.connected_pid = next(iter(new_pids - pids_before), None)
                 if self.connected_pid is not None:
                     break
         if self.connected_pid is None:
@@ -509,23 +526,31 @@ class RobotBridge:
                 "Refusing to claim the Robot seat without a real robot PID - "
                 "an empty seat record would let another process attach over "
                 "this session and corrupt both. Check for a split/stale Robot "
-                "session with tools.robot_seat.seat_status() and retry.")
+                "session with tools.robot_seat.seat_status() and retry."
+            )
         logger.info(
             "Robot session pid %s, connected via %s (seat owner pid %s).",
-            self.connected_pid, "attach" if attached else "launch", os.getpid())
+            self.connected_pid,
+            "attach" if attached else "launch",
+            os.getpid(),
+        )
         # [SEAT] Record ownership so no other live process can attach over us.
         self._seat_owner_pid = os.getpid()
         self._seat_kind = kind
         try:
             from tools.robot_seat import claim_seat
-            claim_seat(self._seat_owner_pid, kind,
-                       [self.connected_pid] if self.connected_pid else [],
-                       connected_via="attached" if attached else "launched")
+
+            claim_seat(
+                self._seat_owner_pid,
+                kind,
+                [self.connected_pid] if self.connected_pid else [],
+                connected_via="attached" if attached else "launched",
+            )
         except Exception as exc:  # noqa: BLE001 - never fail connect on seat io
             logger.warning("robot seat claim failed (continuing): %s", exc)
 
     @com_thread_safe
-    def close(self, save_path: Optional[str] = None) -> None:
+    def close(self, save_path: str | None = None) -> None:
         """Optionally saves the project, then releases the COM server."""
         if not self._connected:
             return
@@ -547,12 +572,12 @@ class RobotBridge:
             if self._seat_owner_pid is not None:
                 try:
                     from tools.robot_seat import release_seat
+
                     release_seat(self._seat_owner_pid)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("robot seat release failed: %s", exc)
                 self._seat_owner_pid = None
-            logger.info(
-                "Robot COM server released (was pid=%s).", pid_before)
+            logger.info("Robot COM server released (was pid=%s).", pid_before)
 
     def _ensure_connected(self):
         """
@@ -578,7 +603,7 @@ class RobotBridge:
                 "Robot COM proxy is broken (AttributeError on basic property "
                 "access). The win32com gen_py cache is likely stale. Fix: "
                 "stop the app, delete the gen_py cache folder (locate it via: "
-                "python -c \"import win32com; print(win32com.__gen_path__)\"), "
+                'python -c "import win32com; print(win32com.__gen_path__)"), '
                 f"then restart. Original error: {exc}"
             ) from exc
         except Exception as exc:
@@ -590,7 +615,7 @@ class RobotBridge:
             ) from exc
 
     @com_thread_safe
-    def robot_session_status(self) -> Dict[str, Any]:
+    def robot_session_status(self) -> dict[str, Any]:
         """[DIAG] Surfaces the authoritative session picture: which robot.exe
         PID this bridge is connected to, HOW it connected (attach/launch),
         who owns the cross-process seat, and which robot processes are live.
@@ -602,13 +627,18 @@ class RobotBridge:
         seat = {}
         try:
             from tools.robot_seat import seat_status
+
             seat = seat_status()
         except Exception as exc:  # noqa: BLE001
             logger.warning("robot_session_status: seat read failed: %s", exc)
             seat = {"error": str(exc)}
         connected_via = None
-        if self._connected and self._seat_owner_pid is not None and seat \
-                and seat.get("owner_pid") == self._seat_owner_pid:
+        if (
+            self._connected
+            and self._seat_owner_pid is not None
+            and seat
+            and seat.get("owner_pid") == self._seat_owner_pid
+        ):
             connected_via = seat.get("connected_via")
         return {
             "connected": bool(self._connected),
@@ -617,15 +647,25 @@ class RobotBridge:
             "robots_running": sorted(alive_now),
             "this_process_pid": os.getpid(),
             "seat": {
-                k: seat.get(k) for k in (
-                    "present", "owner_pid", "owner_kind", "connected_via",
-                    "robot_pids", "acquired_at", "owner_alive", "robots_alive",
-                    "seat_available")},
+                k: seat.get(k)
+                for k in (
+                    "present",
+                    "owner_pid",
+                    "owner_kind",
+                    "connected_via",
+                    "robot_pids",
+                    "acquired_at",
+                    "owner_alive",
+                    "robots_alive",
+                    "seat_available",
+                )
+            },
             "summary": (
                 f"Robot session pid {self.connected_pid or 'n/a'}, "
                 f"connected via {connected_via or 'n/a'}, "
                 f"seat owner {seat.get('owner_pid')} ({seat.get('owner_kind')}); "
-                f"live robot.exe: {sorted(alive_now) or 'none'}"),
+                f"live robot.exe: {sorted(alive_now) or 'none'}"
+            ),
         }
 
     # ------------------------------------------------------------------ #
@@ -649,23 +689,24 @@ class RobotBridge:
         """
         from tools.win_dialogs import SAVE_PROMPT_PATTERNS, watch_and_dismiss
 
-        pids = ({self.connected_pid} if self.connected_pid else _robot_pids())
-        result: Dict[str, Any] = {}
+        pids = {self.connected_pid} if self.connected_pid else _robot_pids()
+        result: dict[str, Any] = {}
         watcher_done = threading.Event()
 
         def _run_watcher() -> None:
             try:
-                result.update(watch_and_dismiss(
-                    pids, SAVE_PROMPT_PATTERNS, timeout_s=15.0, poll_s=0.25,
-                    on_unknown="wait"))
+                result.update(
+                    watch_and_dismiss(
+                        pids, SAVE_PROMPT_PATTERNS, timeout_s=15.0, poll_s=0.25, on_unknown="wait"
+                    )
+                )
             except Exception as exc:  # noqa: BLE001
                 result["outcome"] = "error"
                 result["title"] = str(exc)
             finally:
                 watcher_done.set()
 
-        t = threading.Thread(target=_run_watcher, daemon=True,
-                             name="robot-project-new-guard")
+        t = threading.Thread(target=_run_watcher, daemon=True, name="robot-project-new-guard")
         t.start()
         try:
             self.project.New(code)
@@ -680,7 +721,9 @@ class RobotBridge:
         if outcome == "dismissed" or outcome == "dismissed_benign":
             logger.info(
                 "Project.New guarded: auto-dismissed dialog %r (button=%r).",
-                result.get("title"), result.get("button"))
+                result.get("title"),
+                result.get("button"),
+            )
         elif outcome == "unknown_seen":
             raise RuntimeError(
                 "An unrecognized Robot dialog appeared during Project.New() "
@@ -688,13 +731,12 @@ class RobotBridge:
                 "Please click it in the visible Robot window (it may be a "
                 "save-changes or license prompt) and retry. If this keeps "
                 "happening, capture the dialog text and add a pattern to "
-                "tools/win_dialogs.SAVE_PROMPT_PATTERNS.")
+                "tools/win_dialogs.SAVE_PROMPT_PATTERNS."
+            )
         elif outcome == "timeout":
             # Watcher saw no dialog (the common no-save case) OR saw one and
             # kept waiting - treat as clean, the call already succeeded.
-            logger.info(
-                "Project.New guarded: no blocking dialog (outcome=timeout, "
-                "clean).")
+            logger.info("Project.New guarded: no blocking dialog (outcome=timeout, clean).")
         # outcome == "clean" / "error" - proceed (clean = no dialog seen).
 
     def _guarded_calculate(self, engine, timeout_s: float = 30.0) -> None:
@@ -728,23 +770,24 @@ class RobotBridge:
         patterns = dict(DEFAULT_DIALOG_PATTERNS)
         patterns["instabilit"] = {"action": "click", "button_text": "Yes"}
 
-        pids = ({self.connected_pid} if self.connected_pid else _robot_pids())
-        result: Dict[str, Any] = {}
+        pids = {self.connected_pid} if self.connected_pid else _robot_pids()
+        result: dict[str, Any] = {}
         watcher_done = threading.Event()
 
         def _run_watcher() -> None:
             try:
-                result.update(watch_and_dismiss(
-                    pids, patterns, timeout_s=timeout_s,
-                    poll_s=0.25, on_unknown="wait"))
+                result.update(
+                    watch_and_dismiss(
+                        pids, patterns, timeout_s=timeout_s, poll_s=0.25, on_unknown="wait"
+                    )
+                )
             except Exception as exc:  # noqa: BLE001
                 result["outcome"] = "error"
                 result["title"] = str(exc)
             finally:
                 watcher_done.set()
 
-        t = threading.Thread(target=_run_watcher, daemon=True,
-                             name="robot-calculate-guard")
+        t = threading.Thread(target=_run_watcher, daemon=True, name="robot-calculate-guard")
         t.start()
         try:
             engine.Calculate()
@@ -763,21 +806,22 @@ class RobotBridge:
             # final outcome/matched keys: the benign Calculation Messages
             # dialog that follows OVERWRITES outcome/matched.)
             self._last_instability_warning = str(
-                result.get("instability_title")
-                or result.get("title")
-                or "instability dialog")
+                result.get("instability_title") or result.get("title") or "instability dialog"
+            )
             logger.warning(
                 "Robot instability dialog auto-answered 'Yes' (continue) "
                 "- solver reported instability %r; results may only be valid "
                 "for the stable planes. Run check_model_stability if unsure.",
-                self._last_instability_warning)
+                self._last_instability_warning,
+            )
         elif outcome == "unknown_seen":
             raise RuntimeError(
                 "An unrecognized Robot dialog appeared during Calculate() "
                 f"({result.get('title')!r}) and could not be auto-dismissed. "
                 "Please click it in the visible Robot window and retry. If "
                 "this keeps happening, capture the dialog text and add a "
-                "pattern to batch/headless_driver.DEFAULT_DIALOG_PATTERNS.")
+                "pattern to batch/headless_driver.DEFAULT_DIALOG_PATTERNS."
+            )
         # dismissed_benign / timeout / clean / error -> proceed.
 
     @com_thread_safe
@@ -899,18 +943,21 @@ class RobotBridge:
             raise ValueError(
                 "Empty section name - pick a catalog name first via "
                 "list_available_sections (e.g. 'IPE 300', 'HEA 200', "
-                "'L 80x80x8').")
+                "'L 80x80x8')."
+            )
         collapsed = " ".join(name.split())
         if collapsed != name:
             raise ValueError(
                 f"Section name {name!r} has stray/double whitespace - this "
                 "looks like a leaked placeholder label instead of a real "
                 "catalog name. Call list_available_sections and use an "
-                "exact catalog name (e.g. 'IPE 300', 'L 80x80x8').")
-        if any(ch in name for ch in "<>{}[]()\""):
+                "exact catalog name (e.g. 'IPE 300', 'L 80x80x8')."
+            )
+        if any(ch in name for ch in '<>{}[]()"'):
             raise ValueError(
                 f"Section name {name!r} contains placeholder punctuation. "
-                "Use a real catalog name from list_available_sections.")
+                "Use a real catalog name from list_available_sections."
+            )
         tokens = collapsed.split()
         # First token: family code (letters). Remaining tokens: the SIZE,
         # which must contain at least one digit ('300', '80x80x8', '12X26').
@@ -918,7 +965,8 @@ class RobotBridge:
             if not re.search(r"\d", collapsed):
                 raise ValueError(
                     f"Section name {name!r} is not a catalog section - "
-                    "call list_available_sections for valid names.")
+                    "call list_available_sections for valid names."
+                )
         else:
             for tok in tokens[1:]:
                 if not re.search(r"\d", tok):
@@ -926,21 +974,36 @@ class RobotBridge:
                         f"Section segment {tok!r} in {name!r} is not a size. "
                         "This looks like a label/placeholder leaked into a "
                         "section field - use an exact catalog name from "
-                        "list_available_sections (e.g. 'IPE 300').")
-        _BAD_LABEL_TOKENS = ("chord", "top", "bottom", "web", "beam",
-                             "column", "member", "section", "default",
-                             "auto", "use", "e.g", "plate", "group")
+                        "list_available_sections (e.g. 'IPE 300')."
+                    )
+        _BAD_LABEL_TOKENS = (
+            "chord",
+            "top",
+            "bottom",
+            "web",
+            "beam",
+            "column",
+            "member",
+            "section",
+            "default",
+            "auto",
+            "use",
+            "e.g",
+            "plate",
+            "group",
+        )
         low = f" {collapsed.lower()} "
         for bad in _BAD_LABEL_TOKENS:
             if f" {bad} " in low:
                 raise ValueError(
                     f"Section name {name!r} contains label token {bad!r}- "
                     "this is a description placeholder, not a catalog name. "
-                    "Call list_available_sections first.")
+                    "Call list_available_sections first."
+                )
         return collapsed
 
     @staticmethod
-    def _section_label_candidates(section_name: str) -> List[str]:
+    def _section_label_candidates(section_name: str) -> list[str]:
         """[FIX R5/R6] Name variants to try against the section catalogs:
         the name as given, a spaced variant ("IPE300" -> "IPE 300"), and
         upper-cased forms. Robot catalog names are "family + space + size"
@@ -963,13 +1026,14 @@ class RobotBridge:
         if m:
             a_n, b_n, t_n = m.groups()
             for form in (
-                    f"L {a_n}x{b_n}x{t_n}",
-                    f"L {a_n}X{b_n}X{t_n}",
-                    f"L {a_n} x {b_n} x {t_n}",
-                    f"L{a_n}x{b_n}x{t_n}",
-                    f"L{a_n}X{b_n}X{t_n}",
-                    f"L {a_n}X{b_n}x{t_n}",
-                    f"L {a_n}x{b_n}X{t_n}"):
+                f"L {a_n}x{b_n}x{t_n}",
+                f"L {a_n}X{b_n}X{t_n}",
+                f"L {a_n} x {b_n} x {t_n}",
+                f"L{a_n}x{b_n}x{t_n}",
+                f"L{a_n}X{b_n}X{t_n}",
+                f"L {a_n}X{b_n}x{t_n}",
+                f"L {a_n}x{b_n}X{t_n}",
+            ):
                 if form not in candidates:
                     candidates.append(form)
         return candidates
@@ -999,9 +1063,7 @@ class RobotBridge:
                 active.Add(db_code)
                 logger.info("Section catalog '%s' activated.", db_code)
         except Exception as exc:
-            logger.warning(
-                "Could not ensure section catalog '%s' is active: %s", db_code, exc
-            )
+            logger.warning("Could not ensure section catalog '%s' is active: %s", db_code, exc)
 
     def _get_or_create_section_label(self, section_name: str):
         """
@@ -1029,7 +1091,7 @@ class RobotBridge:
                 continue
 
         # 2) Create + load from the section catalogs.
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for cand in candidates:
             label = labels.Create(RobotEnum.I_LT_BAR_SECTION, cand)
             try:
@@ -1049,9 +1111,7 @@ class RobotBridge:
 
             if loaded_from is not None:
                 labels.Store(label)
-                logger.info(
-                    "Section '%s' loaded from catalog '%s'.", cand, loaded_from
-                )
+                logger.info("Section '%s' loaded from catalog '%s'.", cand, loaded_from)
                 return label
             try:
                 labels.Delete(RobotEnum.I_LT_BAR_SECTION, cand)
@@ -1063,8 +1123,7 @@ class RobotBridge:
             f"catalog (tried names: {candidates}; catalogs: "
             f"{RobotEnum.SECTION_DATABASES}). Use catalog-style names such "
             "as 'IPE 300', 'HEA 200', 'HEB 300', 'W 12X26', or "
-            "'UB 305x165x40'."
-            + (f" Last COM error: {last_error}." if last_error else "")
+            "'UB 305x165x40'." + (f" Last COM error: {last_error}." if last_error else "")
         )
 
     # ------------------------------------------------------------------ #
@@ -1076,7 +1135,7 @@ class RobotBridge:
         self,
         node_id: int,
         support_type: str = "fixed",
-        spring_stiffness: Optional[Dict[str, float]] = None,
+        spring_stiffness: dict[str, float] | None = None,
     ) -> None:
         """
         Applies a support condition to a node.
@@ -1092,8 +1151,8 @@ class RobotBridge:
     # Fixity flag sets (1 = fixed, 0 = free) shared by set_support and
     # modify_support — UX, UY, UZ, RX, RY, RZ.
     _SUPPORT_FLAG_SETS = {
-        "fixed":    dict(UX=1, UY=1, UZ=1, RX=1, RY=1, RZ=1),
-        "pinned":   dict(UX=1, UY=1, UZ=1, RX=0, RY=0, RZ=0),
+        "fixed": dict(UX=1, UY=1, UZ=1, RX=1, RY=1, RZ=1),
+        "pinned": dict(UX=1, UY=1, UZ=1, RX=0, RY=0, RZ=0),
         "roller_x": dict(UX=0, UY=1, UZ=1, RX=0, RY=0, RZ=0),
         "roller_z": dict(UX=1, UY=0, UZ=1, RX=0, RY=0, RZ=0),
     }
@@ -1102,12 +1161,17 @@ class RobotBridge:
     # (verified against the RobotOM v27 type library: translations KX/KY/KZ
     # in kN/m, rotations HX/HY/HZ in kNm/rad, plus the ElasticLinear flag).
     _SPRING_VALUE_MEMBERS = {
-        "UX": "KX", "UY": "KY", "UZ": "KZ",
-        "RX": "HX", "RY": "HY", "RZ": "HZ",
+        "UX": "KX",
+        "UY": "KY",
+        "UZ": "KZ",
+        "RX": "HX",
+        "RY": "HY",
+        "RZ": "HZ",
     }
 
-    def _apply_node_support(self, node_id: int, support_type: str,
-                            spring_stiffness: Optional[Dict[str, float]] = None) -> None:
+    def _apply_node_support(
+        self, node_id: int, support_type: str, spring_stiffness: dict[str, float] | None = None
+    ) -> None:
         """
         [PHASE 1 refactor] Shared support-application helper used by both
         set_support and modify_support: validates the type, creates/reuses
@@ -1157,8 +1221,9 @@ class RobotBridge:
         node.SetLabel(RobotEnum.I_LT_SUPPORT, label_name)
         logger.info("Support '%s' applied to node %s.", support_type, node_id)
 
-    def _apply_spring_support(self, node_id: int,
-                              spring_stiffness: Optional[Dict[str, float]]) -> None:
+    def _apply_spring_support(
+        self, node_id: int, spring_stiffness: dict[str, float] | None
+    ) -> None:
         """Applies an elastic-linear (spring) support to a node via
         IRobotNodeSupportData.ElasticLinear + KX/KY/KZ / HX/HY/HZ
         (verified against the RobotOM v27 type library)."""
@@ -1167,12 +1232,14 @@ class RobotBridge:
             raise ValueError(
                 "support_type='spring' requires a non-empty spring_stiffness "
                 "dict, e.g. {'UZ': 100000.0} (translations UX/UY/UZ in kN/m, "
-                "rotations RX/RY/RZ in kNm/rad).")
+                "rotations RX/RY/RZ in kNm/rad)."
+            )
         unknown = sorted(set(stiffness) - set(self._SPRING_VALUE_MEMBERS))
         if unknown:
             raise ValueError(
                 f"Unknown spring stiffness DOF(s) {unknown}; valid: "
-                f"{sorted(self._SPRING_VALUE_MEMBERS)}")
+                f"{sorted(self._SPRING_VALUE_MEMBERS)}"
+            )
 
         labels = self.structure.Labels
         label_name = "AUTO_SPRING"
@@ -1184,8 +1251,7 @@ class RobotBridge:
         if support_label is None:
             support_label = labels.Create(RobotEnum.I_LT_SUPPORT, label_name)
             try:
-                support_data = CastTo(support_label.Data,
-                                      "IRobotNodeSupportData")
+                support_data = CastTo(support_label.Data, "IRobotNodeSupportData")
             except Exception:
                 support_data = support_label.Data
             try:
@@ -1213,7 +1279,8 @@ class RobotBridge:
                 raise RuntimeError(
                     "RobotOM on this build does not expose the elastic "
                     "support API (IRobotNodeSupportData.ElasticLinear / "
-                    f"K*/H*): spring support failed: {exc}") from exc
+                    f"K*/H*): spring support failed: {exc}"
+                ) from exc
             labels.Store(support_label)
 
         node = self.structure.Nodes.Get(node_id)
@@ -1221,8 +1288,9 @@ class RobotBridge:
         logger.info("Spring support applied to node %s: %s", node_id, stiffness)
 
     @com_thread_safe
-    def modify_support(self, node_id: int, support_type: str,
-                       spring_stiffness: Optional[Dict[str, float]] = None) -> str:
+    def modify_support(
+        self, node_id: int, support_type: str, spring_stiffness: dict[str, float] | None = None
+    ) -> str:
         """
         [PHASE 1] Changes the support condition of an EXISTING node without
         deleting it or any connected bars. Re-solve afterwards to refresh
@@ -1240,25 +1308,22 @@ class RobotBridge:
     _DOF_NAMES_2D = ("UX", "UZ", "RY")
 
     @staticmethod
-    def _support_flags_2d(support_name: str) -> Tuple[int, int, int]:
+    def _support_flags_2d(support_name: str) -> tuple[int, int, int]:
         """(UX, UZ, RY) fixity flags for a support label name. Mirrors
         _SUPPORT_FLAG_SETS; unknown labels are treated as full fixity
         (conservative for mechanism detection)."""
         name = str(support_name or "").upper()
-        for marker, flags in (("PINNED", (1, 1, 0)),
-                              ("ROLLER", (0, 1, 0)),
-                              ("FIXED", (1, 1, 1))):
+        for marker, flags in (("PINNED", (1, 1, 0)), ("ROLLER", (0, 1, 0)), ("FIXED", (1, 1, 1))):
             if marker in name:
                 return flags
         return (1, 1, 1)
 
-    def _section_a_i(self, section_name: str) -> Tuple[float, float]:
+    def _section_a_i(self, section_name: str) -> tuple[float, float]:
         """(A, I) for a section label via the empirical GetValue map
         (0=A, 4/5=I). Falls back to unit values; exact magnitudes do not
         affect singularity detection."""
         try:
-            data = self.structure.Labels.Get(
-                RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
+            data = self.structure.Labels.Get(RobotEnum.I_LT_BAR_SECTION, str(section_name)).Data
             a = float(data.GetValue(0))
             i = min(float(data.GetValue(4)), float(data.GetValue(5)))
             if a > 0.0 and i > 0.0:
@@ -1268,7 +1333,7 @@ class RobotBridge:
         return 1.0, 1.0
 
     @staticmethod
-    def _mechanism_check(coords, bars, fixity) -> Dict[str, Any]:
+    def _mechanism_check(coords, bars, fixity) -> dict[str, Any]:
         """PURE (numpy only): 2D mechanism check shared by the live
         RobotBridge.validate_stability and the offline tests.
 
@@ -1281,8 +1346,13 @@ class RobotBridge:
         """
         node_ids = sorted(coords)
         if not node_ids:
-            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
-                    "message": "no nodes in model"}
+            return {
+                "ok": True,
+                "mechanism": False,
+                "nodes": [],
+                "dofs": [],
+                "message": "no nodes in model",
+            }
         n = len(node_ids)
         idx = {nid: k for k, nid in enumerate(node_ids)}
 
@@ -1297,30 +1367,57 @@ class RobotBridge:
                 continue
             c, s = dx / length, dz / length
             ea, ei = 1.0 * a, 1.0 * ii
-            k_local = np.array([
-                [ea / length, 0, 0, -ea / length, 0, 0],
-                [0, 12 * ei / length ** 3, 6 * ei / length ** 2,
-                 0, -12 * ei / length ** 3, 6 * ei / length ** 2],
-                [0, 6 * ei / length ** 2, 4 * ei / length,
-                 0, -6 * ei / length ** 2, 2 * ei / length],
-                [-ea / length, 0, 0, ea / length, 0, 0],
-                [0, -12 * ei / length ** 3, -6 * ei / length ** 2,
-                 0, 12 * ei / length ** 3, -6 * ei / length ** 2],
-                [0, 6 * ei / length ** 2, 2 * ei / length,
-                 0, -6 * ei / length ** 2, 4 * ei / length],
-            ])
-            t = np.array([
-                [c, -s, 0, 0, 0, 0],
-                [s, c, 0, 0, 0, 0],
-                [0, 0, 1, 0, 0, 0],
-                [0, 0, 0, c, -s, 0],
-                [0, 0, 0, s, c, 0],
-                [0, 0, 0, 0, 0, 1],
-            ])
+            k_local = np.array(
+                [
+                    [ea / length, 0, 0, -ea / length, 0, 0],
+                    [
+                        0,
+                        12 * ei / length**3,
+                        6 * ei / length**2,
+                        0,
+                        -12 * ei / length**3,
+                        6 * ei / length**2,
+                    ],
+                    [
+                        0,
+                        6 * ei / length**2,
+                        4 * ei / length,
+                        0,
+                        -6 * ei / length**2,
+                        2 * ei / length,
+                    ],
+                    [-ea / length, 0, 0, ea / length, 0, 0],
+                    [
+                        0,
+                        -12 * ei / length**3,
+                        -6 * ei / length**2,
+                        0,
+                        12 * ei / length**3,
+                        -6 * ei / length**2,
+                    ],
+                    [
+                        0,
+                        6 * ei / length**2,
+                        2 * ei / length,
+                        0,
+                        -6 * ei / length**2,
+                        4 * ei / length,
+                    ],
+                ]
+            )
+            t = np.array(
+                [
+                    [c, -s, 0, 0, 0, 0],
+                    [s, c, 0, 0, 0, 0],
+                    [0, 0, 1, 0, 0, 0],
+                    [0, 0, 0, c, -s, 0],
+                    [0, 0, 0, s, c, 0],
+                    [0, 0, 0, 0, 0, 1],
+                ]
+            )
             k_e = t.T @ k_local @ t
             i1, i2 = idx[n1], idx[n2]
-            dofs = [3 * i1, 3 * i1 + 1, 3 * i1 + 2,
-                    3 * i2, 3 * i2 + 1, 3 * i2 + 2]
+            dofs = [3 * i1, 3 * i1 + 1, 3 * i1 + 2, 3 * i2, 3 * i2 + 1, 3 * i2 + 2]
             for r, dr in enumerate(dofs):
                 for c_, dc in enumerate(dofs):
                     k[dr, dc] += k_e[r, c_]
@@ -1333,22 +1430,32 @@ class RobotBridge:
                 if not locked:
                     free.append(base + j)
         if not free:
-            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
-                    "message": "all DOFs are fixed by supports"}
+            return {
+                "ok": True,
+                "mechanism": False,
+                "nodes": [],
+                "dofs": [],
+                "message": "all DOFs are fixed by supports",
+            }
 
         kf = k[np.ix_(free, free)]
         kf = (kf + kf.T) / 2.0
         rank = int(np.linalg.matrix_rank(kf, tol=1e-8))
         if rank == len(free):
-            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
-                    "message": f"no mechanism detected (rank {rank}/{len(free)})"}
+            return {
+                "ok": True,
+                "mechanism": False,
+                "nodes": [],
+                "dofs": [],
+                "message": f"no mechanism detected (rank {rank}/{len(free)})",
+            }
 
         # rank-deficient -> nodes whose DOFs participate in the nullspace
         _, _, vt = np.linalg.svd(kf)
         null = vt[-1] if len(vt) else np.zeros(len(free))
         mag = float(np.max(np.abs(null))) if len(null) else 0.0
-        flagged: List[int] = []
-        dofs: List[str] = []
+        flagged: list[int] = []
+        dofs: list[str] = []
         dof_names = ("UX", "UZ", "RY")
         for j, dof in enumerate(free):
             if mag > 0 and abs(null[j]) > 0.25 * mag:
@@ -1357,13 +1464,19 @@ class RobotBridge:
                 if node not in flagged:
                     flagged.append(node)
         return {
-            "ok": False, "mechanism": True, "nodes": flagged, "dofs": dofs[:8],
-            "message": ("likely mechanism at " + (", ".join(dofs[:8]) or "?")
-                        + " — refusing to call Calculate()."),
+            "ok": False,
+            "mechanism": True,
+            "nodes": flagged,
+            "dofs": dofs[:8],
+            "message": (
+                "likely mechanism at "
+                + (", ".join(dofs[:8]) or "?")
+                + " — refusing to call Calculate()."
+            ),
         }
 
     @com_thread_safe
-    def validate_stability(self) -> Dict[str, Any]:
+    def validate_stability(self) -> dict[str, Any]:
         """[STEP 2] Detects likely kinematic mechanisms BEFORE Calculate()
         is ever called, using the 2D Euler-Bernoulli frame rank check that
         HeadlessSession.validate_stability delegates to (single source of
@@ -1373,8 +1486,8 @@ class RobotBridge:
 
         nodes_coll = st.Nodes.GetAll()
         n_count = int(nodes_coll.Count) if nodes_coll is not None else 0
-        coords: Dict[int, Tuple[float, float]] = {}
-        node_ids: List[int] = []
+        coords: dict[int, tuple[float, float]] = {}
+        node_ids: list[int] = []
         for i in range(1, n_count + 1):
             try:
                 obj = nodes_coll.Get(i)
@@ -1384,22 +1497,26 @@ class RobotBridge:
             except Exception:  # noqa: BLE001
                 continue
         if not node_ids:
-            return {"ok": True, "mechanism": False, "nodes": [], "dofs": [],
-                    "message": "no nodes in model"}
+            return {
+                "ok": True,
+                "mechanism": False,
+                "nodes": [],
+                "dofs": [],
+                "message": "no nodes in model",
+            }
 
-        fixity: Dict[int, Tuple[int, int, int]] = {}
+        fixity: dict[int, tuple[int, int, int]] = {}
         for nid in node_ids:
             try:
                 node = st.Nodes.Get(nid)
                 if bool(node.HasLabel(RobotEnum.I_LT_SUPPORT)):
-                    fixity[nid] = self._support_flags_2d(
-                        node.GetLabelName(RobotEnum.I_LT_SUPPORT))
+                    fixity[nid] = self._support_flags_2d(node.GetLabelName(RobotEnum.I_LT_SUPPORT))
                 else:
                     fixity[nid] = (0, 0, 0)
             except Exception:  # noqa: BLE001
                 fixity[nid] = (0, 0, 0)
 
-        bars: List[Tuple[int, int, float, float]] = []
+        bars: list[tuple[int, int, float, float]] = []
         bars_coll = st.Bars.GetAll()
         b_count = int(bars_coll.Count) if bars_coll is not None else 0
         for i in range(1, b_count + 1):
@@ -1421,10 +1538,18 @@ class RobotBridge:
     def modify_bar_release(
         self,
         bar_id: int,
-        start_ux: int = 0, start_uy: int = 0, start_uz: int = 0,
-        start_rx: int = 0, start_ry: int = 0, start_rz: int = 0,
-        end_ux: int = 0, end_uy: int = 0, end_uz: int = 0,
-        end_rx: int = 0, end_ry: int = 0, end_rz: int = 0,
+        start_ux: int = 0,
+        start_uy: int = 0,
+        start_uz: int = 0,
+        start_rx: int = 0,
+        start_ry: int = 0,
+        start_rz: int = 0,
+        end_ux: int = 0,
+        end_uy: int = 0,
+        end_uz: int = 0,
+        end_rx: int = 0,
+        end_ry: int = 0,
+        end_rz: int = 0,
     ) -> str:
         """
         [PHASE 1] Sets end releases on an EXISTING bar (connection fixity).
@@ -1445,12 +1570,20 @@ class RobotBridge:
             ) from exc
 
         start_flags = dict(
-            UX=start_ux, UY=start_uy, UZ=start_uz,
-            RX=start_rx, RY=start_ry, RZ=start_rz,
+            UX=start_ux,
+            UY=start_uy,
+            UZ=start_uz,
+            RX=start_rx,
+            RY=start_ry,
+            RZ=start_rz,
         )
         end_flags = dict(
-            UX=end_ux, UY=end_uy, UZ=end_uz,
-            RX=end_rx, RY=end_ry, RZ=end_rz,
+            UX=end_ux,
+            UY=end_uy,
+            UZ=end_uz,
+            RX=end_rx,
+            RY=end_ry,
+            RZ=end_rz,
         )
         # Sanitize to 0/1 (accepts booleans or ints from the LLM).
         for flags in (start_flags, end_flags):
@@ -1474,8 +1607,7 @@ class RobotBridge:
             release_label = labels.Create(RobotEnum.I_LT_BAR_RELEASE, label_name)
             try:
                 data = CastTo(release_label.Data, "IRobotBarReleaseData")
-                for sub, flags in ((data.StartNode, start_flags),
-                                   (data.EndNode, end_flags)):
+                for sub, flags in ((data.StartNode, start_flags), (data.EndNode, end_flags)):
                     for dof, value in flags.items():
                         setattr(sub, dof, value)
             except Exception as exc:
@@ -1532,20 +1664,22 @@ class RobotBridge:
         try:
             actual = int(created.Number) if created is not None else None
         except Exception as exc:  # noqa: BLE001
-            actual = '<err %s>' % exc
+            actual = "<err %s>" % exc
         if created is not None and actual != int(case_id):
             logger.error(
-                'H2DIAG: CreateSimple requested case %s but Robot reported Number=%s'
-                ' - load/export may target the wrong case!', case_id, actual)
+                "H2DIAG: CreateSimple requested case %s but Robot reported Number=%s"
+                " - load/export may target the wrong case!",
+                case_id,
+                actual,
+            )
         else:
             logger.info(
-                'H2DIAG: case %s Number readback = %s (requested %s).',
-                case_id, actual, case_id)
+                "H2DIAG: case %s Number readback = %s (requested %s).", case_id, actual, case_id
+            )
         try:
-            logger.info('H2DIAG: cases.Exist(%s) = %s', case_id,
-                        bool(cases.Exist(int(case_id))))
+            logger.info("H2DIAG: cases.Exist(%s) = %s", case_id, bool(cases.Exist(int(case_id))))
         except Exception as exc:  # noqa: BLE001
-            logger.warning('H2DIAG: cases.Exist probe failed: %s', exc)
+            logger.warning("H2DIAG: cases.Exist probe failed: %s", exc)
         try:
             coll = cases.GetAll()
             n = int(coll.Count) if coll is not None else 0
@@ -1555,13 +1689,13 @@ class RobotBridge:
                     nums.append(int(coll.Get(k).Number))
                 except Exception:
                     continue
-            logger.info('H2DIAG: existing case numbers: %s', nums)
+            logger.info("H2DIAG: existing case numbers: %s", nums)
         except Exception as exc:  # noqa: BLE001
-            logger.warning('H2DIAG: case enumeration failed: %s', exc)
+            logger.warning("H2DIAG: case enumeration failed: %s", exc)
 
         return case_id
 
-    def _coincident_node_pairs(self) -> List[Tuple[int, int]]:
+    def _coincident_node_pairs(self) -> list[tuple[int, int]]:
         """[LIVE-FIX 2026-08-23] Distinct nodes sharing the same coordinate.
 
         Live evidence (A/B on identical models, sum(FZ) vs applied load):
@@ -1577,8 +1711,8 @@ class RobotBridge:
         The dropped portion is the load on the bars incident to the
         coincident end nodes. Pure helper over the bookkeeping coordinates.
         """
-        seen: Dict[Tuple[float, float, float], int] = {}
-        pairs: List[Tuple[int, int]] = []
+        seen: dict[tuple[float, float, float], int] = {}
+        pairs: list[tuple[int, int]] = []
         for nid, (x, y, z) in self._node_coords.items():
             key = (round(float(x), 6), round(float(y), 6), round(float(z), 6))
             if key in seen:
@@ -1595,7 +1729,7 @@ class RobotBridge:
         value_kn_m: float,
         direction: str = "Z",
         force_record: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Applies a uniformly distributed load (kN/m) along a bar.
 
         [LIVE-FIX 2026-08-23] If the model contains COINCIDENT-but-distinct
@@ -1614,16 +1748,14 @@ class RobotBridge:
         # [FIX M10] Validate direction
         valid_directions = {"X", "Y", "Z"}
         if direction.upper() not in valid_directions:
-            raise ValueError(
-                f"Invalid direction '{direction}'. Must be one of {valid_directions}."
-            )
+            raise ValueError(f"Invalid direction '{direction}'. Must be one of {valid_directions}.")
         direction = direction.upper()
 
         coincident = self._coincident_node_pairs()
         if coincident and not force_record:
             return self._apply_uniform_as_nodal(
-                int(bar_id), int(case_id), float(value_kn_m), direction,
-                len(coincident))
+                int(bar_id), int(case_id), float(value_kn_m), direction, len(coincident)
+            )
 
         case = CastTo(self.structure.Cases.Get(case_id), "IRobotSimpleCase")
 
@@ -1634,7 +1766,7 @@ class RobotBridge:
         # load value silently never reached PZ and results were all zeros.
         # Record type 4 (I_LRT_BAR_UNIFORM) already encodes "uniform", so no
         # distribution flag is needed.
-        axis_map = {"X": 0, "Y": 1, "Z": 2}   # I_BURV_PX / PY / PZ
+        axis_map = {"X": 0, "Y": 1, "Z": 2}  # I_BURV_PX / PY / PZ
         axis_index = axis_map[direction]
 
         # [FIX R4] Records.Create(type) returns the IRobotLoadRecord object;
@@ -1645,9 +1777,12 @@ class RobotBridge:
 
         logger.info(
             "Applied %.2f kN/m (dir=%s) to bar %s in case %s.",
-            value_kn_m, direction, bar_id, case_id,
+            value_kn_m,
+            direction,
+            bar_id,
+            case_id,
         )
-        result: Dict[str, Any] = {"method": "bar_uniform_record"}
+        result: dict[str, Any] = {"method": "bar_uniform_record"}
         if coincident and force_record:
             result["warning"] = (
                 "force_record=True on a coincident-node model: Robot "
@@ -1657,9 +1792,9 @@ class RobotBridge:
             )
         return result
 
-    def _apply_uniform_as_nodal(self, bar_id: int, case_id: int,
-                                value_kn_m: float, direction: str,
-                                n_coincident: int) -> Dict[str, Any]:
+    def _apply_uniform_as_nodal(
+        self, bar_id: int, case_id: int, value_kn_m: float, direction: str, n_coincident: int
+    ) -> dict[str, Any]:
         """Nodal-lumped equivalent of a bar UDL: q*L split 50/50 onto the
         bar's two end nodes. Exact equilibrium on every topology (the
         verified-safe path for coincident-node models)."""
@@ -1684,7 +1819,11 @@ class RobotBridge:
         logger.warning(
             "apply_bar_load: coincident-node model (%d pair(s)) -> "
             "nodal-lumped equivalent for bar %s (%.3f kN, dir %s).",
-            n_coincident, bar_id, abs(total), direction)
+            n_coincident,
+            bar_id,
+            abs(total),
+            direction,
+        )
         return {
             "method": "nodal_lumped",
             "equivalent_total_kn": round(abs(total), 4),
@@ -1725,7 +1864,8 @@ class RobotBridge:
                     f"apply_nodal_load: node {node_id} does not exist in the "
                     f"live model (was it merged into a coincident node by a "
                     f"previous solve? run export_structure_spec to see the "
-                    f"current node ids).")
+                    f"current node ids)."
+                )
         except ValueError:
             raise
         except Exception:
@@ -1734,8 +1874,8 @@ class RobotBridge:
                 self.structure.Nodes.Get(int(node_id))
             except Exception as exc:
                 raise ValueError(
-                    f"apply_nodal_load: node {node_id} does not exist in the "
-                    f"live model ({exc}).") from exc
+                    f"apply_nodal_load: node {node_id} does not exist in the live model ({exc})."
+                ) from exc
         case = CastTo(self.structure.Cases.Get(case_id), "IRobotSimpleCase")
 
         # [FIX R4/R7] Same corrected record pattern as apply_bar_load:
@@ -1743,16 +1883,21 @@ class RobotBridge:
         # assigned via record.Objects.FromText(...). Value indices follow
         # IRobotNodeForceRecordValues: FX=0, FY=1, FZ=2, CX=3, CY=4, CZ=5.
         record = case.Records.Create(RobotEnum.I_LRT_NODE_FORCE)
-        record.SetValue(0, fx_kn)     # I_NFRV_FX
-        record.SetValue(1, fy_kn)     # I_NFRV_FY (out-of-plane, 3D only)
-        record.SetValue(2, fz_kn)     # I_NFRV_FZ
-        record.SetValue(3, 0.0)       # I_NFRV_CX (moment about X)
-        record.SetValue(4, my_knm)    # I_NFRV_CY (moment about Y == MY)
-        record.SetValue(5, 0.0)       # I_NFRV_CZ
+        record.SetValue(0, fx_kn)  # I_NFRV_FX
+        record.SetValue(1, fy_kn)  # I_NFRV_FY (out-of-plane, 3D only)
+        record.SetValue(2, fz_kn)  # I_NFRV_FZ
+        record.SetValue(3, 0.0)  # I_NFRV_CX (moment about X)
+        record.SetValue(4, my_knm)  # I_NFRV_CY (moment about Y == MY)
+        record.SetValue(5, 0.0)  # I_NFRV_CZ
         record.Objects.FromText(str(node_id))
         logger.info(
             "Applied nodal load FX=%.2f FY=%.2f FZ=%.2f MY=%.2f to node %s (case %s).",
-            fx_kn, fy_kn, fz_kn, my_knm, node_id, case_id,
+            fx_kn,
+            fy_kn,
+            fz_kn,
+            my_knm,
+            node_id,
+            case_id,
         )
 
     # ------------------------------------------------------------------ #
@@ -1804,7 +1949,7 @@ class RobotBridge:
         # [FIX M11] Clamp divisions to a safe upper bound
         divisions = max(1, min(divisions, 100))
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
 
         bars = self.structure.Bars
         # [FIX R4] IRobotBarServer has no Count property in RobotOM v27 —
@@ -1837,7 +1982,9 @@ class RobotBridge:
                 except Exception as exc:
                     logger.warning(
                         "Force extraction failed for bar %s @ %.2f: %s",
-                        bar_id, ratio, exc,
+                        bar_id,
+                        ratio,
+                        exc,
                     )
                     fx = fy = fz = mx = my = mz = float("nan")
 
@@ -1854,10 +2001,19 @@ class RobotBridge:
                     }
                 )
 
-        df = pd.DataFrame(rows, columns=[
-            "Bar_ID", "Position_m", "FX_kN", "FY_kN", "FZ_kN",
-            "MX_kNm", "MY_kNm", "MZ_kNm",
-        ])
+        df = pd.DataFrame(
+            rows,
+            columns=[
+                "Bar_ID",
+                "Position_m",
+                "FX_kN",
+                "FY_kN",
+                "FZ_kN",
+                "MX_kNm",
+                "MY_kNm",
+                "MZ_kNm",
+            ],
+        )
         return df
 
     @com_thread_safe
@@ -1870,7 +2026,7 @@ class RobotBridge:
         pd.DataFrame with columns [Node_ID, Support_Type, FX_kN, FZ_kN, MY_kNm]
         """
         self._ensure_connected()
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
 
         nodes = self.structure.Nodes
         # [FIX R4] IRobotNodeServer has no Count property in RobotOM v27 —
@@ -1927,7 +2083,7 @@ class RobotBridge:
     def export_bill_of_materials(
         self,
         density_kg_m3: float = 7850.0,
-        unit_mass_lookup: Optional[Dict[str, float]] = None,
+        unit_mass_lookup: dict[str, float] | None = None,
     ) -> pd.DataFrame:
         """
         Computes total steel weight per section type using member lengths.
@@ -1948,8 +2104,8 @@ class RobotBridge:
         self._ensure_connected()
         unit_mass_lookup = unit_mass_lookup or {}
 
-        section_lengths: Dict[str, float] = {}
-        section_counts: Dict[str, int] = {}
+        section_lengths: dict[str, float] = {}
+        section_counts: dict[str, int] = {}
 
         for bar_id, section_name in self._section_assignments.items():
             length_m = self._bar_length(bar_id)
@@ -1991,7 +2147,7 @@ class RobotBridge:
         Results.Nodes.Displacements.Value(node, case).
         """
         self._ensure_connected()
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         server = self.structure.Results.Nodes.Displacements
 
         nodes = self.structure.Nodes
@@ -2017,19 +2173,37 @@ class RobotBridge:
                 ux, uy, uz = disp.UX * 1000.0, disp.UY * 1000.0, disp.UZ * 1000.0
                 rx, ry, rz = disp.RX, disp.RY, disp.RZ
             except Exception as exc:
-                logger.warning("Displacement extraction failed for node %s: %s",
-                               node_id, exc)
+                logger.warning("Displacement extraction failed for node %s: %s", node_id, exc)
                 continue
-            rows.append({
-                "Node_ID": node_id,
-                "X_m": round(x, 4), "Y_m": round(y, 4), "Z_m": round(z, 4),
-                "UX_m": round(ux, 6), "UY_m": round(uy, 6), "UZ_m": round(uz, 6),
-                "RX_rad": round(rx, 8), "RY_rad": round(ry, 8), "RZ_rad": round(rz, 8),
-            })
-        return pd.DataFrame(rows, columns=[
-            "Node_ID", "X_m", "Y_m", "Z_m",
-            "UX_m", "UY_m", "UZ_m", "RX_rad", "RY_rad", "RZ_rad",
-        ])
+            rows.append(
+                {
+                    "Node_ID": node_id,
+                    "X_m": round(x, 4),
+                    "Y_m": round(y, 4),
+                    "Z_m": round(z, 4),
+                    "UX_m": round(ux, 6),
+                    "UY_m": round(uy, 6),
+                    "UZ_m": round(uz, 6),
+                    "RX_rad": round(rx, 8),
+                    "RY_rad": round(ry, 8),
+                    "RZ_rad": round(rz, 8),
+                }
+            )
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "Node_ID",
+                "X_m",
+                "Y_m",
+                "Z_m",
+                "UX_m",
+                "UY_m",
+                "UZ_m",
+                "RX_rad",
+                "RY_rad",
+                "RZ_rad",
+            ],
+        )
 
     @com_thread_safe
     def export_bar_stresses(self, case_id: int = 1, divisions: int = 5) -> pd.DataFrame:
@@ -2045,7 +2219,7 @@ class RobotBridge:
         """
         self._ensure_connected()
         divisions = max(1, min(divisions, 100))
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         bars = self.structure.Bars
         bar_coll = bars.GetAll()
         bar_count = int(bar_coll.Count) if bar_coll is not None else 0
@@ -2079,13 +2253,26 @@ class RobotBridge:
                     }
                     rows.append(row)
                 except Exception as exc:
-                    logger.warning("Stress extraction failed for bar %s @ %.2f: %s",
-                                   bar_id, ratio, exc)
-        return pd.DataFrame(rows, columns=[
-            "Bar_ID", "Position_m", "FXSX_MPa", "Smax_MPa", "Smin_MPa",
-            "SmaxMY_MPa", "SmaxMZ_MPa", "SminMY_MPa", "SminMZ_MPa",
-            "ShearY_MPa", "ShearZ_MPa", "Torsion_MPa",
-        ])
+                    logger.warning(
+                        "Stress extraction failed for bar %s @ %.2f: %s", bar_id, ratio, exc
+                    )
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "Bar_ID",
+                "Position_m",
+                "FXSX_MPa",
+                "Smax_MPa",
+                "Smin_MPa",
+                "SmaxMY_MPa",
+                "SmaxMZ_MPa",
+                "SminMY_MPa",
+                "SminMZ_MPa",
+                "ShearY_MPa",
+                "ShearZ_MPa",
+                "Torsion_MPa",
+            ],
+        )
 
     # ------------------------------------------------------------------ #
     # P4: utilization ratios (analytical code check)
@@ -2103,7 +2290,7 @@ class RobotBridge:
 
     _SQRT3 = 1.7320508075688772
 
-    def _bar_strength_mpa(self, bar_obj) -> Tuple[Optional[float], str, str]:
+    def _bar_strength_mpa(self, bar_obj) -> tuple[float | None, str, str]:
         """[P4] Returns (fy_MPa or None, material_name, reason) for a bar.
 
         Lookup order: the bar's own material label (RE), then the material
@@ -2111,7 +2298,7 @@ class RobotBridge:
         """
         labels = self.structure.Labels
 
-        def _re_of_label(mat_name: str) -> Optional[float]:
+        def _re_of_label(mat_name: str) -> float | None:
             try:
                 data = labels.Get(RobotEnum.I_LT_MATERIAL, mat_name).Data
                 re_pa = float(data.RE or 0.0)
@@ -2129,23 +2316,27 @@ class RobotBridge:
             fy = _re_of_label(mat_name)
             if fy is not None:
                 return fy, mat_name, ""
-            return None, mat_name, (
-                f"material '{mat_name}' has no design strength (RE=0); "
-                "re-apply with set_material(..., fy_mpa=...)")
+            return (
+                None,
+                mat_name,
+                (
+                    f"material '{mat_name}' has no design strength (RE=0); "
+                    "re-apply with set_material(..., fy_mpa=...)"
+                ),
+            )
 
         # Fall back to the section's material reference.
         try:
             sec_name = str(bar_obj.GetLabelName(RobotEnum.I_LT_BAR_SECTION))
             sdata = CastTo(
-                labels.Get(RobotEnum.I_LT_BAR_SECTION, sec_name).Data,
-                "IRobotBarSectionData")
+                labels.Get(RobotEnum.I_LT_BAR_SECTION, sec_name).Data, "IRobotBarSectionData"
+            )
             sec_mat = str(sdata.MaterialName or "")
             if sec_mat:
                 fy = _re_of_label(sec_mat)
                 if fy is not None:
                     return fy, sec_mat, ""
-                return None, sec_mat, (
-                    f"material '{sec_mat}' (from section) has RE=0")
+                return None, sec_mat, (f"material '{sec_mat}' (from section) has RE=0")
         except Exception:
             pass
         return None, "", "no material label or section material found"
@@ -2154,7 +2345,7 @@ class RobotBridge:
     def get_utilization_ratios(
         self,
         case_id: int = 1,
-        bar_ids: Optional[List[int]] = None,
+        bar_ids: list[int] | None = None,
         divisions: int = 5,
     ) -> pd.DataFrame:
         """
@@ -2182,7 +2373,7 @@ class RobotBridge:
         ids = list(bar_ids) if bar_ids else all_ids
         stress_srv = self.structure.Results.Bars.Stresses
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for bar_id in ids:
             if bar_id not in all_ids:
                 rows.append({"Bar_ID": bar_id, "Status": "NOT_IN_MODEL"})
@@ -2194,66 +2385,93 @@ class RobotBridge:
                 sec_name = ""
             fy, mat_name, reason = self._bar_strength_mpa(bar_obj)
             if fy is None or fy <= 0.0:
-                rows.append({
-                    "Bar_ID": bar_id, "Section": sec_name,
-                    "Material": mat_name, "fy_MPa": None,
-                    "Utilization": None, "Governing_Check": "N/A",
-                    "Combined_Normal": None, "Axial": None,
-                    "Shear_Y": None, "Shear_Z": None, "Torsion": None,
-                    "Status": "NOT_CHECKABLE", "Reason": reason,
-                })
+                rows.append(
+                    {
+                        "Bar_ID": bar_id,
+                        "Section": sec_name,
+                        "Material": mat_name,
+                        "fy_MPa": None,
+                        "Utilization": None,
+                        "Governing_Check": "N/A",
+                        "Combined_Normal": None,
+                        "Axial": None,
+                        "Shear_Y": None,
+                        "Shear_Z": None,
+                        "Torsion": None,
+                        "Status": "NOT_CHECKABLE",
+                        "Reason": reason,
+                    }
+                )
                 continue
 
-            comp = {k: 0.0 for k in
-                    ("combined", "axial", "shear_y", "shear_z", "torsion")}
+            comp = {k: 0.0 for k in ("combined", "axial", "shear_y", "shear_z", "torsion")}
             # Always include the midspan station: divisions=5 (default)
             # samples 0,.2,.4,.6,.8,1 and would miss the peak moment.
-            stations = sorted({round(d / divisions, 6) for d in
-                               range(divisions + 1)} | {0.5})
+            stations = sorted({round(d / divisions, 6) for d in range(divisions + 1)} | {0.5})
             for ratio_pos in stations:
                 try:
                     s = stress_srv.Value(bar_id, case_id, ratio_pos)
                     comp["combined"] = max(
-                        comp["combined"],
-                        max(abs(s.Smax), abs(s.Smin)) * 1e-3 / fy)
-                    comp["axial"] = max(
-                        comp["axial"], abs(s.FXSX) * 1e-3 / fy)
+                        comp["combined"], max(abs(s.Smax), abs(s.Smin)) * 1e-3 / fy
+                    )
+                    comp["axial"] = max(comp["axial"], abs(s.FXSX) * 1e-3 / fy)
                     comp["shear_y"] = max(
-                        comp["shear_y"],
-                        abs(s.ShearY) * 1e-3 / (fy / self._SQRT3))
+                        comp["shear_y"], abs(s.ShearY) * 1e-3 / (fy / self._SQRT3)
+                    )
                     comp["shear_z"] = max(
-                        comp["shear_z"],
-                        abs(s.ShearZ) * 1e-3 / (fy / self._SQRT3))
+                        comp["shear_z"], abs(s.ShearZ) * 1e-3 / (fy / self._SQRT3)
+                    )
                     comp["torsion"] = max(
-                        comp["torsion"],
-                        abs(s.Torsion) * 1e-3 / (fy / self._SQRT3))
+                        comp["torsion"], abs(s.Torsion) * 1e-3 / (fy / self._SQRT3)
+                    )
                 except Exception:
                     continue
-            names = {"combined": "combined_normal", "axial": "axial",
-                     "shear_y": "shear_y", "shear_z": "shear_z",
-                     "torsion": "torsion"}
+            names = {
+                "combined": "combined_normal",
+                "axial": "axial",
+                "shear_y": "shear_y",
+                "shear_z": "shear_z",
+                "torsion": "torsion",
+            }
             gov_name, util = "N/A", 0.0
             for k, v in comp.items():
                 if v > util:
                     util, gov_name = v, names[k]
-            rows.append({
-                "Bar_ID": bar_id, "Section": sec_name,
-                "Material": mat_name, "fy_MPa": round(fy, 1),
-                "Utilization": round(util, 4),
-                "Governing_Check": gov_name,
-                "Combined_Normal": round(comp["combined"], 4),
-                "Axial": round(comp["axial"], 4),
-                "Shear_Y": round(comp["shear_y"], 4),
-                "Shear_Z": round(comp["shear_z"], 4),
-                "Torsion": round(comp["torsion"], 4),
-                "Status": "PASS" if util <= 1.0 else "FAIL",
-                "Reason": "",
-            })
-        return pd.DataFrame(rows, columns=[
-            "Bar_ID", "Section", "Material", "fy_MPa", "Utilization",
-            "Governing_Check", "Combined_Normal", "Axial", "Shear_Y",
-            "Shear_Z", "Torsion", "Status", "Reason",
-        ])
+            rows.append(
+                {
+                    "Bar_ID": bar_id,
+                    "Section": sec_name,
+                    "Material": mat_name,
+                    "fy_MPa": round(fy, 1),
+                    "Utilization": round(util, 4),
+                    "Governing_Check": gov_name,
+                    "Combined_Normal": round(comp["combined"], 4),
+                    "Axial": round(comp["axial"], 4),
+                    "Shear_Y": round(comp["shear_y"], 4),
+                    "Shear_Z": round(comp["shear_z"], 4),
+                    "Torsion": round(comp["torsion"], 4),
+                    "Status": "PASS" if util <= 1.0 else "FAIL",
+                    "Reason": "",
+                }
+            )
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "Bar_ID",
+                "Section",
+                "Material",
+                "fy_MPa",
+                "Utilization",
+                "Governing_Check",
+                "Combined_Normal",
+                "Axial",
+                "Shear_Y",
+                "Shear_Z",
+                "Torsion",
+                "Status",
+                "Reason",
+            ],
+        )
 
     # ------------------------------------------------------------------ #
     # P5: load combinations (first-class objects)
@@ -2268,16 +2486,15 @@ class RobotBridge:
     # Calculate() evaluates combinations automatically and idempotently
     # (verified: 1.2D+1.6L returned exactly 1.2*M_dead + 1.6*M_live).
 
-
-    def _iter_all_cases(self) -> List[Tuple[int, Any]]:
+    def _iter_all_cases(self) -> list[tuple[int, Any]]:
         """[P5] Returns [(case_number, case_object)] for every defined case."""
-        out: List[Tuple[int, Any]] = []
+        out: list[tuple[int, Any]] = []
         try:
             coll = self.structure.Cases.GetAll()
             n = int(coll.Count) if coll is not None else 0
         except Exception:
             n = 0
-        for i in range(1, n + 1):   # collection Get() is 1-based (verified live)
+        for i in range(1, n + 1):  # collection Get() is 1-based (verified live)
             try:
                 obj = coll.Get(i)
                 num = int(obj.Number)
@@ -2290,14 +2507,14 @@ class RobotBridge:
     # [EUROCODE Phase A] Bracing / unbraced-length side-table
     # ------------------------------------------------------------------ #
 
-    def _real_bar_ids(self) -> List[int]:
+    def _real_bar_ids(self) -> list[int]:
         """Real, existing bar numbers (T2: never trust a bare .Get()).
 
         Bare ``.Get(n)`` on Robot collections SILENTLY auto-creates proxies
         for nonexistent IDs on this build — validation always goes through
         a real enumeration.
         """
-        out: List[int] = []
+        out: list[int] = []
         try:
             coll = self.structure.Bars.GetAll()
             n = int(coll.Count) if coll is not None else 0
@@ -2314,11 +2531,11 @@ class RobotBridge:
     def set_bar_bracing(
         self,
         bar_id: int,
-        lcr_y: Optional[float] = None,
-        lcr_z: Optional[float] = None,
-        lcr_lt: Optional[float] = None,
-        brace_points: Optional[List[float]] = None,
-    ) -> Dict[str, Any]:
+        lcr_y: float | None = None,
+        lcr_z: float | None = None,
+        lcr_lt: float | None = None,
+        brace_points: list[float] | None = None,
+    ) -> dict[str, Any]:
         """[EUROCODE Phase A] Records engineer-specified unbraced lengths /
         bracing points for a bar in the session bracing registry.
 
@@ -2336,15 +2553,21 @@ class RobotBridge:
             raise ValueError(
                 f"bar {bar_id} does not exist in the model "
                 f"(real bars: {sorted(self._real_bar_ids())[:10]}"
-                f"{'...' if len(self._real_bar_ids()) > 10 else ''}).")
+                f"{'...' if len(self._real_bar_ids()) > 10 else ''})."
+            )
         length_m = self._bar_length(bar_id)
         self.bracing.set_bracing(
-            bar_id, lcr_y=lcr_y, lcr_z=lcr_z, lcr_lt=lcr_lt,
-            brace_points=brace_points, bar_length=length_m)
+            bar_id,
+            lcr_y=lcr_y,
+            lcr_z=lcr_z,
+            lcr_lt=lcr_lt,
+            brace_points=brace_points,
+            bar_length=length_m,
+        )
         return self.bracing.resolve(bar_id, length_m)
 
     @com_thread_safe
-    def get_bar_bracing(self, bar_id: Optional[int] = None) -> Dict[str, Any]:
+    def get_bar_bracing(self, bar_id: int | None = None) -> dict[str, Any]:
         """[EUROCODE Phase A] Resolved bracing summary for one bar (or all
         bars that have any entry, plus all real bars when none are set).
 
@@ -2358,23 +2581,24 @@ class RobotBridge:
             bar_id = int(bar_id)
             if bar_id not in real:
                 raise ValueError(
-                    f"bar {bar_id} does not exist in the model "
-                    f"(real bars: {sorted(real)[:10]}).")
+                    f"bar {bar_id} does not exist in the model (real bars: {sorted(real)[:10]})."
+                )
             return self.bracing.resolve(bar_id, self._bar_length(bar_id))
         rows = []
         for bid in sorted(real):
             rows.append(self.bracing.resolve(bid, self._bar_length(bid)))
-        return {"bars": rows,
-                "note": "lcr_*_source 'defaulted' = conservative full-length "
-                        "assumption, not a verified bracing condition."}
+        return {
+            "bars": rows,
+            "note": "lcr_*_source 'defaulted' = conservative full-length "
+            "assumption, not a verified bracing condition.",
+        }
 
     # ------------------------------------------------------------------ #
     # [EUROCODE Phase D] Simple-shear connection side-table + checks
     # ------------------------------------------------------------------ #
 
     @com_thread_safe
-    def define_connection(self, bar_id: int, joint_end: str = "end",
-                          **kwargs) -> Dict[str, Any]:
+    def define_connection(self, bar_id: int, joint_end: str = "end", **kwargs) -> dict[str, Any]:
         """[EUROCODE Phase D] Stores a simple-shear connection definition
         (fin plate / double angle / end plate) in the session side-table.
 
@@ -2388,14 +2612,18 @@ class RobotBridge:
         if bar_id not in self._real_bar_ids():
             raise ValueError(
                 f"bar {bar_id} does not exist in the model "
-                f"(real bars: {sorted(self._real_bar_ids())[:10]}).")
-        return {"bar_id": bar_id, "joint_end": str(joint_end or "end").lower(),
-                "connection": self.connections.set_connection(
-                    bar_id, joint_end, **kwargs)}
+                f"(real bars: {sorted(self._real_bar_ids())[:10]})."
+            )
+        return {
+            "bar_id": bar_id,
+            "joint_end": str(joint_end or "end").lower(),
+            "connection": self.connections.set_connection(bar_id, joint_end, **kwargs),
+        }
 
     @com_thread_safe
-    def check_connection_capacity(self, bar_id: int, joint_end: str = "end",
-                                  case_id: int = 1) -> Dict[str, Any]:
+    def check_connection_capacity(
+        self, bar_id: int, joint_end: str = "end", case_id: int = 1
+    ) -> dict[str, Any]:
         """[EUROCODE Phase D] Checks the DEFINED connection at ``joint_end``
         against the solved end shear (EN 1993-1-8 simple shear). Bearing on
         the beam web uses the live section web thickness; the member grade
@@ -2406,19 +2634,26 @@ class RobotBridge:
         if bar_id not in self._real_bar_ids():
             raise ValueError(
                 f"bar {bar_id} does not exist in the model "
-                f"(real bars: {sorted(self._real_bar_ids())[:10]}).")
+                f"(real bars: {sorted(self._real_bar_ids())[:10]})."
+            )
         joint_end = str(joint_end or "end").lower()
         conn = self.connections.get(bar_id, joint_end)
         base = {"bar_id": bar_id, "joint_end": joint_end}
         if conn is None:
-            return {**base, "status": "NOT_CHECKABLE",
-                    "reason": "no connection defined for this bar/joint_end "
-                              "(call define_connection first)."}
+            return {
+                **base,
+                "status": "NOT_CHECKABLE",
+                "reason": "no connection defined for this bar/joint_end "
+                "(call define_connection first).",
+            }
         df = self.export_all_member_forces(case_id=int(case_id), divisions=8)
         sub = df[df["Bar_ID"] == bar_id] if df is not None else None
         if sub is None or sub.empty:
-            return {**base, "status": "NOT_CHECKABLE",
-                    "reason": "no force results for this case — solve first."}
+            return {
+                **base,
+                "status": "NOT_CHECKABLE",
+                "reason": "no force results for this case — solve first.",
+            }
         row = sub.iloc[0] if joint_end == "start" else sub.iloc[-1]
         fy_kn, fz_kn = float(row.get("FY_kN", 0.0)), float(row.get("FZ_kN", 0.0))
         v_ed_n = math.hypot(fy_kn, fz_kn) * 1e3
@@ -2435,12 +2670,12 @@ class RobotBridge:
         except Exception:
             pass
 
-        res = check_simple_shear_connection(conn, v_ed_n,
-                                            member_fu_mpa=member_fu,
-                                            member_web_t_mm=member_tw)
+        res = check_simple_shear_connection(
+            conn, v_ed_n, member_fu_mpa=member_fu, member_web_t_mm=member_tw
+        )
         return {**base, **res}
 
-    def _as_combination(self, case_obj) -> Optional[Any]:
+    def _as_combination(self, case_obj) -> Any | None:
         """[P5] Returns the IRobotCaseCombination view of a case, or None.
 
         CAUTION (verified live): CastTo to IRobotCaseCombination succeeds
@@ -2450,7 +2685,7 @@ class RobotBridge:
         without a readable Type is AnalizeType == I_CAT_COMB (0).
         """
         try:
-            if int(case_obj.Type) != 1:      # 1 = I_CT_COMBINATION
+            if int(case_obj.Type) != 1:  # 1 = I_CT_COMBINATION
                 return None
         except Exception:
             try:
@@ -2467,7 +2702,7 @@ class RobotBridge:
     def define_combination(
         self,
         name: str,
-        case_factors: Dict[int, float],
+        case_factors: dict[int, float],
         combination_type: str = "ULS",
     ) -> dict:
         """
@@ -2481,28 +2716,29 @@ class RobotBridge:
         if not name or not str(name).strip():
             raise ValueError("define_combination requires a non-empty name.")
         if not case_factors:
-            raise ValueError("case_factors must map at least one "
-                             "{case_id: factor}.")
+            raise ValueError("case_factors must map at least one {case_id: factor}.")
         cbt = RobotEnum.CBT_NAMES.get(str(combination_type).upper())
         if cbt is None:
             raise ValueError(
                 f"combination_type must be one of "
-                f"{sorted(RobotEnum.CBT_NAMES)} — got '{combination_type}'.")
+                f"{sorted(RobotEnum.CBT_NAMES)} — got '{combination_type}'."
+            )
 
         cases = self.structure.Cases
         # Validate component cases: must exist and be simple cases.
-        simple_case_names: Dict[int, str] = {}
+        simple_case_names: dict[int, str] = {}
         for cid, factor in case_factors.items():
             cid_i, factor_f = int(cid), float(factor)
             if not cases.Exist(cid_i):
                 raise ValueError(
                     f"Case {cid_i} does not exist — create it with "
-                    "create_load_case before combining.")
+                    "create_load_case before combining."
+                )
             obj = cases.Get(cid_i)
             if self._as_combination(obj) is not None:
                 raise ValueError(
-                    f"Case {cid_i} is itself a combination — nested "
-                    "combinations are not supported.")
+                    f"Case {cid_i} is itself a combination — nested combinations are not supported."
+                )
             try:
                 simple_case_names[cid_i] = str(obj.Name)
             except Exception:
@@ -2521,22 +2757,22 @@ class RobotBridge:
                 continue
 
         try:
-            num = int(cases.FreeNumber)   # property, not a method (makepy)
+            num = int(cases.FreeNumber)  # property, not a method (makepy)
         except Exception:
             num = 1 + max([n for n, _ in self._iter_all_cases()] or [0])
         try:
-            cases.CreateCombination(num, str(name), cbt,
-                                    RobotEnum.I_CN_PERMANENT,
-                                    RobotEnum.I_CAT_COMB)
+            cases.CreateCombination(
+                num, str(name), cbt, RobotEnum.I_CN_PERMANENT, RobotEnum.I_CAT_COMB
+            )
         except Exception as exc:
-            raise RuntimeError(
-                f"Robot refused to create combination '{name}': {exc}")
+            raise RuntimeError(f"Robot refused to create combination '{name}': {exc}")
 
         combo = self._as_combination(cases.Get(num))
         if combo is None:
             raise RuntimeError(
                 f"Combination '{name}' (case {num}) could not be resolved "
-                "via IRobotCaseCombination.")
+                "via IRobotCaseCombination."
+            )
         cf = combo.CaseFactors
         for cid, factor in case_factors.items():
             try:
@@ -2545,45 +2781,45 @@ class RobotBridge:
                 # Fallback: raw dispatch Invoke with an explicit 3rd arg
                 # (the typed stub's 2-arg call is rejected by some builds).
                 try:
-                    cf._oleobj_.Invoke(1610743809, 0, 1,
-                                       int(cid), float(factor), 0)
+                    cf._oleobj_.Invoke(1610743809, 0, 1, int(cid), float(factor), 0)
                 except Exception:
                     raise RuntimeError(
-                        f"Failed to add factor {factor} x case {cid} to "
-                        f"combination '{name}': {exc}")
+                        f"Failed to add factor {factor} x case {cid} to combination '{name}': {exc}"
+                    )
 
         readback = []
         try:
             for i in range(1, int(cf.Count) + 1):
                 f = cf.Get(i)
-                readback.append({"case": int(f.CaseNumber),
-                                 "factor": round(float(f.Factor), 6)})
+                readback.append({"case": int(f.CaseNumber), "factor": round(float(f.Factor), 6)})
         except Exception:
-            readback = [{"case": int(k), "factor": round(float(v), 6)}
-                        for k, v in case_factors.items()]
+            readback = [
+                {"case": int(k), "factor": round(float(v), 6)} for k, v in case_factors.items()
+            ]
         return {
-            "combination": str(name), "case_id": num,
+            "combination": str(name),
+            "case_id": num,
             "type": str(combination_type).upper(),
             "factors": readback,
             "component_cases": simple_case_names,
             "note": "Combinations are evaluated automatically by solve() "
-                    "(verified live) — no separate trigger needed.",
+            "(verified live) — no separate trigger needed.",
         }
 
     @com_thread_safe
-    def list_combinations(self) -> List[dict]:
+    def list_combinations(self) -> list[dict]:
         """[P5] Lists every defined combination with its factors."""
         self._ensure_connected()
-        out: List[dict] = []
+        out: list[dict] = []
         for num, obj in self._iter_all_cases():
             cmb = self._as_combination(obj)
             if cmb is None:
                 continue
             entry = {"case_id": num, "name": str(cmb.Name)}
             try:
-                entry["type"] = {0: "ULS", 1: "SLS", 2: "ALS",
-                                 3: "SPC"}.get(int(cmb.CombinationType),
-                                               str(cmb.CombinationType))
+                entry["type"] = {0: "ULS", 1: "SLS", 2: "ALS", 3: "SPC"}.get(
+                    int(cmb.CombinationType), str(cmb.CombinationType)
+                )
             except Exception:
                 entry["type"] = "?"
             factors = []
@@ -2591,8 +2827,7 @@ class RobotBridge:
                 cf = cmb.CaseFactors
                 for i in range(1, int(cf.Count) + 1):
                     f = cf.Get(i)
-                    factors.append({"case": int(f.CaseNumber),
-                                    "factor": round(float(f.Factor), 6)})
+                    factors.append({"case": int(f.CaseNumber), "factor": round(float(f.Factor), 6)})
             except Exception:
                 pass
             entry["factors"] = factors
@@ -2600,7 +2835,7 @@ class RobotBridge:
         return out
 
     @com_thread_safe
-    def solve_combination(self, name: Optional[str] = None) -> dict:
+    def solve_combination(self, name: str | None = None) -> dict:
         """
         [P5] Runs the solver. VERIFIED LIVE: CalcEngine.Calculate()
         evaluates ALL cases AND combinations in one call — combinations
@@ -2611,12 +2846,14 @@ class RobotBridge:
         self._ensure_connected()
         combos_before = self.list_combinations()
         if name is not None:
-            match = [c for c in combos_before
-                     if c["name"].strip().lower() == str(name).strip().lower()]
+            match = [
+                c for c in combos_before if c["name"].strip().lower() == str(name).strip().lower()
+            ]
             if not match:
                 raise ValueError(
                     f"No combination named '{name}'. Defined: "
-                    f"{[c['name'] for c in combos_before] or '(none)'}.")
+                    f"{[c['name'] for c in combos_before] or '(none)'}."
+                )
         self.solve()
         return {
             "status": "ok",
@@ -2625,7 +2862,8 @@ class RobotBridge:
                 "Solver run completed. Robot's Calculate() evaluates all "
                 "combinations automatically (verified live); read combined "
                 "results with export_member_forces / export_reactions using "
-                "the combination's case_id, or get_governing_combination."),
+                "the combination's case_id, or get_governing_combination."
+            ),
         }
 
     @com_thread_safe
@@ -2661,25 +2899,29 @@ class RobotBridge:
                 nm = f"Case {num}"
             worst = 0.0
             for ratio_pos in sorted(
-                    {round(d / divisions, 6) for d in range(divisions + 1)}
-                    | {0.5}):   # midspan matters (peak moment)
+                {round(d / divisions, 6) for d in range(divisions + 1)} | {0.5}
+            ):  # midspan matters (peak moment)
                 try:
-                    v = abs(float(getattr(
-                        force_srv.Value(bar_id, num, ratio_pos),
-                        component)))
+                    v = abs(float(getattr(force_srv.Value(bar_id, num, ratio_pos), component)))
                     worst = max(worst, v)
                 except Exception:
                     continue
-            ranking.append({"case_id": num, "name": nm,
-                            "kind": "combination" if is_combo else "case",
-                            f"max_abs_{component}": round(worst, 4)})
+            ranking.append(
+                {
+                    "case_id": num,
+                    "name": nm,
+                    "kind": "combination" if is_combo else "case",
+                    f"max_abs_{component}": round(worst, 4),
+                }
+            )
         ranking.sort(key=lambda r: r[f"max_abs_{component}"], reverse=True)
         combos = [r for r in ranking if r["kind"] == "combination"]
-        governing = combos[0] if combos else (
-            ranking[0] if ranking else None)
+        governing = combos[0] if combos else (ranking[0] if ranking else None)
         return {
-            "bar_id": bar_id, "component": component,
-            "governing": governing, "ranking": ranking,
+            "bar_id": bar_id,
+            "component": component,
+            "governing": governing,
+            "ranking": ranking,
         }
 
     # ------------------------------------------------------------------ #
@@ -2695,8 +2937,23 @@ class RobotBridge:
     # Objects.CreateSolid (face-string syntax) and are implemented for
     # real. All of this is reported honestly in the tool descriptions.
 
-    _PANEL_BAR_SECTIONS = [100, 120, 140, 160, 180, 200, 220, 240, 270,
-                           300, 330, 360, 400, 450, 500]
+    _PANEL_BAR_SECTIONS = [
+        100,
+        120,
+        140,
+        160,
+        180,
+        200,
+        220,
+        240,
+        270,
+        300,
+        330,
+        360,
+        400,
+        450,
+        500,
+    ]
 
     def _nearest_panel_section(self, thickness_m: float) -> str:
         """[WP4] Maps a plate thickness (m) onto the nearest IPE depth (mm),
@@ -2709,9 +2966,9 @@ class RobotBridge:
     def set_material(
         self,
         material_name: str = "STEEL",
-        e_mpa: Optional[float] = None,
-        nu: Optional[float] = None,
-        fy_mpa: Optional[float] = None,
+        e_mpa: float | None = None,
+        nu: float | None = None,
+        fy_mpa: float | None = None,
         apply_to_bars: bool = True,
     ) -> dict:
         """
@@ -2741,8 +2998,7 @@ class RobotBridge:
         if fy_mpa is not None:
             data.RE = float(fy_mpa) * 1e6  # MPa -> Pa (verified: STEEL.RE=235e6)
         labels.Store(lab)
-        logger.info("Material label '%s' stored (E=%.3g Pa, RE=%.3g Pa).",
-                    name, data.E, data.RE)
+        logger.info("Material label '%s' stored (E=%.3g Pa, RE=%.3g Pa).", name, data.E, data.RE)
 
         applied = 0
         if apply_to_bars:
@@ -2750,14 +3006,11 @@ class RobotBridge:
             count = int(bar_coll.Count) if bar_coll is not None else 0
             for bar_id in self._enumerate_bar_ids(self.structure.Bars, count):
                 try:
-                    self.structure.Bars.Get(bar_id).SetLabel(
-                        RobotEnum.I_LT_MATERIAL, name)
+                    self.structure.Bars.Get(bar_id).SetLabel(RobotEnum.I_LT_MATERIAL, name)
                     applied += 1
                 except Exception as exc:
-                    logger.warning("Material apply failed on bar %s: %s",
-                                   bar_id, exc)
-        return {"material": name, "e_pa": data.E,
-                "bars_reassigned": applied}
+                    logger.warning("Material apply failed on bar %s: %s", bar_id, exc)
+        return {"material": name, "e_pa": data.E, "bars_reassigned": applied}
 
     @com_thread_safe
     def create_panel(
@@ -2800,20 +3053,20 @@ class RobotBridge:
         # Build the grid of nodes in the panel plane.
         nx, nz = dx + 1, dz + 1
         next_node = self._first_free_node_number()
-        grid: List[List[int]] = [[0] * nz for _ in range(nx)]
+        grid: list[list[int]] = [[0] * nz for _ in range(nx)]
         for i in range(nx):
             for j in range(nz):
-                if normal == "Y":      # horizontal slab, X x Z
+                if normal == "Y":  # horizontal slab, X x Z
                     fx, fy, fz = x + i * width / dx, y, z + j * height / dz
-                elif normal == "X":    # wall in Y x Z
+                elif normal == "X":  # wall in Y x Z
                     fx, fy, fz = x, y + i * width / dx, z + j * height / dz
-                else:                  # wall in X x Y
+                else:  # wall in X x Y
                     fx, fy, fz = x + i * width / dx, y + j * height / dz, z
                 nid = next_node + i * nz + j
                 grid[i][j] = self.create_node(nid, fx, fy, fz)
 
         # Grillage bars: horizontal rows + vertical columns (+ diagonals).
-        bar_ids: List[int] = []
+        bar_ids: list[int] = []
         next_bar = self._first_free_bar_number()
         for j in range(dz + 1):
             for i in range(dx):
@@ -2829,24 +3082,29 @@ class RobotBridge:
             for i in range(dx):
                 for j in range(dz):
                     bid = next_bar + len(bar_ids)
-                    self.create_bar(bid, grid[i][j], grid[i + 1][j + 1],
-                                    section)
+                    self.create_bar(bid, grid[i][j], grid[i + 1][j + 1], section)
                     bar_ids.append(bid)
                     bid = next_bar + len(bar_ids)
-                    self.create_bar(bid, grid[i + 1][j], grid[i][j + 1],
-                                    section)
+                    self.create_bar(bid, grid[i + 1][j], grid[i][j + 1], section)
                     bar_ids.append(bid)
 
         self._panel_meta[panel_id] = {
-            "normal": normal, "dx": dx, "dz": dz,
-            "width": float(width), "height": float(height),
-            "grid": grid, "bar_ids": bar_ids,
+            "normal": normal,
+            "dx": dx,
+            "dz": dz,
+            "width": float(width),
+            "height": float(height),
+            "grid": grid,
+            "bar_ids": bar_ids,
         }
-        logger.info("Panel %s grillage: %s nodes, %s bars.",
-                    panel_id, nx * nz, len(bar_ids))
-        return {"panel_id": panel_id, "nodes": nx * nz,
-                "bars": len(bar_ids), "normal": normal,
-                "bar_ids": bar_ids[:20]}
+        logger.info("Panel %s grillage: %s nodes, %s bars.", panel_id, nx * nz, len(bar_ids))
+        return {
+            "panel_id": panel_id,
+            "nodes": nx * nz,
+            "bars": len(bar_ids),
+            "normal": normal,
+            "bar_ids": bar_ids[:20],
+        }
 
     @com_thread_safe
     def set_panel_thickness(self, panel_id: int, thickness_m: float) -> dict:
@@ -2867,8 +3125,7 @@ class RobotBridge:
                 changed += 1
             except Exception as exc:
                 logger.warning("set_panel_thickness bar %s: %s", bid, exc)
-        return {"panel_id": panel_id, "section": section,
-                "bars_resectioned": changed}
+        return {"panel_id": panel_id, "section": section, "bars_resectioned": changed}
 
     @com_thread_safe
     def apply_panel_pressure(
@@ -2912,13 +3169,21 @@ class RobotBridge:
                 else:
                     self._apply_nodal_load_xyz(nid, case_id, 0.0, f, 0.0)
                 count += 1
-        return {"panel_id": panel_id, "pressure_kpa": p,
-                "total_force_kN": round(total, 3), "nodes_loaded": count}
+        return {
+            "panel_id": panel_id,
+            "pressure_kpa": p,
+            "total_force_kN": round(total, 3),
+            "nodes_loaded": count,
+        }
 
     @com_thread_safe
     def _apply_nodal_load_xyz(
-        self, node_id: int, case_id: int,
-        fx: float, fy: float, fz: float,
+        self,
+        node_id: int,
+        case_id: int,
+        fx: float,
+        fy: float,
+        fz: float,
     ) -> None:
         """[WP4] Full 3-axis nodal force via the verified record pattern."""
         self._ensure_connected()
@@ -2933,8 +3198,8 @@ class RobotBridge:
     def create_solid(
         self,
         solid_id: int,
-        node_ids: List[int],
-        face_groups: List[List[int]],
+        node_ids: list[int],
+        face_groups: list[list[int]],
     ) -> dict:
         """
         [WP4 VERIFIED] Creates a native 3D solid volume from existing nodes.
@@ -2943,8 +3208,7 @@ class RobotBridge:
         with the semicolon-separated face string.
         """
         self._ensure_connected()
-        faces = ";".join(
-            " ".join(str(n) for n in face) for face in face_groups)
+        faces = ";".join(" ".join(str(n) for n in face) for face in face_groups)
         try:
             obj = self.structure.Objects.CreateSolid(solid_id, faces)
         except Exception as exc:
@@ -2971,11 +3235,17 @@ class RobotBridge:
             volume = self.structure.Objects.CalcVol()
         except Exception:
             volume = None
-        return {"solid_id": solid_id, "nodes": len(node_ids),
-                "faces": len(face_groups), "created": exists,
-                "is_volume": is_volume, "volume_m3": volume,
-                "object": type(obj).__name__ if obj is not None
-                else ("IRobotObjObject" if exists else None)}
+        return {
+            "solid_id": solid_id,
+            "nodes": len(node_ids),
+            "faces": len(face_groups),
+            "created": exists,
+            "is_volume": is_volume,
+            "volume_m3": volume,
+            "object": type(obj).__name__
+            if obj is not None
+            else ("IRobotObjObject" if exists else None),
+        }
 
     @com_thread_safe
     def create_solid_box(
@@ -2997,10 +3267,14 @@ class RobotBridge:
         sx, sy, sz = size_x, size_y, size_z
         ox, oy, oz = origin_x, origin_y, origin_z
         corners = [
-            (ox, oy, oz), (ox + sx, oy, oz), (ox + sx, oy, oz + sz),
-            (ox, oy, oz + sz),          # bottom face CCW
-            (ox, oy + sy, oz), (ox + sx, oy + sy, oz),
-            (ox + sx, oy + sy, oz + sz), (ox, oy + sy, oz + sz),
+            (ox, oy, oz),
+            (ox + sx, oy, oz),
+            (ox + sx, oy, oz + sz),
+            (ox, oy, oz + sz),  # bottom face CCW
+            (ox, oy + sy, oz),
+            (ox + sx, oy + sy, oz),
+            (ox + sx, oy + sy, oz + sz),
+            (ox, oy + sy, oz + sz),
         ]
         nids = []
         for k, (cx, cy, cz) in enumerate(corners):
@@ -3010,14 +3284,16 @@ class RobotBridge:
         n1, n2, n3, n4 = nids[0], nids[1], nids[2], nids[3]
         n5, n6, n7, n8 = nids[4], nids[5], nids[6], nids[7]
         faces = [
-            [n1, n2, n3, n4], [n5, n8, n7, n6],
-            [n1, n5, n6, n2], [n4, n3, n7, n8],
-            [n1, n4, n8, n5], [n2, n6, n7, n3],
+            [n1, n2, n3, n4],
+            [n5, n8, n7, n6],
+            [n1, n5, n6, n2],
+            [n4, n3, n7, n8],
+            [n1, n4, n8, n5],
+            [n2, n6, n7, n3],
         ]
         result = self.create_solid(solid_id, nids, faces)
         result["corner_nodes"] = nids
         return result
-
 
     def _max_node_number(self) -> int:
         try:
@@ -3085,14 +3361,13 @@ class RobotBridge:
             case_obj = None
         if case_obj is None:
             self.create_load_case(
-                case_id, f"MODAL{case_id}",
+                case_id,
+                f"MODAL{case_id}",
                 analysis_type=RobotEnum.I_CAT_DYNAMIC_MODAL,
             )
             case_obj = self.structure.Cases.Get(case_id)
             if case_obj is None:
-                raise RuntimeError(
-                    f"Robot refused to create modal case {case_id}."
-                )
+                raise RuntimeError(f"Robot refused to create modal case {case_id}.")
         sc = CastTo(case_obj, "IRobotSimpleCase")
         sc.ModesCount = max(1, int(n_modes))
         try:
@@ -3137,8 +3412,8 @@ class RobotBridge:
             "modal_case_removed": removed,
             "note": (
                 "Modal results already present in the model."
-                if ready else
-                "Verified limitation of this RobotOM v27 build: the modal "
+                if ready
+                else "Verified limitation of this RobotOM v27 build: the modal "
                 "solver cannot be driven programmatically (Calculate() "
                 "hangs and the results DB stays empty). The modal case was "
                 "removed so static analysis still works. Run modal analysis "
@@ -3148,10 +3423,11 @@ class RobotBridge:
             ),
         }
 
-
     @com_thread_safe
     def export_modal_frequencies(
-        self, case_id: int = 1, n_modes: int = 10,
+        self,
+        case_id: int = 1,
+        n_modes: int = 10,
     ) -> pd.DataFrame:
         """
         [WP7] Reads natural frequencies via Results.Advanced.Eigenvalues.
@@ -3159,37 +3435,54 @@ class RobotBridge:
         AvPartCoeff. Returns an empty frame when no modal results exist.
         """
         self._ensure_connected()
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         try:
             ev = self.structure.Results.Advanced.Eigenvalues
         except Exception as exc:
             logger.warning("Eigenvalues server unavailable: %s", exc)
-            return pd.DataFrame(columns=[
-                "Mode", "Frequency_Hz", "Period_s", "Pulsation_rad_s",
-                "Damping", "AvPartCoeff",
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "Mode",
+                    "Frequency_Hz",
+                    "Period_s",
+                    "Pulsation_rad_s",
+                    "Damping",
+                    "AvPartCoeff",
+                ]
+            )
         for m in range(1, max(1, int(n_modes)) + 1):
             try:
                 v = ev.Value(case_id, m)
                 if abs(float(v.Frequence)) > 1e-9:
-                    rows.append({
-                        "Mode": m,
-                        "Frequency_Hz": round(float(v.Frequence), 4),
-                        "Period_s": round(float(v.Period), 4),
-                        "Pulsation_rad_s": round(float(v.Pulsation), 4),
-                        "Damping": round(float(v.Damping), 4),
-                        "AvPartCoeff": round(float(v.AvPartCoeff), 4),
-                    })
+                    rows.append(
+                        {
+                            "Mode": m,
+                            "Frequency_Hz": round(float(v.Frequence), 4),
+                            "Period_s": round(float(v.Period), 4),
+                            "Pulsation_rad_s": round(float(v.Pulsation), 4),
+                            "Damping": round(float(v.Damping), 4),
+                            "AvPartCoeff": round(float(v.AvPartCoeff), 4),
+                        }
+                    )
             except Exception as exc:
                 logger.warning("Frequency read failed for mode %s: %s", m, exc)
-        return pd.DataFrame(rows, columns=[
-            "Mode", "Frequency_Hz", "Period_s", "Pulsation_rad_s",
-            "Damping", "AvPartCoeff",
-        ])
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "Mode",
+                "Frequency_Hz",
+                "Period_s",
+                "Pulsation_rad_s",
+                "Damping",
+                "AvPartCoeff",
+            ],
+        )
 
     @com_thread_safe
     def export_modal_mode_shapes(
-        self, case_id: int = 1, mode_num: int = 1,
+        self,
+        case_id: int = 1,
+        mode_num: int = 1,
     ) -> pd.DataFrame:
         """
         [WP7] Reads a mode shape (eigenvector) for every node via
@@ -3198,7 +3491,7 @@ class RobotBridge:
         displacement server); rotations are in rad.
         """
         self._ensure_connected()
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         try:
             vec = self.structure.Results.Advanced.Eigenvectors
             nodes = self.structure.Nodes
@@ -3206,31 +3499,47 @@ class RobotBridge:
             count = int(coll.Count) if coll is not None else 0
         except Exception as exc:
             logger.warning("Eigenvectors server unavailable: %s", exc)
-            return pd.DataFrame(columns=[
-                "Node_ID", "UX_m", "UY_m", "UZ_m",
-                "RX_rad", "RY_rad", "RZ_rad",
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "Node_ID",
+                    "UX_m",
+                    "UY_m",
+                    "UZ_m",
+                    "RX_rad",
+                    "RY_rad",
+                    "RZ_rad",
+                ]
+            )
         for node_id in self._enumerate_node_ids(nodes, count):
             try:
                 v = vec.Value(node_id, case_id, mode_num)
-                rows.append({
-                    "Node_ID": node_id,
-                    "UX_m": round(v.UX * 1000.0, 6),
-                    "UY_m": round(v.UY * 1000.0, 6),
-                    "UZ_m": round(v.UZ * 1000.0, 6),
-                    "RX_rad": round(v.RX, 8),
-                    "RY_rad": round(v.RY, 8),
-                    "RZ_rad": round(v.RZ, 8),
-                })
+                rows.append(
+                    {
+                        "Node_ID": node_id,
+                        "UX_m": round(v.UX * 1000.0, 6),
+                        "UY_m": round(v.UY * 1000.0, 6),
+                        "UZ_m": round(v.UZ * 1000.0, 6),
+                        "RX_rad": round(v.RX, 8),
+                        "RY_rad": round(v.RY, 8),
+                        "RZ_rad": round(v.RZ, 8),
+                    }
+                )
             except Exception as exc:
-                logger.warning("Mode-shape read failed for node %s: %s",
-                               node_id, exc)
-        return pd.DataFrame(rows, columns=[
-            "Node_ID", "UX_m", "UY_m", "UZ_m",
-            "RX_rad", "RY_rad", "RZ_rad",
-        ])
+                logger.warning("Mode-shape read failed for node %s: %s", node_id, exc)
+        return pd.DataFrame(
+            rows,
+            columns=[
+                "Node_ID",
+                "UX_m",
+                "UY_m",
+                "UZ_m",
+                "RX_rad",
+                "RY_rad",
+                "RZ_rad",
+            ],
+        )
 
-    def _enumerate_bar_ids(self, bars, bar_count: int) -> List[int]:
+    def _enumerate_bar_ids(self, bars, bar_count: int) -> list[int]:
         """[FIX H2] Enumerates actual bar IDs from the Robot model instead
         of assuming sequential 1..N.
 
@@ -3255,7 +3564,7 @@ class RobotBridge:
             bar_ids = list(range(1, bar_count + 1))
         return bar_ids
 
-    def _enumerate_node_ids(self, nodes, node_count: int) -> List[int]:
+    def _enumerate_node_ids(self, nodes, node_count: int) -> list[int]:
         """[FIX H2] Enumerates actual node IDs from the Robot model instead
         of assuming sequential 1..N.
 
@@ -3303,24 +3612,57 @@ class RobotBridge:
 
     _SECTION_UNIT_MASS_TABLE = {
         # kg/m for common catalog sections (approximate, EU/AISC hybrid table)
-        "HEA100": 16.7, "HEA120": 19.9, "HEA140": 24.7, "HEA160": 30.4,
-        "HEA180": 35.5, "HEA200": 42.3, "HEA220": 50.5, "HEA240": 60.3,
-        "HEB100": 20.4, "HEB120": 26.7, "HEB140": 33.7, "HEB160": 42.6,
-        "HEB180": 51.2, "HEB200": 61.3, "HEB220": 71.5, "HEB240": 83.2,
-        "IPE100": 8.1, "IPE120": 10.4, "IPE140": 12.9, "IPE160": 15.8,
-        "IPE180": 18.8, "IPE200": 22.4, "IPE220": 26.2, "IPE240": 30.7,
-        "IPE270": 36.1, "IPE300": 42.2, "IPE330": 49.1, "IPE360": 57.1,
-        "IPE400": 66.3, "IPE450": 77.6, "IPE500": 90.7,
-        "UB203x133x25": 25.0, "UB305x165x40": 40.0, "UC203x203x46": 46.0,
+        "HEA100": 16.7,
+        "HEA120": 19.9,
+        "HEA140": 24.7,
+        "HEA160": 30.4,
+        "HEA180": 35.5,
+        "HEA200": 42.3,
+        "HEA220": 50.5,
+        "HEA240": 60.3,
+        "HEB100": 20.4,
+        "HEB120": 26.7,
+        "HEB140": 33.7,
+        "HEB160": 42.6,
+        "HEB180": 51.2,
+        "HEB200": 61.3,
+        "HEB220": 71.5,
+        "HEB240": 83.2,
+        "IPE100": 8.1,
+        "IPE120": 10.4,
+        "IPE140": 12.9,
+        "IPE160": 15.8,
+        "IPE180": 18.8,
+        "IPE200": 22.4,
+        "IPE220": 26.2,
+        "IPE240": 30.7,
+        "IPE270": 36.1,
+        "IPE300": 42.2,
+        "IPE330": 49.1,
+        "IPE360": 57.1,
+        "IPE400": 66.3,
+        "IPE450": 77.6,
+        "IPE500": 90.7,
+        "UB203x133x25": 25.0,
+        "UB305x165x40": 40.0,
+        "UC203x203x46": 46.0,
         # CHS (UKST catalog) - kg/m = A * 7850 with A = pi*t*(D-t); the
         # formula reproduces the LIVE catalog area to <0.3% (probe
         # 2026-08-23: 139.7x5 16.642 vs 16.610, 88.9x4 8.399 vs 8.375,
         # 48.3x3.2 3.556 vs 3.559). Static entries cache the live value so
         # pure/offline paths (batch sizing) match Robot exactly.
-        "CHS42.4X3.2": 3.09, "CHS48.3X3.2": 3.56, "CHS60.3X3.2": 4.51,
-        "CHS76.1X3.2": 5.75, "CHS88.9X3.2": 6.76, "CHS88.9X4": 8.38,
-        "CHS114.3X4": 10.88, "CHS114.3X5": 13.48, "CHS139.7X5": 16.61,
-        "CHS139.7X8": 25.98, "CHS168.3X6": 24.02, "CHS219.1X8": 41.65,
+        "CHS42.4X3.2": 3.09,
+        "CHS48.3X3.2": 3.56,
+        "CHS60.3X3.2": 4.51,
+        "CHS76.1X3.2": 5.75,
+        "CHS88.9X3.2": 6.76,
+        "CHS88.9X4": 8.38,
+        "CHS114.3X4": 10.88,
+        "CHS114.3X5": 13.48,
+        "CHS139.7X5": 16.61,
+        "CHS139.7X8": 25.98,
+        "CHS168.3X6": 24.02,
+        "CHS219.1X8": 41.65,
     }
 
     def _lookup_unit_mass(self, section_name: str, density_kg_m3: float) -> float:
@@ -3352,13 +3694,12 @@ class RobotBridge:
                 except Exception:
                     continue
         except Exception as exc:
-            logger.warning(
-                "Live section mass lookup failed for '%s': %s", section_name, exc
-            )
+            logger.warning("Live section mass lookup failed for '%s': %s", section_name, exc)
 
         logger.warning(
             "Unit mass for section '%s' not found in catalog or Robot "
-            "database; defaulting to 30.0 kg/m estimate.", section_name
+            "database; defaulting to 30.0 kg/m estimate.",
+            section_name,
         )
         return 30.0
 
@@ -3394,8 +3735,13 @@ class RobotBridge:
         record.Objects.FromText(str(bar_id))
         logger.info(
             "Applied concentrated load (FX=%.2f FY=%.2f FZ=%.2f) at ratio "
-            "%.2f to bar %s in case %s.", fx_kn, fy_kn, fz_kn, ratio,
-            bar_id, case_id,
+            "%.2f to bar %s in case %s.",
+            fx_kn,
+            fy_kn,
+            fz_kn,
+            ratio,
+            bar_id,
+            case_id,
         )
 
     # Simple-case natures for create_load_case (permanent / imposed).
@@ -3406,8 +3752,9 @@ class RobotBridge:
 
     @staticmethod
     def eurocode_combination_factors(
-        cases, combination_set: str = "ULS_SLS_basic",
-    ) -> List[Dict[str, Any]]:
+        cases,
+        combination_set: str = "ULS_SLS_basic",
+    ) -> list[dict[str, Any]]:
         """PURE: EN 1990 combination-factor plans for a set of load cases.
 
         ``cases`` is a list of (case_id, nature) with nature in
@@ -3430,51 +3777,57 @@ class RobotBridge:
             raise ValueError(
                 f"combination_set must be one of "
                 f"{{'ULS_SLS_basic','ULS_only','SLS_only'}} "
-                f"(got '{combination_set}').")
+                f"(got '{combination_set}')."
+            )
         if not cases:
             raise ValueError(
                 "generate_code_combinations needs at least one load case "
-                "with a 'nature' (create_load_case first).")
+                "with a 'nature' (create_load_case first)."
+            )
 
-        permanent = [(int(cid), str(nat)) for cid, nat in cases
-                     if str(nat).lower() == "permanent"]
-        variable = [(int(cid), str(nat)) for cid, nat in cases
-                    if str(nat).lower() == "imposed"]
-        unknown = sorted({str(nat) for _, nat in cases}
-                         - {"permanent", "imposed"})
+        permanent = [(int(cid), str(nat)) for cid, nat in cases if str(nat).lower() == "permanent"]
+        variable = [(int(cid), str(nat)) for cid, nat in cases if str(nat).lower() == "imposed"]
+        unknown = sorted({str(nat) for _, nat in cases} - {"permanent", "imposed"})
         if unknown:
             raise ValueError(
-                f"Unknown load-case nature(s) {unknown}; supported: "
-                "permanent / imposed.")
+                f"Unknown load-case nature(s) {unknown}; supported: permanent / imposed."
+            )
 
-        plans: List[Dict[str, Any]] = []
+        plans: list[dict[str, Any]] = []
 
         def _uls(q_lead):
             factors = {cid: 1.35 for cid, _ in permanent}
             factors.update({cid: 1.5 for cid, _ in variable if cid == q_lead})
-            factors.update({cid: 1.05 for cid, _ in variable
-                            if cid != q_lead})
+            factors.update({cid: 1.05 for cid, _ in variable if cid != q_lead})
             return factors
 
         if combo_set in ("ULS_SLS_basic", "ULS_only"):
             if variable:
                 for cid, _ in variable:
-                    plans.append({
-                        "name": f"ULS_{cid}", "case_factors": _uls(cid),
-                        "combination_type": "ULS",
-                    })
+                    plans.append(
+                        {
+                            "name": f"ULS_{cid}",
+                            "case_factors": _uls(cid),
+                            "combination_type": "ULS",
+                        }
+                    )
             else:
-                plans.append({
-                    "name": "ULS", "case_factors": _uls(None),
-                    "combination_type": "ULS",
-                })
+                plans.append(
+                    {
+                        "name": "ULS",
+                        "case_factors": _uls(None),
+                        "combination_type": "ULS",
+                    }
+                )
 
         if combo_set in ("ULS_SLS_basic", "SLS_only"):
-            plans.append({
-                "name": "SLS_char",
-                "case_factors": {cid: 1.0 for cid, _ in cases},
-                "combination_type": "SLS",
-            })
+            plans.append(
+                {
+                    "name": "SLS_char",
+                    "case_factors": {cid: 1.0 for cid, _ in cases},
+                    "combination_type": "SLS",
+                }
+            )
         return plans
 
     @com_thread_safe
@@ -3482,10 +3835,7 @@ class RobotBridge:
         """[MILESTONE A] Resets the current project to a blank model of the
         given type ('3D' or '2D'), clearing all in-memory bookkeeping."""
         self._ensure_connected()
-        code = (
-            RobotEnum.I_PT_BAR_3D if project_type.lower() == "3d"
-            else RobotEnum.I_PT_BAR_2D
-        )
+        code = RobotEnum.I_PT_BAR_3D if project_type.lower() == "3d" else RobotEnum.I_PT_BAR_2D
         self.project = self.robot_app.Project
         self._guarded_project_new(code)
         self._project_type = "3D" if project_type.lower() == "3d" else "2D"
@@ -3496,9 +3846,11 @@ class RobotBridge:
         self.bracing.clear()
         self.connections.clear()
         logger.info(
-                "clear_structure called (project_type=%s, pid=%s) - model reset "
-                "to blank %s frame.",
-                project_type, self.connected_pid, project_type)
+            "clear_structure called (project_type=%s, pid=%s) - model reset to blank %s frame.",
+            project_type,
+            self.connected_pid,
+            project_type,
+        )
 
     # --- [SPEC_AND_SUMMARY] ---
     # ------------------------------------------------------------------ #
@@ -3506,41 +3858,43 @@ class RobotBridge:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def spec_integrity_issues(spec: Dict[str, Any]) -> List[str]:
+    def spec_integrity_issues(spec: dict[str, Any]) -> list[str]:
         """[INTEGRITY] Pure, no-COM pre-flight check for a structure spec.
         Returns a list of human-readable problems (empty == spec is
         well-formed). Catches the 'silently built fewer bars' class of bug
         BEFORE any Robot call: duplicate node/bar ids (Robot's Create()
         overwrites silently), bars whose endpoints reference nodes that
         are not defined in the spec, and duplicate support/node entries."""
-        issues: List[str] = []
+        issues: list[str] = []
         spec = spec or {}
         node_ids = [int(n["id"]) for n in spec.get("nodes", []) or []]
         if len(node_ids) != len(set(node_ids)):
             dup = sorted({nid for nid in node_ids if node_ids.count(nid) > 1})
             issues.append(
                 f"duplicate node id(s) {dup} (Robot silently overwrites on "
-                "re-Create - rename them so each is unique)")
+                "re-Create - rename them so each is unique)"
+            )
         node_set = set(node_ids)
         bar_ids = [int(b["id"]) for b in spec.get("bars", []) or []]
         if len(bar_ids) != len(set(bar_ids)):
             dup = sorted({bid for bid in bar_ids if bar_ids.count(bid) > 1})
             issues.append(
                 f"duplicate bar id(s) {dup} (would silently reduce the real "
-                "bar count below what the spec asked for)")
+                "bar count below what the spec asked for)"
+            )
         for b in spec.get("bars", []) or []:
             n1, n2 = int(b["n1"]), int(b["n2"])
             for n in (n1, n2):
                 if n not in node_set:
                     issues.append(
-                        f"bar {int(b['id'])} references node {n} which is not "
-                        "defined in 'nodes'")
+                        f"bar {int(b['id'])} references node {n} which is not defined in 'nodes'"
+                    )
         if issues:
             return issues
         return []
 
     @com_thread_safe
-    def build_structure_from_spec(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+    def build_structure_from_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
         """Builds an entire model from a structured spec dict in a single
         call, so the agent can create large / complex structures without
         exhausting its per-turn tool-step or token budget.
@@ -3574,10 +3928,13 @@ class RobotBridge:
             raise ValueError(
                 "build_structure_from_spec REFUSED - invalid spec: "
                 + "; ".join(issues)
-                + (". Fix the spec (call get_model_geometry or "
-                   "preview_structure_geometry to confirm real ids), or "
-                   "build incrementally with create_node/create_bar in "
-                   "smaller sub-specs."))
+                + (
+                    ". Fix the spec (call get_model_geometry or "
+                    "preview_structure_geometry to confirm real ids), or "
+                    "build incrementally with create_node/create_bar in "
+                    "smaller sub-specs."
+                )
+            )
 
         if str(spec.get("project") or "3D").lower() == "2d":
             self.new_2d_frame()
@@ -3587,13 +3944,16 @@ class RobotBridge:
         for n in spec.get("nodes", []) or []:
             self.create_node(
                 int(n["id"]),
-                float(n.get("x", 0.0)), float(n.get("y", 0.0)),
+                float(n.get("x", 0.0)),
+                float(n.get("y", 0.0)),
                 float(n.get("z", 0.0)),
             )
 
         for b in spec.get("bars", []) or []:
             self.create_bar(
-                int(b["id"]), int(b["n1"]), int(b["n2"]),
+                int(b["id"]),
+                int(b["n1"]),
+                int(b["n2"]),
                 str(b.get("section") or "IPE 200"),
             )
 
@@ -3608,18 +3968,21 @@ class RobotBridge:
                 f"the spec requested {requested_bars}. This usually means a "
                 "duplicate bar id or a Robot-side create failure. Call "
                 "robot_session_status to check for a session split, and "
-                "get_model_geometry to see what actually exists.")
+                "get_model_geometry to see what actually exists."
+            )
 
         for s in spec.get("supports", []) or []:
             self.set_support(
-                int(s["node"]), str(s.get("type") or "pinned"),
+                int(s["node"]),
+                str(s.get("type") or "pinned"),
                 spring_stiffness=s.get("spring_stiffness"),
             )
 
         for c in spec.get("cases", []) or []:
             nature = str(c.get("nature") or "permanent")
             self.create_load_case(
-                int(c["id"]), str(c.get("name") or "Case"),
+                int(c["id"]),
+                str(c.get("name") or "Case"),
                 nature=self._NATURE_MAP.get(nature, RobotEnum.I_CN_PERMANENT),
                 analysis_type=RobotEnum.I_CAT_STATIC_LINEAR,
             )
@@ -3629,12 +3992,15 @@ class RobotBridge:
             case_id = int(ld["case"])
             if kind == "bar_uniform":
                 self.apply_bar_load(
-                    int(ld["bar"]), case_id,
-                    float(ld.get("value", 0.0)), str(ld.get("direction", "Z")),
+                    int(ld["bar"]),
+                    case_id,
+                    float(ld.get("value", 0.0)),
+                    str(ld.get("direction", "Z")),
                 )
             elif kind == "bar_concentrated":
                 self.apply_bar_concentrated(
-                    int(ld["bar"]), case_id,
+                    int(ld["bar"]),
+                    case_id,
                     fx_kn=float(ld.get("fx", 0.0)),
                     fy_kn=float(ld.get("fy", 0.0)),
                     fz_kn=float(ld.get("fz", 0.0)),
@@ -3642,7 +4008,8 @@ class RobotBridge:
                 )
             elif kind == "nodal":
                 self.apply_nodal_load(
-                    int(ld["node"]), case_id,
+                    int(ld["node"]),
+                    case_id,
                     fx_kn=float(ld.get("fx", 0.0)),
                     fz_kn=float(ld.get("fz", 0.0)),
                     my_knm=float(ld.get("my", 0.0)),
@@ -3692,9 +4059,7 @@ class RobotBridge:
         try:
             self.structure.Bars.Delete(bar_id)
         except Exception as exc:
-            raise RuntimeError(
-                f"Could not delete bar {bar_id}: {exc}"
-            ) from exc
+            raise RuntimeError(f"Could not delete bar {bar_id}: {exc}") from exc
         self._section_assignments.pop(bar_id, None)
         self._bar_endpoints.pop(bar_id, None)
         self.bracing.remove(bar_id)
@@ -3719,8 +4084,7 @@ class RobotBridge:
             ) from exc
         self._node_coords.pop(node_id, None)
         self._bar_endpoints = {
-            b: ends for b, ends in self._bar_endpoints.items()
-            if node_id not in ends
+            b: ends for b, ends in self._bar_endpoints.items() if node_id not in ends
         }
         logger.info("Node %s deleted.", node_id)
         return f"Node {node_id} deleted."
@@ -3741,9 +4105,7 @@ class RobotBridge:
         try:
             self.project.SaveAs(path)
         except Exception as exc:
-            raise RuntimeError(
-                f"Robot could not save the project to '{path}': {exc}"
-            ) from exc
+            raise RuntimeError(f"Robot could not save the project to '{path}': {exc}") from exc
         logger.info("Project saved to %s", path)
         return f"Project saved to '{path}'."
 
@@ -3752,7 +4114,7 @@ class RobotBridge:
     # ------------------------------------------------------------------ #
 
     @com_thread_safe
-    def get_model_geometry(self) -> Dict[str, Any]:
+    def get_model_geometry(self) -> dict[str, Any]:
         """Returns the CURRENT in-memory geometry (no COM): project type,
         node coords and bar endpoints, exactly as the bridge has been
         building them. Used by the preview_structure_geometry tool so a
@@ -3770,7 +4132,7 @@ class RobotBridge:
         return float(unit_mass_kg_m) * float(g) / 1000.0
 
     @com_thread_safe
-    def apply_self_weight(self, case_id: int, density: float = 7850.0) -> Dict[str, Any]:
+    def apply_self_weight(self, case_id: int, density: float = 7850.0) -> dict[str, Any]:
         """Applies every bar's self-weight as EQUIVALENT NODAL loads in the
         given case (global -Z): each bar's weight (unit mass x length x g) is
         lumped 50/50 onto its two end nodes — the classic truss lumping.
@@ -3789,55 +4151,55 @@ class RobotBridge:
         Returns a per-bar summary dict plus the applied total.
         """
         self._ensure_connected()
-        case = self.structure.Cases.Get(int(case_id))   # raises if missing
+        case = self.structure.Cases.Get(int(case_id))  # raises if missing
 
-        per_bar: List[Dict[str, Any]] = []
+        per_bar: list[dict[str, Any]] = []
         total_kn = 0.0
-        node_loads: Dict[int, float] = {}
+        node_loads: dict[int, float] = {}
         for bar_id in sorted(self._bar_endpoints):
             length = self._bar_length(bar_id)
             if length <= 0.0:
                 continue
             sec = self._section_assignments.get(bar_id) or ""
-            unit_mass = self._lookup_unit_mass(sec, float(density)) \
-                if sec else 0.0
+            unit_mass = self._lookup_unit_mass(sec, float(density)) if sec else 0.0
             kn_m = self._self_weight_kn_m(unit_mass)
             weight = kn_m * length
             total_kn += weight
             n1, n2 = self._bar_endpoints[bar_id]
             node_loads[n1] = node_loads.get(n1, 0.0) + weight / 2.0
             node_loads[n2] = node_loads.get(n2, 0.0) + weight / 2.0
-            per_bar.append({
-                "bar_id": bar_id, "section": sec, "length_m": round(length, 3),
-                "unit_mass_kg_m": round(unit_mass, 3),
-                "load_kn_m": round(kn_m, 5),
-                "weight_kn": round(weight, 4),
-                "lumped_to": {"n1": int(n1), "n2": int(n2)},
-            })
+            per_bar.append(
+                {
+                    "bar_id": bar_id,
+                    "section": sec,
+                    "length_m": round(length, 3),
+                    "unit_mass_kg_m": round(unit_mass, 3),
+                    "load_kn_m": round(kn_m, 5),
+                    "weight_kn": round(weight, 4),
+                    "lumped_to": {"n1": int(n1), "n2": int(n2)},
+                }
+            )
         # One nodal load per affected node (global -Z), exact by construction.
         for node_id in sorted(node_loads):
             w = node_loads[node_id]
             if abs(w) > 1e-9:
-                self.apply_nodal_load(int(node_id), int(case_id),
-                                      fx_kn=0.0, fz_kn=-w, my_knm=0.0)
+                self.apply_nodal_load(int(node_id), int(case_id), fx_kn=0.0, fz_kn=-w, my_knm=0.0)
         return {
             "case_id": int(case_id),
             "bars": len(per_bar),
-            "applied_nodes": len([w for w in node_loads.values()
-                                  if abs(w) > 1e-9]),
+            "applied_nodes": len([w for w in node_loads.values() if abs(w) > 1e-9]),
             "method": "nodal_lumped",
             "total_self_weight_kn": round(total_kn, 4),
             "density_kg_m3": float(density),
             "per_bar": per_bar,
         }
 
-
     # ------------------------------------------------------------------ #
     # Model spec export (reverse of build_structure_from_spec)
     # ------------------------------------------------------------------ #
 
     @com_thread_safe
-    def export_structure_spec(self) -> Dict[str, Any]:
+    def export_structure_spec(self) -> dict[str, Any]:
         """Reverse of build_structure_from_spec: reads the LIVE model and
         returns the same geometry JSON shape (project / nodes / bars /
         supports / cases / loads) so it can be passed verbatim to
@@ -3851,9 +4213,13 @@ class RobotBridge:
         combinations and exotic record types are skipped with a log note.
         """
         self._ensure_connected()
-        spec: Dict[str, Any] = {
+        spec: dict[str, Any] = {
             "project": self._project_type,
-            "nodes": [], "bars": [], "supports": [], "cases": [], "loads": [],
+            "nodes": [],
+            "bars": [],
+            "supports": [],
+            "cases": [],
+            "loads": [],
         }
 
         # ---- nodes ------------------------------------------------------ #
@@ -3863,10 +4229,14 @@ class RobotBridge:
                 for i in range(1, int(node_coll.Count) + 1):
                     try:
                         n = node_coll.Get(i)
-                        spec["nodes"].append({
-                            "id": int(n.Number),
-                            "x": float(n.X), "y": float(n.Y), "z": float(n.Z),
-                        })
+                        spec["nodes"].append(
+                            {
+                                "id": int(n.Number),
+                                "x": float(n.X),
+                                "y": float(n.Y),
+                                "z": float(n.Z),
+                            }
+                        )
                     except Exception:
                         continue
         except Exception as exc:  # noqa: BLE001
@@ -3880,11 +4250,14 @@ class RobotBridge:
                     try:
                         b = bar_coll.Get(i)
                         sec = b.GetLabelName(RobotEnum.I_LT_BAR_SECTION) or ""
-                        spec["bars"].append({
-                            "id": int(b.Number),
-                            "n1": int(b.StartNode), "n2": int(b.EndNode),
-                            "section": sec,
-                        })
+                        spec["bars"].append(
+                            {
+                                "id": int(b.Number),
+                                "n1": int(b.StartNode),
+                                "n2": int(b.EndNode),
+                                "section": sec,
+                            }
+                        )
                     except Exception:
                         continue
         except Exception as exc:  # noqa: BLE001
@@ -3893,14 +4266,15 @@ class RobotBridge:
         # ---- supports --------------------------------------------------- #
         for node_id in [n["id"] for n in spec["nodes"]]:
             try:
-                label_name = str(self.structure.Nodes.Get(node_id)
-                                 .GetLabelName(RobotEnum.I_LT_SUPPORT) or "")
+                label_name = str(
+                    self.structure.Nodes.Get(node_id).GetLabelName(RobotEnum.I_LT_SUPPORT) or ""
+                )
             except Exception:  # noqa: BLE001
                 continue
             stype = self._support_type_from_label(label_name)
             if stype is None:
                 continue  # node has no support label
-            entry: Dict[str, Any] = {"node": int(node_id), "type": stype}
+            entry: dict[str, Any] = {"node": int(node_id), "type": stype}
             if stype == "spring":
                 stiffness = self._spring_stiffness_of(label_name)
                 if stiffness:
@@ -3919,22 +4293,17 @@ class RobotBridge:
                 pass
             try:
                 nat = int(case.Nature)
-                nature = next(
-                    (k for k, v in self._NATURE_MAP.items() if v == nat),
-                    "permanent")
+                nature = next((k for k, v in self._NATURE_MAP.items() if v == nat), "permanent")
             except Exception:  # noqa: BLE001
                 pass
-            spec["cases"].append({"id": int(num), "name": name,
-                                  "nature": nature})
+            spec["cases"].append({"id": int(num), "name": name, "nature": nature})
             try:
                 spec["loads"].extend(self._read_case_loads(case, int(num)))
             except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "export_structure_spec: load read failed for case %s: %s",
-                    num, exc)
+                logger.warning("export_structure_spec: load read failed for case %s: %s", num, exc)
         return spec
 
-    def _support_type_from_label(self, label_name: str) -> Optional[str]:
+    def _support_type_from_label(self, label_name: str) -> str | None:
         """Maps a support label name back to a spec support_type (or None
         when the node carries no support). AUTO_* labels map by prefix;
         custom labels map by their fixity-flag pattern; anything unmatched
@@ -3945,11 +4314,9 @@ class RobotBridge:
         if name.upper().startswith("AUTO_"):
             return name[5:].lower()
         try:
-            support_label = self.structure.Labels.Get(
-                RobotEnum.I_LT_SUPPORT, name)
+            support_label = self.structure.Labels.Get(RobotEnum.I_LT_SUPPORT, name)
             data = CastTo(support_label.Data, "IRobotNodeSupportData")
-            flags = {dof: int(getattr(data, dof)) for dof in
-                     ("UX", "UY", "UZ", "RX", "RY", "RZ")}
+            flags = {dof: int(getattr(data, dof)) for dof in ("UX", "UY", "UZ", "RX", "RY", "RZ")}
             for stype, pattern in self._SUPPORT_FLAG_SETS.items():
                 if all(flags.get(d) == v for d, v in pattern.items()):
                     return stype
@@ -3962,13 +4329,12 @@ class RobotBridge:
             pass
         return "custom"
 
-    def _spring_stiffness_of(self, label_name: str) -> Dict[str, float]:
+    def _spring_stiffness_of(self, label_name: str) -> dict[str, float]:
         """Reads an elastic (spring) support label's stiffness values back
         as {DOF: value} (translations in kN/m, rotations in kNm/rad)."""
-        out: Dict[str, float] = {}
+        out: dict[str, float] = {}
         try:
-            support_label = self.structure.Labels.Get(
-                RobotEnum.I_LT_SUPPORT, label_name)
+            support_label = self.structure.Labels.Get(RobotEnum.I_LT_SUPPORT, label_name)
             data = CastTo(support_label.Data, "IRobotNodeSupportData")
             if int(data.ElasticLinear) != 1:
                 return out
@@ -3982,11 +4348,10 @@ class RobotBridge:
                     # the spec contract is kN/m / kNm/rad, so scale back.
                     out[dof] = round(v / 1000.0, 4)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not read spring stiffness '%s': %s",
-                           label_name, exc)
+            logger.warning("Could not read spring stiffness '%s': %s", label_name, exc)
         return out
 
-    def _read_case_loads(self, case, case_id: int) -> List[Dict[str, Any]]:
+    def _read_case_loads(self, case, case_id: int) -> list[dict[str, Any]]:
         """Reads a simple case's load records into spec-style load dicts.
         Supports the three kinds the spec schema defines (bar_uniform /
         bar_concentrated / nodal); anything else is skipped with a note.
@@ -3995,14 +4360,13 @@ class RobotBridge:
         IRobotCase (what Cases.Get returns) has no Records attribute, so the
         old code logged "object has no attribute 'Records'" and silently
         returned zero loads (export_structure_spec always lost its loads)."""
-        out: List[Dict[str, Any]] = []
+        out: list[dict[str, Any]] = []
         try:
             simple = CastTo(case, "IRobotSimpleCase")
             records = simple.Records
             n = int(records.Count)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("_read_case_loads: case %s has no readable "
-                           "Records: %s", case_id, exc)
+            logger.warning("_read_case_loads: case %s has no readable Records: %s", case_id, exc)
             return out
 
         for i in range(1, n + 1):
@@ -4011,29 +4375,36 @@ class RobotBridge:
                 rtype = int(record.Type)
                 objs = self._record_object_ids(record)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("_read_case_loads: record %s unreadable: %s",
-                               i, exc)
+                logger.warning("_read_case_loads: record %s unreadable: %s", i, exc)
                 continue
             try:
                 if rtype == RobotEnum.I_LRT_BAR_UNIFORM:
                     vals = [float(record.GetValue(j)) for j in (0, 1, 2)]
-                    axis = next((a for a, v in zip(("X", "Y", "Z"), vals)
-                                 if abs(v) > 1e-12), None)
+                    axis = next((a for a, v in zip(("X", "Y", "Z"), vals) if abs(v) > 1e-12), None)
                     if axis is not None:
                         for bar_id in objs:
-                            out.append({
-                                "kind": "bar_uniform", "bar": bar_id,
-                                "case": case_id, "direction": axis,
-                                "value": round(vals["XYZ".index(axis)], 5),
-                            })
+                            out.append(
+                                {
+                                    "kind": "bar_uniform",
+                                    "bar": bar_id,
+                                    "case": case_id,
+                                    "direction": axis,
+                                    "value": round(vals["XYZ".index(axis)], 5),
+                                }
+                            )
                 elif rtype == RobotEnum.I_LRT_NODE_FORCE:
                     vals = [float(record.GetValue(j)) for j in range(6)]
                     for node_id in objs:
-                        out.append({
-                            "kind": "nodal", "node": node_id, "case": case_id,
-                            "fx": round(vals[0], 5), "fz": round(vals[2], 5),
-                            "my": round(vals[4], 5),
-                        })
+                        out.append(
+                            {
+                                "kind": "nodal",
+                                "node": node_id,
+                                "case": case_id,
+                                "fx": round(vals[0], 5),
+                                "fz": round(vals[2], 5),
+                                "my": round(vals[4], 5),
+                            }
+                        )
                 elif rtype == RobotEnum.I_LRT_BAR_FORCE_CONCENTRATED:
                     fx = float(record.GetValue(RobotEnum.I_BFCRV_FX))
                     fy = float(record.GetValue(RobotEnum.I_BFCRV_FY))
@@ -4043,22 +4414,26 @@ class RobotBridge:
                     except Exception:  # noqa: BLE001
                         ratio = 0.5
                     for bar_id in objs:
-                        out.append({
-                            "kind": "bar_concentrated", "bar": bar_id,
-                            "case": case_id, "fx": round(fx, 5),
-                            "fy": round(fy, 5), "fz": round(fz, 5),
-                            "ratio": round(ratio, 4),
-                        })
+                        out.append(
+                            {
+                                "kind": "bar_concentrated",
+                                "bar": bar_id,
+                                "case": case_id,
+                                "fx": round(fx, 5),
+                                "fy": round(fy, 5),
+                                "fz": round(fz, 5),
+                                "ratio": round(ratio, 4),
+                            }
+                        )
                 else:
                     logger.info(
-                        "_read_case_loads: record type %s not in the spec "
-                        "schema (skipped).", rtype)
+                        "_read_case_loads: record type %s not in the spec schema (skipped).", rtype
+                    )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("_read_case_loads: record %s value read "
-                               "failed: %s", i, exc)
+                logger.warning("_read_case_loads: record %s value read failed: %s", i, exc)
         return out
 
-    def _record_object_ids(self, record) -> List[int]:
+    def _record_object_ids(self, record) -> list[int]:
         """Bar/node ids a load record applies to, from its Objects range.
         Tries the Text property (inverse of FromText), then Count/Get.
 
@@ -4095,7 +4470,7 @@ class RobotBridge:
             return []
 
     @com_thread_safe
-    def get_structure_summary(self) -> Dict[str, Any]:
+    def get_structure_summary(self) -> dict[str, Any]:
         """
         Compact summary of the CURRENT model. [WP2] Enumerates LIVE from
         Robot (nodes with coordinates, bars with their assigned section
@@ -4106,11 +4481,11 @@ class RobotBridge:
         self._ensure_connected()
 
         nodes = 0
-        xs: List[float] = []
-        ys: List[float] = []
-        zs: List[float] = []
+        xs: list[float] = []
+        ys: list[float] = []
+        zs: list[float] = []
         bars = 0
-        sections: Dict[str, int] = {}
+        sections: dict[str, int] = {}
         live_ok = True
 
         try:
@@ -4189,7 +4564,7 @@ class RobotBridge:
         column_section: str = None,
         beam_x_section: str = None,
         beam_y_section: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Spec for a 3D rectangular grid moment frame (columns + floor beams
         with pinned column bases).
 
@@ -4201,13 +4576,16 @@ class RobotBridge:
         levels = max(1, int(levels))
         bx = max(1, int(bays_x))
         by = max(1, int(bays_y))
-        notes: List[str] = []
+        notes: list[str] = []
         column_section = column_section or suggest_section(
-            "column", float(level_height), "HEB", notes=notes)
+            "column", float(level_height), "HEB", notes=notes
+        )
         beam_x_section = beam_x_section or suggest_section(
-            "beam", float(bay_width_x), "IPE", notes=notes)
+            "beam", float(bay_width_x), "IPE", notes=notes
+        )
         beam_y_section = beam_y_section or suggest_section(
-            "beam", float(bay_width_y), "IPE", notes=notes)
+            "beam", float(bay_width_y), "IPE", notes=notes
+        )
         xs = [i * bay_width_x for i in range(bx + 1)]
         ys = [j * bay_width_y for j in range(by + 1)]
         zs = [l * level_height for l in range(levels + 1)]
@@ -4219,11 +4597,14 @@ class RobotBridge:
         for ix in range(bx + 1):
             for iy in range(by + 1):
                 for lev in range(levels + 1):
-                    nodes.append({
-                        "id": nid(ix, iy, lev),
-                        "x": round(xs[ix], 4), "y": round(ys[iy], 4),
-                        "z": round(zs[lev], 4),
-                    })
+                    nodes.append(
+                        {
+                            "id": nid(ix, iy, lev),
+                            "x": round(xs[ix], 4),
+                            "y": round(ys[iy], 4),
+                            "z": round(zs[lev], 4),
+                        }
+                    )
 
         bars = []
         bid = 0
@@ -4246,18 +4627,31 @@ class RobotBridge:
                 for iy in range(by):
                     B(nid(ix, iy, lev), nid(ix, iy + 1, lev), beam_y_section)
 
-        supports = [{"node": nid(ix, iy, 0), "type": "pinned"}
-                    for ix in range(bx + 1) for iy in range(by + 1)]
-        spec = {"project": "3D", "nodes": nodes, "bars": bars,
-                "supports": supports, "__tpl": "rectangular_grid_frame"}
+        supports = [
+            {"node": nid(ix, iy, 0), "type": "pinned"}
+            for ix in range(bx + 1)
+            for iy in range(by + 1)
+        ]
+        spec = {
+            "project": "3D",
+            "nodes": nodes,
+            "bars": bars,
+            "supports": supports,
+            "__tpl": "rectangular_grid_frame",
+        }
         if notes:
             spec["__section_notes"] = notes
         return spec
 
     @staticmethod
-    def truss_spec(span: float = 12.0, height: float = 2.0, panels: int = 6,
-                   top_section: str = None, bottom_section: str = None,
-                   web_section: str = None) -> Dict[str, Any]:
+    def truss_spec(
+        span: float = 12.0,
+        height: float = 2.0,
+        panels: int = 6,
+        top_section: str = None,
+        bottom_section: str = None,
+        web_section: str = None,
+    ) -> dict[str, Any]:
         """Spec for a planar Pratt truss in the X-Z plane (y = 0), top and
         bottom chords joined by verticals and diagonals, pinned at both ends.
 
@@ -4272,13 +4666,10 @@ class RobotBridge:
         are never overridden.
         """
         n = max(2, int(panels))
-        notes: List[str] = []
-        top_section = top_section or suggest_section(
-            "truss_chord", span, "IPE", notes=notes)
-        bottom_section = bottom_section or suggest_section(
-            "truss_chord", span, "IPE", notes=notes)
-        web_section = web_section or suggest_section(
-            "web", span, "L", notes=notes)
+        notes: list[str] = []
+        top_section = top_section or suggest_section("truss_chord", span, "IPE", notes=notes)
+        bottom_section = bottom_section or suggest_section("truss_chord", span, "IPE", notes=notes)
+        web_section = web_section or suggest_section("web", span, "L", notes=notes)
 
         # Flat chords via the composable primitives. ``xs`` is precomputed
         # so node x-coordinates match the historical ``round(i*dx, 6)``
@@ -4296,22 +4687,33 @@ class RobotBridge:
         top = nodes_along_curve(top_fn, n + 1, start_id=1)
         bot = nodes_along_curve(bot_fn, n + 1, start_id=n + 2)
         bars = connect_web_pattern(
-            top, bot, "pratt", web_section=web_section,
-            chord_a_section=top_section, chord_b_section=bottom_section,
-            start_id=1)
-        spec = {"project": "3D", "nodes": top + bot, "bars": bars,
-                "supports": apply_support_pattern(
-                    [bot[0]["id"], bot[-1]["id"]], "pinned"),
-                "__tpl": "truss"}
+            top,
+            bot,
+            "pratt",
+            web_section=web_section,
+            chord_a_section=top_section,
+            chord_b_section=bottom_section,
+            start_id=1,
+        )
+        spec = {
+            "project": "3D",
+            "nodes": top + bot,
+            "bars": bars,
+            "supports": apply_support_pattern([bot[0]["id"], bot[-1]["id"]], "pinned"),
+            "__tpl": "truss",
+        }
         if notes:
             spec["__section_notes"] = notes
         return spec
 
     @staticmethod
-    def braced_frame_spec(height: float = 6.0, width: float = 6.0,
-                          column_section: str = None,
-                          beam_section: str = None,
-                          brace_section: str = None) -> Dict[str, Any]:
+    def braced_frame_spec(
+        height: float = 6.0,
+        width: float = 6.0,
+        column_section: str = None,
+        beam_section: str = None,
+        brace_section: str = None,
+    ) -> dict[str, Any]:
         """Spec for a single-bay braced frame (two columns, top beam, and a
         diagonal brace) in the X-Z plane, pinned bases.
 
@@ -4320,13 +4722,14 @@ class RobotBridge:
         beam span/18 on the bay width, brace on the diagonal length) whenever
         not given explicitly; explicit sections always win.
         """
-        notes: List[str] = []
+        notes: list[str] = []
         column_section = column_section or suggest_section(
-            "column", float(height), "HEB", notes=notes)
-        beam_section = beam_section or suggest_section(
-            "beam", float(width), "IPE", notes=notes)
+            "column", float(height), "HEB", notes=notes
+        )
+        beam_section = beam_section or suggest_section("beam", float(width), "IPE", notes=notes)
         brace_section = brace_section or suggest_section(
-            "brace", float(math.hypot(width, height)), "IPE", notes=notes)
+            "brace", float(math.hypot(width, height)), "IPE", notes=notes
+        )
         nodes = [
             {"id": 1, "x": 0.0, "y": 0.0, "z": 0.0},
             {"id": 2, "x": width, "y": 0.0, "z": 0.0},
@@ -4339,10 +4742,13 @@ class RobotBridge:
             {"id": 3, "n1": 3, "n2": 4, "section": beam_section},
             {"id": 4, "n1": 1, "n2": 4, "section": brace_section},
         ]
-        spec = {"project": "3D", "nodes": nodes, "bars": bars,
-                "supports": [{"node": 1, "type": "pinned"},
-                             {"node": 2, "type": "pinned"}],
-                "__tpl": "braced_frame"}
+        spec = {
+            "project": "3D",
+            "nodes": nodes,
+            "bars": bars,
+            "supports": [{"node": 1, "type": "pinned"}, {"node": 2, "type": "pinned"}],
+            "__tpl": "braced_frame",
+        }
         if notes:
             spec["__section_notes"] = notes
         return spec
@@ -4355,7 +4761,7 @@ class RobotBridge:
         ring_levels: int = 2,
         section_vertical: str = None,
         section_ring: str = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         [TANK-FIX] Spec for a FACETED CYLINDRICAL water-tank frame — a
         circular ring of `segments` nodes at each of `ring_levels` heights,
@@ -4373,11 +4779,9 @@ class RobotBridge:
         rings = max(2, int(ring_levels))
         r = float(radius)
         h = float(height)
-        notes: List[str] = []
-        section_vertical = section_vertical or suggest_section(
-            "beam", h, "IPE", notes=notes)
-        section_ring = section_ring or suggest_section(
-            "beam", 2.0 * r, "IPE", notes=notes)
+        notes: list[str] = []
+        section_vertical = section_vertical or suggest_section("beam", h, "IPE", notes=notes)
+        section_ring = section_ring or suggest_section("beam", 2.0 * r, "IPE", notes=notes)
 
         def center_fn(ratio: float):
             # Reconstruct the historical ring index from the ratio so node
@@ -4385,8 +4789,7 @@ class RobotBridge:
             k = int(round(ratio * (rings - 1)))
             return (0.0, 0.0, round(h * k / (rings - 1), 6))
 
-        nodes = radial_ring(center_fn, lambda ratio: r, segs, rings,
-                            start_id=1)
+        nodes = radial_ring(center_fn, lambda ratio: r, segs, rings, start_id=1)
 
         def nid(ring: int, seg: int) -> int:
             return ring * segs + seg + 1
@@ -4409,23 +4812,27 @@ class RobotBridge:
                 B(nid(ring, seg), nid(ring, (seg + 1) % segs), section_ring)
 
         supports = [{"node": nid(0, seg), "type": "pinned"} for seg in range(segs)]
-        spec = {"project": "3D", "nodes": nodes, "bars": bars,
-                "supports": supports, "__tpl": "cylindrical_tank"}
+        spec = {
+            "project": "3D",
+            "nodes": nodes,
+            "bars": bars,
+            "supports": supports,
+            "__tpl": "cylindrical_tank",
+        }
         if notes:
             spec["__section_notes"] = notes
         return spec
 
-    def create_cylindrical_tank(self, **kwargs) -> Dict[str, Any]:
-        return self.build_structure_from_spec(
-            self.cylindrical_tank_spec(**kwargs))
+    def create_cylindrical_tank(self, **kwargs) -> dict[str, Any]:
+        return self.build_structure_from_spec(self.cylindrical_tank_spec(**kwargs))
 
-    def create_rectangular_grid_frame(self, **kwargs) -> Dict[str, Any]:
+    def create_rectangular_grid_frame(self, **kwargs) -> dict[str, Any]:
         return self.build_structure_from_spec(self.grid_frame_spec(**kwargs))
 
-    def create_truss(self, **kwargs) -> Dict[str, Any]:
+    def create_truss(self, **kwargs) -> dict[str, Any]:
         return self.build_structure_from_spec(self.truss_spec(**kwargs))
 
-    def create_braced_frame(self, **kwargs) -> Dict[str, Any]:
+    def create_braced_frame(self, **kwargs) -> dict[str, Any]:
         return self.build_structure_from_spec(self.braced_frame_spec(**kwargs))
 
     @staticmethod
@@ -4437,7 +4844,7 @@ class RobotBridge:
         bottom_section: str = None,
         web_section: str = None,
         arch_chord: str = "top",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Spec for a planar arch truss in the X-Z plane (y = 0), pinned at
         both bottom ends.
 
@@ -4460,44 +4867,55 @@ class RobotBridge:
         """
         n = max(2, int(panels))
         rise = max(float(rise), 0.0)
-        notes: List[str] = []
-        top_section = top_section or suggest_section(
-            "truss_chord", span, "IPE", notes=notes)
-        bottom_section = bottom_section or suggest_section(
-            "truss_chord", span, "IPE", notes=notes)
-        web_section = web_section or suggest_section(
-            "web", span, "L", notes=notes)
+        notes: list[str] = []
+        top_section = top_section or suggest_section("truss_chord", span, "IPE", notes=notes)
+        bottom_section = bottom_section or suggest_section("truss_chord", span, "IPE", notes=notes)
+        web_section = web_section or suggest_section("web", span, "L", notes=notes)
 
         if str(arch_chord).lower() == "bottom":
             # Arched bottom chord + straight top chord (deck above the arch).
-            bot = generate_arc_chord(float(span), rise, n, elevation=0.0,
-                                     arch="up", section=bottom_section,
-                                     start_id=n + 2)
-            top = generate_straight_chord(float(span), n, elevation=rise,
-                                          section=top_section, start_id=1)
+            bot = generate_arc_chord(
+                float(span),
+                rise,
+                n,
+                elevation=0.0,
+                arch="up",
+                section=bottom_section,
+                start_id=n + 2,
+            )
+            top = generate_straight_chord(
+                float(span), n, elevation=rise, section=top_section, start_id=1
+            )
         else:
             # Straight bottom chord + arched top chord (bowstring).
-            top = generate_arc_chord(float(span), rise, n, elevation=0.0,
-                                     arch="up", section=top_section,
-                                     start_id=1)
-            bot = generate_straight_chord(float(span), n, elevation=0.0,
-                                          section=bottom_section,
-                                          start_id=n + 2)
+            top = generate_arc_chord(
+                float(span), rise, n, elevation=0.0, arch="up", section=top_section, start_id=1
+            )
+            bot = generate_straight_chord(
+                float(span), n, elevation=0.0, section=bottom_section, start_id=n + 2
+            )
 
         bars = connect_web_pattern(
-            top, bot, "pratt", web_section=web_section,
-            chord_a_section=top_section, chord_b_section=bottom_section,
-            start_id=1)
-        spec = {"project": "3D", "nodes": top["nodes"] + bot["nodes"],
-                "bars": bars,
-                "supports": apply_support_pattern(
-                    [bot["first"], bot["last"]], "pinned"),
-                "__tpl": "arch_truss"}
+            top,
+            bot,
+            "pratt",
+            web_section=web_section,
+            chord_a_section=top_section,
+            chord_b_section=bottom_section,
+            start_id=1,
+        )
+        spec = {
+            "project": "3D",
+            "nodes": top["nodes"] + bot["nodes"],
+            "bars": bars,
+            "supports": apply_support_pattern([bot["first"], bot["last"]], "pinned"),
+            "__tpl": "arch_truss",
+        }
         if notes:
             spec["__section_notes"] = notes
         return spec
 
-    def create_arch_truss(self, **kwargs) -> Dict[str, Any]:
+    def create_arch_truss(self, **kwargs) -> dict[str, Any]:
         return self.build_structure_from_spec(self.arch_truss_spec(**kwargs))
 
 
@@ -4505,6 +4923,7 @@ class RobotBridge:
 # Convenience factory used by the agent layer (app.py) so each Streamlit
 # session gets its own bridge instance stored in st.session_state.
 # --------------------------------------------------------------------------
+
 
 def get_robot_bridge() -> RobotBridge:
     return RobotBridge()

@@ -32,7 +32,7 @@ import os
 import subprocess
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 logger = logging.getLogger("structural_copilot.robot_seat")
 
@@ -65,31 +65,34 @@ def _seat_path() -> str:
     return os.path.join(_seat_dir(), _SEAT_FILE_NAME)
 
 
-def _pid_alive(pid: Optional[int]) -> bool:
+def _pid_alive(pid: int | None) -> bool:
     """True when a Windows process with the given pid exists (tasklist)."""
     if not pid:
         return False
     try:
         out = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         ).stdout
         return str(pid) in out
     except Exception:  # noqa: BLE001
         return False
 
 
-def _robots_running() -> Set[int]:
+def _robots_running() -> set[int]:
     """Live robot.exe PIDs via tasklist (no COM needed)."""
     try:
         out = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq robot.exe",
-             "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=20,
+            ["tasklist", "/FI", "IMAGENAME eq robot.exe", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=20,
         ).stdout
     except Exception:  # noqa: BLE001
         return set()
-    pids: Set[int] = set()
+    pids: set[int] = set()
     for line in out.splitlines():
         parts = [p.strip().strip('"') for p in line.split('","')]
         if len(parts) >= 2 and parts[0].lower() == "robot.exe":
@@ -100,7 +103,7 @@ def _robots_running() -> Set[int]:
     return pids
 
 
-def _own_robot_alive(robot_pids: List[int]) -> bool:
+def _own_robot_alive(robot_pids: list[int]) -> bool:
     if not robot_pids:
         return False
     return bool(set(robot_pids) & _robots_running())
@@ -111,7 +114,7 @@ class SeatBusyError(RuntimeError):
     LIVE process still owns it. Carries a full diagnostic in `message`."""
 
 
-def _read_seat() -> Optional[Dict[str, Any]]:
+def _read_seat() -> dict[str, Any] | None:
     try:
         with open(_seat_path(), encoding="utf-8") as fh:
             raw = json.load(fh)
@@ -122,11 +125,10 @@ def _read_seat() -> Optional[Dict[str, Any]]:
     return raw
 
 
-def _atomic_write(payload: Dict[str, Any]) -> None:
+def _atomic_write(payload: dict[str, Any]) -> None:
     """Write + atomic replace so concurrent readers never see a torn file."""
     path = _seat_path()
-    fd, tmp = tempfile.mkstemp(prefix=".seat-", suffix=".tmp",
-                               dir=_seat_dir(), text=True)
+    fd, tmp = tempfile.mkstemp(prefix=".seat-", suffix=".tmp", dir=_seat_dir(), text=True)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
@@ -139,7 +141,7 @@ def _atomic_write(payload: Dict[str, Any]) -> None:
         raise
 
 
-def seat_status() -> Dict[str, Any]:
+def seat_status() -> dict[str, Any]:
     """Full diagnostic snapshot of the current seat state."""
     seat = _read_seat() or {}
     present = "owner_pid" in seat
@@ -162,18 +164,20 @@ def seat_status() -> Dict[str, Any]:
     }
 
 
-def claim_seat(owner_pid: Optional[int], owner_kind: str,
-               robot_pids: Optional[List[int]] = None,
-               connected_via: str = "attached",
-               force: bool = False) -> Dict[str, Any]:
+def claim_seat(
+    owner_pid: int | None,
+    owner_kind: str,
+    robot_pids: list[int] | None = None,
+    connected_via: str = "attached",
+    force: bool = False,
+) -> dict[str, Any]:
     """Take the seat for ``owner_pid``/``owner_kind``.
 
     Raises SeatBusyError when a LIVE, still-owning OTHER process holds it
     (and ``force`` is False). Returns the seat_status() now in place.
     """
     pid = int(owner_pid or os.getpid())
-    kind = owner_kind if owner_kind in (OWNER_KIND_APP, OWNER_KIND_BATCH) \
-        else OWNER_KIND_APP
+    kind = owner_kind if owner_kind in (OWNER_KIND_APP, OWNER_KIND_BATCH) else OWNER_KIND_APP
     now = time.time()
 
     existing = _read_seat()
@@ -192,12 +196,15 @@ def claim_seat(owner_pid: Optional[int], owner_kind: str,
                 "Attaching or spawning a second Robot session here would "
                 "corrupt both sessions (RPC drops, phantom save dialogs, "
                 "stale ids). Inspect with tools.robot_seat.seat_status() "
-                "or close the owning process first.")
+                "or close the owning process first."
+            )
         else:
             logger.info(
                 "Stale Robot seat overwritten (owner=%s kind=%s robot_pids=%s).",
-                ex_owner, existing.get("owner_kind"),
-                sorted(existing.get("robot_pids") or []))
+                ex_owner,
+                existing.get("owner_kind"),
+                sorted(existing.get("robot_pids") or []),
+            )
 
     payload = {
         **_HEADERS,
@@ -222,15 +229,20 @@ def claim_seat(owner_pid: Optional[int], owner_kind: str,
             "malformed seat record — the caller connected to Robot but could "
             "not identify the robot.exe pid, or passed an empty robot_pids "
             "list. Resolve the pid (e.g. poll tasklist for robot.exe) before "
-            "claiming the seat.")
+            "claiming the seat."
+        )
     _atomic_write(payload)
     logger.info(
         "Robot seat claimed by pid %s (kind=%s, connected_via=%s, robot_pids=%s).",
-        pid, kind, connected_via, payload["robot_pids"])
+        pid,
+        kind,
+        connected_via,
+        payload["robot_pids"],
+    )
     return seat_status()
 
 
-def heartbeat(owner_pid: Optional[int]) -> None:
+def heartbeat(owner_pid: int | None) -> None:
     """Refresh last_seen if pid still owns the seat."""
     seat = _read_seat()
     if seat and seat.get("owner_pid") == int(owner_pid or os.getpid()):
@@ -241,7 +253,7 @@ def heartbeat(owner_pid: Optional[int]) -> None:
             pass
 
 
-def release_seat(owner_pid: Optional[int]) -> None:
+def release_seat(owner_pid: int | None) -> None:
     """Clear the seat only when this process is its owner."""
     seat = _read_seat()
     if seat and seat.get("owner_pid") == int(owner_pid or os.getpid()):

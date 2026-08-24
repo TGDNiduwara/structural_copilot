@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, r"c:/Users/dinat/Downloads/structural_multi_app_agent/structural_copilot")
 
-from tools.bracing_registry import BracingRegistry, SUSPICIOUS_K_FACTOR
+from tools.bracing_registry import SUSPICIOUS_K_FACTOR, BracingRegistry
 from tools.robot_tool import RobotBridge
 
 
@@ -91,9 +91,10 @@ def test_validation():
     reg.set_bracing(6, lcr_lt=12.0)
     v, s, w = reg.lcr_lt_for(6, 4.0)
     assert v == 12.0 and s == "explicit"
-    assert any("suspicious" in msg for msg in w), \
+    assert any("suspicious" in msg for msg in w), (
         "Lcr > 2.5 x length must surface a suspicious-K warning"
-    assert 12.0 > SUSPICIOUS_K_FACTOR * 4.0
+    )
+    assert SUSPICIOUS_K_FACTOR * 4.0 < 12.0
     print("  OK: validation (negative rejected, K-factor warning)")
 
 
@@ -126,6 +127,7 @@ def test_bridge_and_registry_wiring():
     bridge.bracing.set_bracing(1, lcr_lt=2.5)
     assert bridge.bracing.lcr_lt_for(1, 5.0)[0] == 2.5
     from agent.tool_registry import TOOL_SCHEMAS, ToolExecutor
+
     names = {s["name"] for s in TOOL_SCHEMAS}
     assert "set_bracing" in names and "get_bracing" in names
     assert hasattr(ToolExecutor, "_tool_set_bracing")

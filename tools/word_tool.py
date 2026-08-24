@@ -15,15 +15,14 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import List, Optional
 
 import pandas as pd
 from docx import Document
-from docx.shared import Pt, Cm, RGBColor, Inches
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
-from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Cm, Inches, Pt, RGBColor
 
 logger = logging.getLogger("structural_copilot.word_tool")
 logger.setLevel(logging.INFO)
@@ -37,7 +36,7 @@ class WordReporter:
     """Generates a formal structural design calculation report (.docx)."""
 
     def __init__(self):
-        self.document: Optional[Document] = None
+        self.document: Document | None = None
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -51,9 +50,9 @@ class WordReporter:
         summary_text: str,
         member_df: pd.DataFrame,
         reactions_df: pd.DataFrame,
-        diagram_paths: Optional[List[str]] = None,
-        design_standards: Optional[List[str]] = None,
-        assumptions: Optional[List[str]] = None,
+        diagram_paths: list[str] | None = None,
+        design_standards: list[str] | None = None,
+        assumptions: list[str] | None = None,
     ) -> str:
         """Builds and saves the full calculation report; returns the file path."""
         self.document = Document()
@@ -61,14 +60,10 @@ class WordReporter:
 
         self._add_title_section(project_title, engineer_name)
         self._add_section_heading("1. Project Assumptions")
-        self._add_bullet_list(
-            assumptions or self._default_assumptions()
-        )
+        self._add_bullet_list(assumptions or self._default_assumptions())
 
         self._add_section_heading("2. Design Standards & Codes")
-        self._add_bullet_list(
-            design_standards or self._default_standards()
-        )
+        self._add_bullet_list(design_standards or self._default_standards())
 
         self._add_section_heading("3. Executive Summary")
         self._add_body_paragraph(summary_text)
@@ -163,16 +158,14 @@ class WordReporter:
         para.paragraph_format.space_after = Pt(10)
         para.paragraph_format.line_spacing = 1.15
 
-    def _add_bullet_list(self, items: List[str]) -> None:
+    def _add_bullet_list(self, items: list[str]) -> None:
         for item in items:
             para = self.document.add_paragraph(item, style="List Bullet")
             para.paragraph_format.space_after = Pt(3)
 
     def _add_dataframe_table(self, df: pd.DataFrame) -> None:
         if df is None or df.empty:
-            empty_para = self.document.add_paragraph(
-                "No data available for this section."
-            )
+            empty_para = self.document.add_paragraph("No data available for this section.")
             # [FIX H6] Safe run access
             if empty_para.runs:
                 empty_para.runs[0].font.italic = True
@@ -295,7 +288,7 @@ class WordReporter:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _default_assumptions() -> List[str]:
+    def _default_assumptions() -> list[str]:
         return [
             "All members are modeled as linear-elastic prismatic beam elements.",
             "Self-weight of structural steel is included via material density unless stated otherwise.",
@@ -305,7 +298,7 @@ class WordReporter:
         ]
 
     @staticmethod
-    def _default_standards() -> List[str]:
+    def _default_standards() -> list[str]:
         return [
             "Eurocode 3 (EN 1993-1-1) — Design of steel structures, General rules.",
             "Eurocode 1 (EN 1991-1-1) — Actions on structures, Densities, self-weight, imposed loads.",

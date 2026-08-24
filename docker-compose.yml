@@ -1,0 +1,12 @@
+services:
+  structural-copilot:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - STRUCTURAL_AGENT_PROVIDER=${STRUCTURAL_AGENT_PROVIDER:-}
+      - STRUCTURAL_AGENT_MODEL=${STRUCTURAL_AGENT_MODEL:-}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    volumes:
+      - ./generated:/app/generated
+    restart: unless-stopped
